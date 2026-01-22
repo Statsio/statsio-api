@@ -16,7 +16,7 @@ return new class extends Migration
             $table->id();
             $table->string('email')->unique();
             $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
+            $table->string('password')->nullable();
             $table->rememberToken();
             $table->enum('status', UserStatusEnum::values())->default(UserStatusEnum::ACTIVE->value);
             $table->timestamp('suspended_until')->nullable();

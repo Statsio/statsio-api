@@ -15,8 +15,12 @@ class RegisterController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $token->toArray(),
-            'message' => __('auth.register_success')
+            'message' => __('auth.register_success'),
+            'data' => [
+                'token' => $token->token,
+                'type' => $token->type,
+                'user' => $token->user
+            ]
         ], 201);
     }
 }

@@ -18,7 +18,14 @@ class LoginAction
 
         $token = $user->createToken('api-token')->plainTextToken;
 
-        return new AuthTokenDTO($token);
+        return new AuthTokenDTO(
+            token: $token,
+            user: [
+                'id' => $user->id,
+                'email' => $user->email,
+                'profile' => $user->profile
+            ]
+        );
     }
 }
 

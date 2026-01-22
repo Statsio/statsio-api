@@ -19,7 +19,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/register', [RegisterController::class, 'register']);
 
     // Auth protégée
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware('auth:api')->group(function () {
         Route::post('/logout', [LogoutController::class, 'logout']);
 
         Route::get('/me', function (Request $request) {

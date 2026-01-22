@@ -55,5 +55,17 @@ services:
       timeout: 5s
       retries: 10
 
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: statsio-api-phpmyadmin
+    ports:
+      - "8081:80"
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      - db
+
 volumes:
   dbdata:

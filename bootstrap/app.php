@@ -18,7 +18,6 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->statefulApi();
         $middleware->use([
             \App\Http\Middleware\LanguageMiddleware::class,
         ]);
@@ -31,7 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Helper function pour formater les réponses d'erreur API
         $formatApiError = function (string $messageKey, string $errorType, int $statusCode, ?Throwable $e = null) use ($exceptions) {
             $response = [
-                'message' => __($messageKey),
+                'message' => __($messageKey, ['code' => $statusCode]),
                 'error' => $errorType
             ];
 

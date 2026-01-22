@@ -1,0 +1,19 @@
+<?php
+
+namespace App\Domain\User\Actions;
+
+use App\Models\User;
+
+class MeAction
+{
+    /**
+     * Retourne l'utilisateur avec ses relations nécessaires pour le frontend.
+     *
+     * @param User $user
+     * @return User
+     */
+    public function execute(User $user): User
+    {
+        return $user->load('profile');
+    }
+}

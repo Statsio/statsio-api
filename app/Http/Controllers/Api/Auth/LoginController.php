@@ -18,8 +18,11 @@ class LoginController extends Controller
 
         if ($validator->fails()) {
             return response()->json([
+                'success' => false,
                 'message' => 'Validation failed',
-                'errors' => $validator->errors(),
+                'data' => [
+                    'errors' => $validator->errors()
+                ]
             ], 422);
         }
 
@@ -27,10 +30,20 @@ class LoginController extends Controller
 
         try {
             $token = $action->execute($data['email'], $data['password']);
-            return response()->json($token->toArray());
+            return response()->json([
+                'success' => true,
+                'message' => 'Login successful',
+                'data' => [
+                    'token' => $token->token,
+                    'type' => $token->type,
+                    'user' => $token->user
+                ]
+            ]);
         } catch (InvalidCredentialsException $e) {
             return response()->json([
+                'success' => false,
                 'message' => $e->getMessage(),
+                'data' => null
             ], 401);
         }
     }

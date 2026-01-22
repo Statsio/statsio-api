@@ -7,7 +7,8 @@ class AuthTokenDTO
     public function __construct(
         public readonly string $token,
         public readonly string $type = 'Bearer',
-        public readonly ?int $expiresIn = null
+        public readonly ?int $expiresIn = null,
+        public readonly ?array $user = null
     ) {}
 
     public function toArray(): array

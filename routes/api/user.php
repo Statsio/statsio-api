@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\User\AnonymizeController;
+use App\Http\Controllers\Api\User\UserController;
 
 /*
 |--------------------------------------------------------------------------
@@ -9,8 +9,10 @@ use App\Http\Controllers\Api\User\AnonymizeController;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware('auth:api')->group(function () {
+    Route::get('/me', [UserController::class, 'me']);
+
     Route::prefix('account')->group(function () {
-        Route::post('/anonymize', [AnonymizeController::class, 'anonymize']);
+        Route::post('/anonymize', [UserController::class, 'anonymize']);
     });
 });
