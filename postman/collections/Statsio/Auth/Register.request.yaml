@@ -1,0 +1,70 @@
+$kind: http-request
+url: "{{base_url}}/api/auth/register?email={{email}}&password={{password}}"
+method: POST
+headers:
+  Accept-Language: "{{language}}"
+queryParams:
+  email: "{{email}}"
+  password: "{{password}}"
+body:
+  type: json
+  content: "{\r
+
+    \  \"first_name\": \"Corentin\",\r
+
+    \  \"last_name\": \"GESSE\",\r
+
+    \  \"birthday\": \"2003-05-20\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "let res = pm.response.json();\r
+
+      \r
+
+      \r
+
+      // ✅ Tests\r
+
+      pm.test(\"Status code is 200 or 201\", function () {\r
+
+      \    pm.expect(pm.response.code).to.be.oneOf([200, 201]);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Register success is true\", function () {\r
+
+      \    pm.expect(res.success).to.eql(true);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Token exists\", function () {\r
+
+      \    pm.expect(res.data?.token).to.not.be.undefined;\r
+
+      });\r
+
+      \r
+
+      pm.test(\"User created\", function () {\r
+
+      \    pm.expect(res.data?.user?.id).to.not.be.undefined;\r
+
+      });\r
+
+      \r
+
+      if (res.success && res.data?.token) {\r
+
+      \    pm.environment.set(\"token\", res.data.token);\r
+
+      \    pm.environment.set(\"token_type\", res.data.type);\r
+
+      }\r\n"
+    language: text/javascript
+order: 2000

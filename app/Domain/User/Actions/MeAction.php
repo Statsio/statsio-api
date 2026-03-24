@@ -2,7 +2,7 @@
 
 namespace App\Domain\User\Actions;
 
-use App\Models\User;
+use App\Models\User\User;
 
 class MeAction
 {

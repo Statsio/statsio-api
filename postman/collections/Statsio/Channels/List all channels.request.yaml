@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{base_url}}/api/channels?per_page=15"
+method: GET
+headers:
+  Authorization: "{{token_type}} {{token}}"
+  Accept-Language: "{{language}}"
+queryParams:
+  - key: per_page
+    value: "15"
+    description: Number of items per page
+order: 1000

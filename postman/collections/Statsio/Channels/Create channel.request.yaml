@@ -1,0 +1,63 @@
+$kind: http-request
+url: "{{base_url}}/api/channels"
+method: POST
+headers:
+  Authorization: "{{token_type}} {{token}}"
+  Accept-Language: "{{language}}"
+body:
+  type: formdata
+  content:
+    - type: text
+      key: name
+      value: My Awesome Channel
+    - type: text
+      key: description
+      value: This is a great channel about technology
+    - type: text
+      key: status
+      value: active
+    - type: file
+      key: logo
+      src: []
+    - type: file
+      key: banner
+      src: []
+scripts:
+  - type: afterResponse
+    code: "let res = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Status code is 201\", function () {\r
+
+      \    pm.response.to.have.status(201);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Success is true\", function () {\r
+
+      \    pm.expect(res.success).to.eql(true);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Channel created\", function () {\r
+
+      \    pm.expect(res.data.id).to.not.be.undefined;\r
+
+      });\r
+
+      \r
+
+      // Store channel ID for other tests\r
+
+      if (res.success && res.data.id) {\r
+
+      \    pm.environment.set(\"channel_id\", res.data.id);\r
+
+      }\r\n"
+    language: text/javascript
+order: 2000

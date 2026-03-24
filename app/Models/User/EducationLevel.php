@@ -1,11 +1,11 @@
 <?php
 
-namespace App\Models;
+namespace App\Models\User;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class EmploymentStatus extends Model
+class EducationLevel extends Model
 {
     use HasFactory;
 

@@ -13,16 +13,15 @@ class UserController extends Controller
     */
     public function me(Request $request, MeAction $action)
     {
-        $user = $request->user(); // récupère l'utilisateur connecté
-
-        // Appelle l'action pour charger les relations
+        $user = $request->user();
         $user = $action->execute($user);
 
-        // Retourne dans le format uniforme login/register
         return response()->json([
             'success' => true,
-            'message' => 'User retrieved successfully.',
-            'data' => $user
+            'message' => __('user.me_success'),
+            'data' => [
+                'user' => $user,
+            ],
         ]);
     }
 

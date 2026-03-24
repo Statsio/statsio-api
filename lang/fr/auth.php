@@ -19,5 +19,9 @@ return [
     'register_success' => 'Inscription réussie.',
     'logout_success' => 'Déconnexion réussie.',
     'anonymize_success' => 'Anonymisation réussie.',
+    'google_auth_success' => 'Authentification Google réussie.',
+    'google_token_invalid' => 'Le token Google est invalide.',
+    'google_email_unverified' => 'L’adresse email Google n’est pas vérifiée.',
+    'google_client_id_missing' => 'L’authentification Google n’est pas configurée.',
 
 ];

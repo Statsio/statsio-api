@@ -21,6 +21,7 @@ return [
     'server_error' => 'Internal server error.',
     'service_unavailable' => 'Service temporarily unavailable.',
     'too_many_requests' => 'Too many requests. Please try again later.',
+    'payload_too_large' => 'The uploaded file is too large.',
     'http_error' => 'HTTP Error :code',
 
 ];

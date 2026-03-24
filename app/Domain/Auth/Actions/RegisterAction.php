@@ -2,7 +2,7 @@
 namespace App\Domain\Auth\Actions;
 
 use App\Domain\Auth\DTOs\AuthTokenDTO;
-use App\Models\User;
+use App\Models\User\User;
 use Illuminate\Support\Facades\Hash;
 
 class RegisterAction

@@ -23,6 +23,7 @@ return [
     'server_error' => 'Erreur interne du serveur.',
     'service_unavailable' => 'Service temporairement indisponible.',
     'too_many_requests' => 'Trop de requêtes. Veuillez réessayer plus tard.',
+    'payload_too_large' => 'Le fichier envoye est trop volumineux.',
     'http_error' => 'Erreur HTTP :code',
 
 ];

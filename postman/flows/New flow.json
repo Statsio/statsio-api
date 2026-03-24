@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "name": "New flow",
+  "description": "",
+  "flow": {
+    "nodes": {
+      "Gdy8c_o8": {
+        "type": "ev/endpoint@3",
+        "pos": {
+          "x": 0,
+          "y": 0
+        },
+        "config": {
+          "inputs": [],
+          "data": "",
+          "language": "json",
+          "allowAnyType": false
+        },
+        "ui": {
+          "data": {
+            "triggerType": "ev/endpoint@3"
+          },
+          "namedInputsExpanded": true
+        }
+      }
+    },
+    "modules": {},
+    "connections": {},
+    "annotations": {},
+    "forms": {},
+    "groups": {},
+    "ports": {},
+    "io": {},
+    "description": "",
+    "webhook": {
+      "payloadContent": "body-only",
+      "responseType": "default"
+    },
+    "meta": {},
+    "scenes": {},
+    "scenarios": {},
+    "config": {
+      "definitions": {},
+      "constants": {}
+    },
+    "attributes": {
+      "name": "New flow",
+      "latestVersion": null,
+      "parent": null,
+      "createdBy": 26790650,
+      "createdOn": "2026-02-02T10:37:13.835Z",
+      "updatedOn": "2026-02-02T10:37:13.835Z",
+      "fork": null,
+      "type": "module",
+      "workspace": "de0fedd9-de83-43c7-88a7-dfc52ccfaf83",
+      "permissions": {
+        "canView": true,
+        "canExecute": true,
+        "canEdit": true,
+        "canDelete": true,
+        "canDeploy": true,
+        "canUpdateRoles": false,
+        "canFork": false,
+        "canEditForkDetails": false,
+        "canAddComment": false,
+        "canResolveComment": false,
+        "canDeleteComment": false
+      },
+      "activeTargets": null
+    }
+  },
+  "lockbox": {},
+  "info": {
+    "_postman_id": "35f97971-87e0-4d35-8003-5bea421d9547",
+    "_postman_cloud_id": "69807e59f628c30014ebc196"
+  },
+  "_postman_exported_at": "2026-03-14T14:34:36.150Z",
+  "_postman_exported_using": "Postman/Local Mode"
+}

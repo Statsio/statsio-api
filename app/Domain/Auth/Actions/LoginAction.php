@@ -3,7 +3,7 @@ namespace App\Domain\Auth\Actions;
 
 use App\Domain\Auth\DTOs\AuthTokenDTO;
 use App\Domain\Auth\Exceptions\InvalidCredentialsException;
-use App\Models\User;
+use App\Models\User\User;
 use Illuminate\Support\Facades\Hash;
 
 class LoginAction

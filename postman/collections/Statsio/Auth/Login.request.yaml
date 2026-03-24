@@ -1,0 +1,47 @@
+$kind: http-request
+url: "{{base_url}}/api/auth/login?email={{email}}&password={{password}}"
+method: POST
+headers:
+  Accept-Language: "{{language}}"
+queryParams:
+  email: "{{email}}"
+  password: "{{password}}"
+scripts:
+  - type: afterResponse
+    code: "res = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Status code is 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Login success is true\", function () {\r
+
+      \    pm.expect(res.success).to.eql(true);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Token exists\", function () {\r
+
+      \    pm.expect(res.data.token).to.not.be.undefined;\r
+
+      });\r
+
+      \r
+
+      if(res.token) {\r
+
+      \    pm.environment.set(\"token\", res.data.token);\r
+
+      \    pm.environment.set(\"token_type\", res.data.type);\r
+
+      }\r\n"
+    language: text/javascript
+order: 1000

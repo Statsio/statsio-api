@@ -18,5 +18,9 @@ return [
     'throttle' => 'Too many login attempts. Please try again in :seconds seconds.',
     'register_success' => 'Registration successful.',
     'logout_success' => 'Logout successful.',
+    'google_auth_success' => 'Google authentication successful.',
+    'google_token_invalid' => 'Invalid Google token.',
+    'google_email_unverified' => 'Google email address is not verified.',
+    'google_client_id_missing' => 'Google authentication is not configured.',
 
 ];

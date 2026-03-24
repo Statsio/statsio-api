@@ -5,6 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Http\Exceptions\PostTooLargeException;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -19,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->use([
+            \Illuminate\Http\Middleware\HandleCors::class,
             \App\Http\Middleware\LanguageMiddleware::class,
         ]);
     })
@@ -100,6 +102,13 @@ return Application::configure(basePath: dirname(__DIR__))
             }
         });
 
+        // 413 - Payload trop volumineux
+        $exceptions->render(function (PostTooLargeException $e, Request $request) use ($formatApiError) {
+            if ($request->is('api/*')) {
+                return $formatApiError('errors.payload_too_large', 'Payload Too Large', 413, $e);
+            }
+        });
+
         // 500 et autres erreurs HTTP
         $exceptions->render(function (HttpException $e, Request $request) use ($formatApiError) {
             if ($request->is('api/*')) {
@@ -108,6 +117,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     500 => 'errors.server_error',
                     503 => 'errors.service_unavailable',
                     429 => 'errors.too_many_requests',
+                    413 => 'errors.payload_too_large',
                     default => 'errors.http_error'
                 };
 

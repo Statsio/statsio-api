@@ -1,0 +1,29 @@
+$kind: http-request
+url: "{{base_url}}/api/account/anonymize"
+method: POST
+headers:
+  Authorization: "{{token_type}} {{token}}"
+  Accept-Language: "{{language}}"
+scripts:
+  - type: afterResponse
+    code: "let res = pm.response.json();\r
+
+      \r
+
+      pm.test(\"Status code is 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Message correct\", function () {\r
+
+      \    pm.expect(res.message).to.eql(\"Anonymize successful.\");\r
+
+      });\r
+
+      \r\n"
+    language: text/javascript
+order: 1000

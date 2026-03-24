@@ -1,0 +1,62 @@
+$kind: http-request
+url: "{{base_url}}/api/me"
+method: GET
+headers:
+  Authorization: "{{token_type}} {{token}}"
+  Accept-Language: "{{language}}"
+body:
+  type: text
+  content: "{\r
+
+    \  \"first_name\": \"Corentin\",\r
+
+    \  \"last_name\": \"GESSE\",\r
+
+    \  \"birthday\": \"2003-05-20\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "// Parse JSON\r
+
+      let res = pm.response.json();\r
+
+      \r
+
+      \r
+
+      // ✅ Tests basiques\r
+
+      pm.test(\"Status code is 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Success is true\", function () {\r
+
+      \    pm.expect(res.success).to.eql(true);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"User data exists\", function () {\r
+
+      \    pm.expect(res.data).to.not.be.undefined;\r
+
+      });\r
+
+      \r
+
+      pm.test(\"User profile exists\", function () {\r
+
+      \    pm.expect(res.data.profile).to.not.be.undefined;\r
+
+      });\r
+
+      \r\n"
+    language: text/javascript
+order: 2000

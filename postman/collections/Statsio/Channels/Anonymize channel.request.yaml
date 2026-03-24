@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/api/channels/{{channel_id}}/anonymize"
+method: POST
+headers:
+  Authorization: "{{token_type}} {{token}}"
+  Accept-Language: "{{language}}"
+order: 8000

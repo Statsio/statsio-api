@@ -1,0 +1,26 @@
+name: Statsio
+values:
+  - key: base_url
+    value: 'http://localhost:8080'
+    enabled: true
+  - key: email
+    value: corentin.gesse@gmail.com
+    enabled: true
+  - key: password
+    value: password
+    enabled: true
+  - key: env
+    value: ''
+    enabled: true
+  - key: language
+    value: fr
+    enabled: true
+  - key: token
+    value: ''
+    enabled: true
+  - key: token_type
+    value: ''
+    enabled: true
+  - key: user_id
+    value: ''
+    enabled: true

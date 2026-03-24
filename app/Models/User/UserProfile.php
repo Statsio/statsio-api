@@ -1,16 +1,16 @@
 <?php
 
-namespace App\Models;
+namespace App\Models\User;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\Gender;
-use App\Models\AgeRange;
-use App\Models\SocioProfessionalCategory;
-use App\Models\EducationLevel;
-use App\Models\EmploymentStatus;
+use App\Models\User\Gender;
+use App\Models\User\AgeRange;
+use App\Models\User\SocioProfessionalCategory;
+use App\Models\User\EducationLevel;
+use App\Models\User\EmploymentStatus;
 
 class UserProfile extends Model
 {

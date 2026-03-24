@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/api/channels/{{channel_id}}"
+method: GET
+headers:
+  Authorization: "{{token_type}} {{token}}"
+  Accept-Language: "{{language}}"
+order: 3000

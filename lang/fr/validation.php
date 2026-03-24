@@ -173,5 +173,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Here you may specify custom validation messages for attributes using the
-    | convention 
+    | convention
     | convention \
+    */
+];

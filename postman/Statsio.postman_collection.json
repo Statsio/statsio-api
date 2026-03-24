@@ -1,0 +1,722 @@
+{
+  "info": {
+    "_postman_id": "fc3d5da5-5166-45f6-bd5e-a229d9d36507",
+    "name": "Statsio",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "26790650"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "res = pm.response.json();\r",
+                  "\r",
+                  "pm.test(\"Status code is 200\", function () {\r",
+                  "    pm.response.to.have.status(200);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Login success is true\", function () {\r",
+                  "    pm.expect(res.success).to.eql(true);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Token exists\", function () {\r",
+                  "    pm.expect(res.data.token).to.not.be.undefined;\r",
+                  "});\r",
+                  "\r",
+                  "if(res.token) {\r",
+                  "    pm.environment.set(\"token\", res.data.token);\r",
+                  "    pm.environment.set(\"token_type\", res.data.type);\r",
+                  "}\r",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login?email={{email}}&password={{password}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{email}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "let res = pm.response.json();\r",
+                  "\r",
+                  "\r",
+                  "// ✅ Tests\r",
+                  "pm.test(\"Status code is 200 or 201\", function () {\r",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Register success is true\", function () {\r",
+                  "    pm.expect(res.success).to.eql(true);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Token exists\", function () {\r",
+                  "    pm.expect(res.data?.token).to.not.be.undefined;\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"User created\", function () {\r",
+                  "    pm.expect(res.data?.user?.id).to.not.be.undefined;\r",
+                  "});\r",
+                  "\r",
+                  "if (res.success && res.data?.token) {\r",
+                  "    pm.environment.set(\"token\", res.data.token);\r",
+                  "    pm.environment.set(\"token_type\", res.data.type);\r",
+                  "}\r",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"first_name\": \"Corentin\",\r\n  \"last_name\": \"GESSE\",\r\n  \"birthday\": \"2003-05-20\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register?email={{email}}&password={{password}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ],
+              "query": [
+                {
+                  "key": "email",
+                  "value": "{{email}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "logout"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "item": [
+        {
+          "name": "Anonymize",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "let res = pm.response.json();\r",
+                  "\r",
+                  "pm.test(\"Status code is 200\", function () {\r",
+                  "    pm.response.to.have.status(200);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Message correct\", function () {\r",
+                  "    pm.expect(res.message).to.eql(\"Anonymize successful.\");\r",
+                  "});\r",
+                  "\r",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/account/anonymize",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "account",
+                "anonymize"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Me - profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Parse JSON\r",
+                  "let res = pm.response.json();\r",
+                  "\r",
+                  "\r",
+                  "// ✅ Tests basiques\r",
+                  "pm.test(\"Status code is 200\", function () {\r",
+                  "    pm.response.to.have.status(200);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Success is true\", function () {\r",
+                  "    pm.expect(res.success).to.eql(true);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"User data exists\", function () {\r",
+                  "    pm.expect(res.data).to.not.be.undefined;\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"User profile exists\", function () {\r",
+                  "    pm.expect(res.data.profile).to.not.be.undefined;\r",
+                  "});\r",
+                  "\r",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"first_name\": \"Corentin\",\r\n  \"last_name\": \"GESSE\",\r\n  \"birthday\": \"2003-05-20\"\r\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "me"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Channels",
+      "item": [
+        {
+          "name": "List all channels",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/channels?per_page=15",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels"
+              ],
+              "query": [
+                {
+                  "key": "per_page",
+                  "value": "15",
+                  "description": "Number of items per page"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create channel",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "let res = pm.response.json();\r",
+                  "\r",
+                  "pm.test(\"Status code is 201\", function () {\r",
+                  "    pm.response.to.have.status(201);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Success is true\", function () {\r",
+                  "    pm.expect(res.success).to.eql(true);\r",
+                  "});\r",
+                  "\r",
+                  "pm.test(\"Channel created\", function () {\r",
+                  "    pm.expect(res.data.id).to.not.be.undefined;\r",
+                  "});\r",
+                  "\r",
+                  "// Store channel ID for other tests\r",
+                  "if (res.success && res.data.id) {\r",
+                  "    pm.environment.set(\"channel_id\", res.data.id);\r",
+                  "}\r",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name",
+                  "value": "My Awesome Channel",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "This is a great channel about technology",
+                  "type": "text"
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "type": "text"
+                },
+                {
+                  "key": "logo",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "banner",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/channels",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Show channel",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update channel",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"status\": \"active\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"suspended_until\": \"2024-12-31T23:59:59Z\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}/suspend",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}",
+                "suspend"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Ban channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}/ban",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}",
+                "ban"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Activate channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}",
+                "activate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Anonymize channel",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}/anonymize",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}",
+                "anonymize"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete channel",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Test healthcheck",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/healthcheck",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "healthcheck"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
