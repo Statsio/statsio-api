@@ -9,9 +9,6 @@ values:
   - key: password
     value: password
     enabled: true
-  - key: env
-    value: ''
-    enabled: true
   - key: language
     value: fr
     enabled: true
@@ -19,8 +16,23 @@ values:
     value: ''
     enabled: true
   - key: token_type
+    value: Bearer
+    enabled: true
+  - key: refresh_token
+    value: ''
+    enabled: true
+  - key: channel_id
     value: ''
     enabled: true
   - key: user_id
+    value: ''
+    enabled: true
+  - key: google_id_token
+    value: ''
+    enabled: true
+  - key: statsdata_document_id
+    value: ''
+    enabled: true
+  - key: statsdata_source_id
     value: ''
     enabled: true

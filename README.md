@@ -7,6 +7,21 @@
 <a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
 </p>
 
+## Local database
+
+The local stack uses PostgreSQL.
+
+- Database service: `postgres:17-alpine`
+- Application DB port: `5432`
+- Web database UI: `http://localhost:8081` via Adminer
+
+Start the project with Docker Compose, then run Laravel migrations if needed.
+
+## API docs
+
+- Swagger UI: `http://localhost:8080/docs`
+- OpenAPI spec: `http://localhost:8080/docs/openapi.yaml`
+
 ## About Laravel
 
 Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:

@@ -1,14 +1,17 @@
 <?php
 namespace App\Domain\Auth\Actions;
 
-use App\Domain\Auth\DTOs\AuthTokenDTO;
 use App\Domain\Auth\Exceptions\InvalidCredentialsException;
 use App\Models\User\User;
 use Illuminate\Support\Facades\Hash;
 
 class LoginAction
 {
-    public function execute(string $email, string $password): AuthTokenDTO
+    public function __construct(
+        private readonly IssueAuthTokensAction $issueAuthTokensAction
+    ) {}
+
+    public function execute(string $email, string $password): \App\Domain\Auth\DTOs\AuthTokenDTO
     {
         $user = User::where('email', $email)->first();
 
@@ -16,17 +19,6 @@ class LoginAction
             throw new InvalidCredentialsException();
         }
 
-        $token = $user->createToken('api-token')->plainTextToken;
-
-        return new AuthTokenDTO(
-            token: $token,
-            user: [
-                'id' => $user->id,
-                'email' => $user->email,
-                'profile' => $user->profile
-            ]
-        );
+        return $this->issueAuthTokensAction->execute($user->fresh('profile'));
     }
 }
-
-?>

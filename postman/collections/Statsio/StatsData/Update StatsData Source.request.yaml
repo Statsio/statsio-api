@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources/{{statsdata_source_id}}"
+method: PATCH
+headers:
+  Accept-Language: "{{language}}"
+  Authorization: "{{token_type}} {{token}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |
+    {
+      "name": "Source renommée"
+    }
+order: 3060

@@ -4,4 +4,13 @@ method: POST
 headers:
   Accept-Language: "{{language}}"
   Authorization: "{{token_type}} {{token}}"
-order: 3000
+scripts:
+  - type: afterResponse
+    code: |-
+      if (pm.response.code < 300) {
+          pm.environment.unset("token");
+          pm.environment.unset("refresh_token");
+          pm.environment.unset("token_type");
+      }
+    language: text/javascript
+order: 5000

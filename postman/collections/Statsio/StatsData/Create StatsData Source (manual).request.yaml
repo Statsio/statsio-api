@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources"
+method: POST
+headers:
+  Accept-Language: "{{language}}"
+  Authorization: "{{token_type}} {{token}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |
+    {
+      "type": "manual",
+      "name": "Saisie locale",
+      "manualData": { "rows": [] }
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const res = pm.response.json();
+      if (res.success && res.data?.id) {
+          pm.environment.set("statsdata_source_id", res.data.id);
+      }
+    language: text/javascript
+order: 3050

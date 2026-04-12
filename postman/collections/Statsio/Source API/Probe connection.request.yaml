@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/api/source-api/probe-connection"
+method: POST
+headers:
+  Accept-Language: "{{language}}"
+  Authorization: "{{token_type}} {{token}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |
+    {
+      "url": "https://api.example.com/data",
+      "apiKey": ""
+    }
+order: 1500

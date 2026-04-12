@@ -29,16 +29,16 @@ services:
       retries: 5
 
   db:
-    image: mysql:8.0
+    image: postgres:17-alpine
     container_name: statsio-api-db
     env_file:
       - .env
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - dbdata:/var/lib/mysql
+      - dbdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -55,15 +55,11 @@ services:
       timeout: 5s
       retries: 10
 
-  phpmyadmin:
-    image: phpmyadmin:latest
-    container_name: statsio-api-phpmyadmin
+  cloudbeaver:
+    image: dbeaver/cloudbeaver:25.0.2
+    container_name: statsio-api-cloudbeaver
     ports:
-      - "8081:80"
-    environment:
-      PMA_HOST: db
-      PMA_PORT: 3306
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      - "8081:8978"
     depends_on:
       - db
 

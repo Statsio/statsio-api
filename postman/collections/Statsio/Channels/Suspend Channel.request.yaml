@@ -2,14 +2,13 @@ $kind: http-request
 url: "{{base_url}}/api/channels/{{channel_id}}/suspend"
 method: POST
 headers:
-  Authorization: "{{token_type}} {{token}}"
   Accept-Language: "{{language}}"
+  Authorization: "{{token_type}} {{token}}"
   Content-Type: application/json
 body:
   type: json
-  content: "{\r
-
-    \  \"suspended_until\": \"2024-12-31T23:59:59Z\"\r
-
-    }"
-order: 5000
+  content: |-
+    {
+      "suspended_until": "2030-12-31T23:59:59Z"
+    }
+order: 6000

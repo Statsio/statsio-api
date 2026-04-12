@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/api/me"
+method: GET
+headers:
+  Accept-Language: "{{language}}"
+  Authorization: "{{token_type}} {{token}}"
+order: 1000

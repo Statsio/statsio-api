@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/api/account/anonymize"
+method: POST
+headers:
+  Accept-Language: "{{language}}"
+  Authorization: "{{token_type}} {{token}}"
+order: 2000

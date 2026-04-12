@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{base_url}}/api/auth/google"
+method: POST
+headers:
+  Accept-Language: "{{language}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "id_token": "{{google_id_token}}"
+    }
+scripts:
+  - type: afterResponse
+    code: >-
+      const res = pm.response.json();
+
+
+      if (res.success && res.data) {
+          pm.environment.set("token", res.data.access_token || res.data.token || "");
+          pm.environment.set("token_type", res.data.type || "Bearer");
+          pm.environment.set("refresh_token", res.data.refresh_token || "");
+          pm.environment.set("user_id", res.data.user?.id || "");
+      }
+    language: text/javascript
+order: 3000

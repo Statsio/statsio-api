@@ -18,11 +18,7 @@ class GoogleAuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => __('auth.google_auth_success'),
-                'data' => [
-                    'token' => $token->token,
-                    'type' => $token->type,
-                    'user' => $token->user,
-                ],
+                'data' => $token->toArray(),
             ]);
         } catch (GoogleAuthConfigurationException $e) {
             return response()->json([

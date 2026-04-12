@@ -33,11 +33,7 @@ class LoginController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Login successful',
-                'data' => [
-                    'token' => $token->token,
-                    'type' => $token->type,
-                    'user' => $token->user
-                ]
+                'data' => $token->toArray(),
             ]);
         } catch (InvalidCredentialsException $e) {
             return response()->json([
@@ -48,5 +44,3 @@ class LoginController extends Controller
         }
     }
 }
-
-?>

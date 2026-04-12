@@ -1,70 +1,40 @@
 $kind: http-request
-url: "{{base_url}}/api/auth/register?email={{email}}&password={{password}}"
+url: "{{base_url}}/api/auth/register"
 method: POST
 headers:
   Accept-Language: "{{language}}"
-queryParams:
-  email: "{{email}}"
-  password: "{{password}}"
+  Content-Type: application/json
 body:
   type: json
-  content: "{\r
-
-    \  \"first_name\": \"Corentin\",\r
-
-    \  \"last_name\": \"GESSE\",\r
-
-    \  \"birthday\": \"2003-05-20\"\r
-
-    }"
+  content: |-
+    {
+      "first_name": "Corentin",
+      "last_name": "GESSE",
+      "birthday": "2003-05-20",
+      "email": "{{email}}",
+      "password": "{{password}}"
+    }
 scripts:
   - type: afterResponse
-    code: "let res = pm.response.json();\r
+    code: >-
+      const res = pm.response.json();
 
-      \r
 
-      \r
+      pm.test("Status code is 201", function () {
+          pm.response.to.have.status(201);
+      });
 
-      // ✅ Tests\r
 
-      pm.test(\"Status code is 200 or 201\", function () {\r
+      pm.test("Register success is true", function () {
+          pm.expect(res.success).to.eql(true);
+      });
 
-      \    pm.expect(pm.response.code).to.be.oneOf([200, 201]);\r
 
-      });\r
-
-      \r
-
-      pm.test(\"Register success is true\", function () {\r
-
-      \    pm.expect(res.success).to.eql(true);\r
-
-      });\r
-
-      \r
-
-      pm.test(\"Token exists\", function () {\r
-
-      \    pm.expect(res.data?.token).to.not.be.undefined;\r
-
-      });\r
-
-      \r
-
-      pm.test(\"User created\", function () {\r
-
-      \    pm.expect(res.data?.user?.id).to.not.be.undefined;\r
-
-      });\r
-
-      \r
-
-      if (res.success && res.data?.token) {\r
-
-      \    pm.environment.set(\"token\", res.data.token);\r
-
-      \    pm.environment.set(\"token_type\", res.data.type);\r
-
-      }\r\n"
+      if (res.success && res.data) {
+          pm.environment.set("token", res.data.access_token || res.data.token || "");
+          pm.environment.set("token_type", res.data.type || "Bearer");
+          pm.environment.set("refresh_token", res.data.refresh_token || "");
+          pm.environment.set("user_id", res.data.user?.id || "");
+      }
     language: text/javascript
 order: 2000

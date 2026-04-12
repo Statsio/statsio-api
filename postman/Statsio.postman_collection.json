@@ -15,30 +15,25 @@
             {
               "listen": "test",
               "script": {
-                "exec": [
-                  "res = pm.response.json();\r",
-                  "\r",
-                  "pm.test(\"Status code is 200\", function () {\r",
-                  "    pm.response.to.have.status(200);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Login success is true\", function () {\r",
-                  "    pm.expect(res.success).to.eql(true);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Token exists\", function () {\r",
-                  "    pm.expect(res.data.token).to.not.be.undefined;\r",
-                  "});\r",
-                  "\r",
-                  "if(res.token) {\r",
-                  "    pm.environment.set(\"token\", res.data.token);\r",
-                  "    pm.environment.set(\"token_type\", res.data.type);\r",
-                  "}\r",
-                  ""
-                ],
                 "type": "text/javascript",
-                "packages": {},
-                "requests": {}
+                "exec": [
+                  "const res = pm.response.json();",
+                  "",
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Login success is true\", function () {",
+                  "    pm.expect(res.success).to.eql(true);",
+                  "});",
+                  "",
+                  "if (res.success && res.data) {",
+                  "    pm.environment.set(\"token\", res.data.access_token || res.data.token || \"\");",
+                  "    pm.environment.set(\"token_type\", res.data.type || \"Bearer\");",
+                  "    pm.environment.set(\"refresh_token\", res.data.refresh_token || \"\");",
+                  "    pm.environment.set(\"user_id\", res.data.user?.id || \"\");",
+                  "}"
+                ]
               }
             }
           ],
@@ -49,10 +44,24 @@
                 "key": "Accept-Language",
                 "value": "{{language}}",
                 "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
-              "raw": "{{base_url}}/api/auth/login?email={{email}}&password={{password}}",
+              "raw": "{{base_url}}/api/auth/login",
               "host": [
                 "{{base_url}}"
               ],
@@ -60,16 +69,6 @@
                 "api",
                 "auth",
                 "login"
-              ],
-              "query": [
-                {
-                  "key": "email",
-                  "value": "{{email}}"
-                },
-                {
-                  "key": "password",
-                  "value": "{{password}}"
-                }
               ]
             }
           },
@@ -79,49 +78,27 @@
           "name": "Register",
           "event": [
             {
-              "listen": "prerequest",
-              "script": {
-                "exec": [
-                  ""
-                ],
-                "type": "text/javascript",
-                "packages": {},
-                "requests": {}
-              }
-            },
-            {
               "listen": "test",
               "script": {
-                "exec": [
-                  "let res = pm.response.json();\r",
-                  "\r",
-                  "\r",
-                  "// ✅ Tests\r",
-                  "pm.test(\"Status code is 200 or 201\", function () {\r",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Register success is true\", function () {\r",
-                  "    pm.expect(res.success).to.eql(true);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Token exists\", function () {\r",
-                  "    pm.expect(res.data?.token).to.not.be.undefined;\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"User created\", function () {\r",
-                  "    pm.expect(res.data?.user?.id).to.not.be.undefined;\r",
-                  "});\r",
-                  "\r",
-                  "if (res.success && res.data?.token) {\r",
-                  "    pm.environment.set(\"token\", res.data.token);\r",
-                  "    pm.environment.set(\"token_type\", res.data.type);\r",
-                  "}\r",
-                  ""
-                ],
                 "type": "text/javascript",
-                "packages": {},
-                "requests": {}
+                "exec": [
+                  "const res = pm.response.json();",
+                  "",
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Register success is true\", function () {",
+                  "    pm.expect(res.success).to.eql(true);",
+                  "});",
+                  "",
+                  "if (res.success && res.data) {",
+                  "    pm.environment.set(\"token\", res.data.access_token || res.data.token || \"\");",
+                  "    pm.environment.set(\"token_type\", res.data.type || \"Bearer\");",
+                  "    pm.environment.set(\"refresh_token\", res.data.refresh_token || \"\");",
+                  "    pm.environment.set(\"user_id\", res.data.user?.id || \"\");",
+                  "}"
+                ]
               }
             }
           ],
@@ -132,11 +109,16 @@
                 "key": "Accept-Language",
                 "value": "{{language}}",
                 "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
               }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"first_name\": \"Corentin\",\r\n  \"last_name\": \"GESSE\",\r\n  \"birthday\": \"2003-05-20\"\r\n}",
+              "raw": "{\n  \"first_name\": \"Corentin\",\n  \"last_name\": \"GESSE\",\n  \"birthday\": \"2003-05-20\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -144,7 +126,7 @@
               }
             },
             "url": {
-              "raw": "{{base_url}}/api/auth/register?email={{email}}&password={{password}}",
+              "raw": "{{base_url}}/api/auth/register",
               "host": [
                 "{{base_url}}"
               ],
@@ -152,16 +134,123 @@
                 "api",
                 "auth",
                 "register"
-              ],
-              "query": [
-                {
-                  "key": "email",
-                  "value": "{{email}}"
-                },
-                {
-                  "key": "password",
-                  "value": "{{password}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Google Auth",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "",
+                  "if (res.success && res.data) {",
+                  "    pm.environment.set(\"token\", res.data.access_token || res.data.token || \"\");",
+                  "    pm.environment.set(\"token_type\", res.data.type || \"Bearer\");",
+                  "    pm.environment.set(\"refresh_token\", res.data.refresh_token || \"\");",
+                  "    pm.environment.set(\"user_id\", res.data.user?.id || \"\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"{{google_id_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
                 }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/google",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "google"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "",
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (res.success && res.data) {",
+                  "    pm.environment.set(\"token\", res.data.access_token || res.data.token || \"\");",
+                  "    pm.environment.set(\"token_type\", res.data.type || \"Bearer\");",
+                  "    pm.environment.set(\"refresh_token\", res.data.refresh_token || \"\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "refresh"
               ]
             }
           },
@@ -169,6 +258,21 @@
         },
         {
           "name": "Logout",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code < 300) {",
+                  "    pm.environment.unset(\"token\");",
+                  "    pm.environment.unset(\"refresh_token\");",
+                  "    pm.environment.unset(\"token_type\");",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -196,6 +300,36 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Auth Me",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            }
+          },
+          "response": []
         }
       ]
     },
@@ -203,41 +337,47 @@
       "name": "User",
       "item": [
         {
-          "name": "Anonymize",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "let res = pm.response.json();\r",
-                  "\r",
-                  "pm.test(\"Status code is 200\", function () {\r",
-                  "    pm.response.to.have.status(200);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Message correct\", function () {\r",
-                  "    pm.expect(res.message).to.eql(\"Anonymize successful.\");\r",
-                  "});\r",
-                  "\r",
-                  ""
-                ],
-                "type": "text/javascript",
-                "packages": {},
-                "requests": {}
-              }
-            }
-          ],
+          "name": "Me",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
               {
                 "key": "Authorization",
                 "value": "{{token_type}} {{token}}",
                 "type": "text"
-              },
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "me"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Anonymize Account",
+          "request": {
+            "method": "POST",
+            "header": [
               {
                 "key": "Accept-Language",
                 "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               }
             ],
@@ -254,76 +394,6 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "Me - profile",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "// Parse JSON\r",
-                  "let res = pm.response.json();\r",
-                  "\r",
-                  "\r",
-                  "// ✅ Tests basiques\r",
-                  "pm.test(\"Status code is 200\", function () {\r",
-                  "    pm.response.to.have.status(200);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Success is true\", function () {\r",
-                  "    pm.expect(res.success).to.eql(true);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"User data exists\", function () {\r",
-                  "    pm.expect(res.data).to.not.be.undefined;\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"User profile exists\", function () {\r",
-                  "    pm.expect(res.data.profile).to.not.be.undefined;\r",
-                  "});\r",
-                  "\r",
-                  ""
-                ],
-                "type": "text/javascript",
-                "packages": {},
-                "requests": {}
-              }
-            }
-          ],
-          "protocolProfileBehavior": {
-            "disableBodyPruning": true
-          },
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
-                "type": "text"
-              },
-              {
-                "key": "Accept-Language",
-                "value": "{{language}}",
-                "type": "text"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\r\n  \"first_name\": \"Corentin\",\r\n  \"last_name\": \"GESSE\",\r\n  \"birthday\": \"2003-05-20\"\r\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/api/me",
-              "host": [
-                "{{base_url}}"
-              ],
-              "path": [
-                "api",
-                "me"
-              ]
-            }
-          },
-          "response": []
         }
       ]
     },
@@ -331,18 +401,18 @@
       "name": "Channels",
       "item": [
         {
-          "name": "List all channels",
+          "name": "List All Channels",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
+                "key": "Accept-Language",
+                "value": "{{language}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               }
             ],
@@ -358,8 +428,7 @@
               "query": [
                 {
                   "key": "per_page",
-                  "value": "15",
-                  "description": "Number of items per page"
+                  "value": "15"
                 }
               ]
             }
@@ -367,35 +436,19 @@
           "response": []
         },
         {
-          "name": "Create channel",
+          "name": "Create Channel",
           "event": [
             {
               "listen": "test",
               "script": {
-                "exec": [
-                  "let res = pm.response.json();\r",
-                  "\r",
-                  "pm.test(\"Status code is 201\", function () {\r",
-                  "    pm.response.to.have.status(201);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Success is true\", function () {\r",
-                  "    pm.expect(res.success).to.eql(true);\r",
-                  "});\r",
-                  "\r",
-                  "pm.test(\"Channel created\", function () {\r",
-                  "    pm.expect(res.data.id).to.not.be.undefined;\r",
-                  "});\r",
-                  "\r",
-                  "// Store channel ID for other tests\r",
-                  "if (res.success && res.data.id) {\r",
-                  "    pm.environment.set(\"channel_id\", res.data.id);\r",
-                  "}\r",
-                  ""
-                ],
                 "type": "text/javascript",
-                "packages": {},
-                "requests": {}
+                "exec": [
+                  "const res = pm.response.json();",
+                  "",
+                  "if (res.success && res.data?.id) {",
+                  "    pm.environment.set(\"channel_id\", res.data.id);",
+                  "}"
+                ]
               }
             }
           ],
@@ -403,13 +456,13 @@
             "method": "POST",
             "header": [
               {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
+                "key": "Accept-Language",
+                "value": "{{language}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               }
             ],
@@ -427,8 +480,8 @@
                   "type": "text"
                 },
                 {
-                  "key": "status",
-                  "value": "active",
+                  "key": "categories[]",
+                  "value": "gaming",
                   "type": "text"
                 },
                 {
@@ -457,18 +510,18 @@
           "response": []
         },
         {
-          "name": "Show channel",
+          "name": "Show Channel",
           "request": {
             "method": "GET",
             "header": [
               {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
+                "key": "Accept-Language",
+                "value": "{{language}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               }
             ],
@@ -487,18 +540,18 @@
           "response": []
         },
         {
-          "name": "Update channel",
+          "name": "Update Channel",
           "request": {
             "method": "PUT",
             "header": [
               {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
+                "key": "Accept-Language",
+                "value": "{{language}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               },
               {
@@ -509,7 +562,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"status\": \"active\"\r\n}",
+              "raw": "{\n  \"status\": \"active\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -531,18 +584,48 @@
           "response": []
         },
         {
-          "name": "Suspend channel",
+          "name": "Delete Channel",
           "request": {
-            "method": "POST",
+            "method": "DELETE",
             "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
               {
                 "key": "Authorization",
                 "value": "{{token_type}} {{token}}",
                 "type": "text"
-              },
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/channels/{{channel_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "channels",
+                "{{channel_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Suspend Channel",
+          "request": {
+            "method": "POST",
+            "header": [
               {
                 "key": "Accept-Language",
                 "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               },
               {
@@ -553,7 +636,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"suspended_until\": \"2024-12-31T23:59:59Z\"\r\n}",
+              "raw": "{\n  \"suspended_until\": \"2030-12-31T23:59:59Z\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -576,18 +659,18 @@
           "response": []
         },
         {
-          "name": "Ban channel",
+          "name": "Ban Channel",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
+                "key": "Accept-Language",
+                "value": "{{language}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               }
             ],
@@ -607,18 +690,18 @@
           "response": []
         },
         {
-          "name": "Activate channel",
+          "name": "Activate Channel",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
+                "key": "Accept-Language",
+                "value": "{{language}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               }
             ],
@@ -638,18 +721,18 @@
           "response": []
         },
         {
-          "name": "Anonymize channel",
+          "name": "Anonymize Channel",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Authorization",
-                "value": "{{token_type}} {{token}}",
+                "key": "Accept-Language",
+                "value": "{{language}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
                 "type": "text"
               }
             ],
@@ -667,32 +750,473 @@
             }
           },
           "response": []
-        },
+        }
+      ]
+    },
+    {
+      "name": "StatsData",
+      "item": [
         {
-          "name": "Delete channel",
+          "name": "Create StatsData Document",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data?.id) {",
+                  "    pm.environment.set(\"statsdata_document_id\", res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
           "request": {
-            "method": "DELETE",
+            "method": "POST",
             "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
               {
                 "key": "Authorization",
                 "value": "{{token_type}} {{token}}",
                 "type": "text"
               },
               {
-                "key": "Accept-Language",
-                "value": "{{language}}",
+                "key": "Content-Type",
+                "value": "application/json",
                 "type": "text"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Mon rapport\",\n  \"subtitle\": \"\",\n  \"visibility\": \"private\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
-              "raw": "{{base_url}}/api/channels/{{channel_id}}",
+              "raw": "{{base_url}}/api/statsdata",
               "host": [
                 "{{base_url}}"
               ],
               "path": [
                 "api",
-                "channels",
-                "{{channel_id}}"
+                "statsdata"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get StatsData Document",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update StatsData Document",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Mon rapport (édité)\",\n  \"blocks\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete StatsData Document",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List StatsData Sources",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get StatsData Source",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources/{{statsdata_source_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources",
+                "{{statsdata_source_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Probe StatsData API",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://api.example.com/data\",\n  \"apiKey\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources/probe",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources",
+                "probe"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create StatsData Source (manual)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data?.id) {",
+                  "    pm.environment.set(\"statsdata_source_id\", res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"manual\",\n  \"name\": \"Saisie locale\",\n  \"manualData\": { \"rows\": [] }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create StatsData Source (api)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.success && res.data?.id) {",
+                  "    pm.environment.set(\"statsdata_source_id\", res.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"api\",\n  \"name\": \"API externe\",\n  \"apiUrl\": \"https://api.example.com/v1/stats\",\n  \"verify\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update StatsData Source",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Source renommée\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources/{{statsdata_source_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources",
+                "{{statsdata_source_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete StatsData Source",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources/{{statsdata_source_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources",
+                "{{statsdata_source_id}}"
               ]
             }
           },
@@ -701,22 +1225,82 @@
       ]
     },
     {
-      "name": "Test healthcheck",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{base_url}}/api/healthcheck",
-          "host": [
-            "{{base_url}}"
-          ],
-          "path": [
-            "api",
-            "healthcheck"
-          ]
+      "name": "Source API",
+      "item": [
+        {
+          "name": "Probe connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://api.example.com/data\",\n  \"apiKey\": \"\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/source-api/probe-connection",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "source-api",
+                "probe-connection"
+              ]
+            }
+          },
+          "response": []
         }
-      },
-      "response": []
+      ]
+    },
+    {
+      "name": "Healthcheck",
+      "item": [
+        {
+          "name": "Get Healthcheck",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/healthcheck",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "healthcheck"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
     }
   ]
 }

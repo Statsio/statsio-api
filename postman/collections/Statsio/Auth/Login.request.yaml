@@ -1,47 +1,37 @@
 $kind: http-request
-url: "{{base_url}}/api/auth/login?email={{email}}&password={{password}}"
+url: "{{base_url}}/api/auth/login"
 method: POST
 headers:
   Accept-Language: "{{language}}"
-queryParams:
-  email: "{{email}}"
-  password: "{{password}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |-
+    {
+      "email": "{{email}}",
+      "password": "{{password}}"
+    }
 scripts:
   - type: afterResponse
-    code: "res = pm.response.json();\r
+    code: >-
+      const res = pm.response.json();
 
-      \r
 
-      pm.test(\"Status code is 200\", function () {\r
+      pm.test("Status code is 200", function () {
+          pm.response.to.have.status(200);
+      });
 
-      \    pm.response.to.have.status(200);\r
 
-      });\r
+      pm.test("Login success is true", function () {
+          pm.expect(res.success).to.eql(true);
+      });
 
-      \r
 
-      pm.test(\"Login success is true\", function () {\r
-
-      \    pm.expect(res.success).to.eql(true);\r
-
-      });\r
-
-      \r
-
-      pm.test(\"Token exists\", function () {\r
-
-      \    pm.expect(res.data.token).to.not.be.undefined;\r
-
-      });\r
-
-      \r
-
-      if(res.token) {\r
-
-      \    pm.environment.set(\"token\", res.data.token);\r
-
-      \    pm.environment.set(\"token_type\", res.data.type);\r
-
-      }\r\n"
+      if (res.success && res.data) {
+          pm.environment.set("token", res.data.access_token || res.data.token || "");
+          pm.environment.set("token_type", res.data.type || "Bearer");
+          pm.environment.set("refresh_token", res.data.refresh_token || "");
+          pm.environment.set("user_id", res.data.user?.id || "");
+      }
     language: text/javascript
 order: 1000

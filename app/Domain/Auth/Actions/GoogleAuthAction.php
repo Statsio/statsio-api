@@ -2,7 +2,6 @@
 
 namespace App\Domain\Auth\Actions;
 
-use App\Domain\Auth\DTOs\AuthTokenDTO;
 use App\Domain\Auth\Exceptions\GoogleAuthConfigurationException;
 use App\Domain\Auth\Exceptions\InvalidGoogleTokenException;
 use App\Models\User\User;
@@ -13,7 +12,11 @@ use Illuminate\Support\Str;
 
 class GoogleAuthAction
 {
-    public function execute(string $idToken): AuthTokenDTO
+    public function __construct(
+        private readonly IssueAuthTokensAction $issueAuthTokensAction
+    ) {}
+
+    public function execute(string $idToken): \App\Domain\Auth\DTOs\AuthTokenDTO
     {
         $clientId = config('services.google.client_id');
 
@@ -66,15 +69,6 @@ class GoogleAuthAction
             return $user->fresh('profile');
         });
 
-        $token = $user->createToken('api-token')->plainTextToken;
-
-        return new AuthTokenDTO(
-            token: $token,
-            user: [
-                'id' => $user->id,
-                'email' => $user->email,
-                'profile' => $user->profile,
-            ]
-        );
+        return $this->issueAuthTokensAction->execute($user);
     }
 }
