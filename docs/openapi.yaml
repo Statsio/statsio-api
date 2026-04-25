@@ -696,6 +696,61 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  /api/statsdata/{documentId}/query:
+    post:
+      tags: [StatsData]
+      summary: Exécuter une requête builder (projection / join sur snapshots normalisés)
+      description: |
+        Utilise le dernier snapshot `ok` par source. Les colonnes référencent `alias.champ` (champs issus de keys+values après normalisation).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StatsDataDocumentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/StatsDataQueryRequest'
+                - $ref: '#/components/schemas/StatsDataQueryRequestV2'
+      responses:
+        '200':
+          description: Lignes projetées
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsDataQueryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/statsdata/{documentId}/sources/{sourceId}/refresh:
+    post:
+      tags: [StatsData]
+      summary: Rafraîchir le dataset normalisé (fetch → parse → mapping → snapshot)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/StatsDataDocumentIdPath'
+        - $ref: '#/components/parameters/StatsDataSourceId'
+      responses:
+        '200':
+          description: Snapshot créé (status ok ou failed selon ingestion)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsDataSnapshotRefreshEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -993,6 +1048,8 @@ components:
           type: string
           nullable: true
           description: Après sonde, force la clé racine JSON (ex. data) si la suggestion auto ne convient pas
+        normalizationMapping:
+          $ref: '#/components/schemas/StatsDataNormalizationMapping'
     StatsDataSourceCreateMultipart:
       type: object
       required: [type, file]
@@ -1023,6 +1080,11 @@ components:
           nullable: true
         verify:
           type: boolean
+        responseRoot:
+          type: string
+          nullable: true
+        normalizationMapping:
+          $ref: '#/components/schemas/StatsDataNormalizationMapping'
     StatsDataSourcePatchMultipart:
       allOf:
         - $ref: '#/components/schemas/StatsDataSourcePatch'
@@ -1042,6 +1104,284 @@ components:
         data:
           type: object
           additionalProperties: true
+    StatsDataNormalizationMapping:
+      type: object
+      description: |
+        Mapping brut → lignes { keys, values }. Au moins keyFields ou valueFields non vide pour un refresh.
+        Aucune convention imposée par fournisseur : pour chaque API, renseigner explicitement rowPath (liste de lignes dans la réponse parsée) et from (chemins dot par rapport à chaque ligne brute).
+      properties:
+        rowPath:
+          type: string
+          nullable: true
+          description: Chemin dot vers la liste de lignes dans le JSON/XML parsé (omit ou null seulement si la racine parsée est déjà un tableau de lignes)
+        keyFields:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+              from:
+                type: string
+                nullable: true
+                description: Chemin dot dans la ligne brute ; défaut = name
+        valueFields:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+              from:
+                type: string
+                nullable: true
+        staticKeys:
+          type: object
+          additionalProperties: true
+          description: Clés ajoutées à keys pour chaque ligne
+    StatsDataQueryRequest:
+      type: object
+      required: [sources, columns]
+      properties:
+        specVersion:
+          type: integer
+          description: Version de spec (omit = v1)
+          example: 1
+        sources:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [alias, sourceId]
+            properties:
+              alias:
+                type: string
+                pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+              sourceId:
+                type: string
+                format: uuid
+        join:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [inner, left]
+            on:
+              type: array
+              items:
+                type: string
+              description: Noms de champs communs (après fusion keys+values)
+        columns:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [label, from]
+            properties:
+              label:
+                type: string
+              from:
+                type: string
+                description: alias.field (ex. cities.name)
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+        search:
+          type: object
+          properties:
+            q:
+              type: string
+              nullable: true
+              maxLength: 500
+
+    StatsDataQueryRequestV2:
+      type: object
+      required: [specVersion, sources, select]
+      properties:
+        specVersion:
+          type: integer
+          enum: [2]
+        sources:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [alias, sourceId]
+            properties:
+              alias:
+                type: string
+                pattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+              sourceId:
+                type: string
+                format: uuid
+        join:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [inner, left]
+            on:
+              type: array
+              items:
+                type: string
+              description: Noms de champs communs (après fusion keys+values)
+        select:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/StatsDataQuerySelectItemV2'
+        search:
+          type: object
+          properties:
+            q:
+              type: string
+              nullable: true
+              maxLength: 500
+        groupBy:
+          type: array
+          items:
+            type: string
+        aggregations:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatsDataQueryAggregationV2'
+        orderBy:
+          type: array
+          items:
+            type: object
+            required: [by, dir]
+            properties:
+              by:
+                type: string
+              dir:
+                type: string
+                enum: [asc, desc]
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    StatsDataQuerySelectItemV2:
+      oneOf:
+        - $ref: '#/components/schemas/StatsDataQuerySelectFromV2'
+        - $ref: '#/components/schemas/StatsDataQuerySelectFormulaV2'
+
+    StatsDataQuerySelectFromV2:
+      type: object
+      required: [kind, label, from]
+      properties:
+        kind:
+          type: string
+          enum: [from]
+        label:
+          type: string
+        from:
+          type: string
+          description: alias.field (ex. cities.name)
+
+    StatsDataQuerySelectFormulaV2:
+      type: object
+      required: [kind, label, expr]
+      properties:
+        kind:
+          type: string
+          enum: [formula]
+        label:
+          type: string
+        expr:
+          $ref: '#/components/schemas/StatsDataFormulaAst'
+
+    StatsDataQueryAggregationV2:
+      type: object
+      required: [label, fn]
+      properties:
+        label:
+          type: string
+        fn:
+          type: string
+          enum: [count, sum, avg, min, max]
+        expr:
+          $ref: '#/components/schemas/StatsDataFormulaAst'
+
+    StatsDataFormulaAst:
+      type: object
+      description: AST JSON sécurisé (pas d'eval) pour formules/agrégations
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [number, string, boolean, null, ref, op, cmp, logic, not, if, fn]
+        value:
+          nullable: true
+        ref:
+          type: string
+        op:
+          type: string
+        fn:
+          type: string
+        args:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatsDataFormulaAst'
+        arg:
+          $ref: '#/components/schemas/StatsDataFormulaAst'
+        cond:
+          $ref: '#/components/schemas/StatsDataFormulaAst'
+        then:
+          $ref: '#/components/schemas/StatsDataFormulaAst'
+        else:
+          $ref: '#/components/schemas/StatsDataFormulaAst'
+    StatsDataQueryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            rows:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+    StatsDataSnapshotSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        rowCount:
+          type: integer
+        schemaVersion:
+          type: integer
+        refreshedAt:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [ok, failed]
+        errorMessage:
+          type: string
+          nullable: true
+    StatsDataSnapshotRefreshEnvelope:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/StatsDataSnapshotSummary'
     StatsDataApiProbeResponse:
       type: object
       properties:

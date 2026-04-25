@@ -844,6 +844,51 @@
           "response": []
         },
         {
+          "name": "Execute StatsData Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sources\": [\n    { \"alias\": \"main\", \"sourceId\": \"{{statsdata_source_id}}\" }\n  ],\n  \"columns\": [\n    { \"label\": \"Exemple\", \"from\": \"main.ville\" }\n  ],\n  \"limit\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/query",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "query"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Update StatsData Document",
           "request": {
             "method": "PATCH",
@@ -1185,6 +1230,39 @@
                 "{{statsdata_document_id}}",
                 "sources",
                 "{{statsdata_source_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Normalized Dataset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept-Language",
+                "value": "{{language}}",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "{{token_type}} {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/statsdata/{{statsdata_document_id}}/sources/{{statsdata_source_id}}/refresh",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "statsdata",
+                "{{statsdata_document_id}}",
+                "sources",
+                "{{statsdata_source_id}}",
+                "refresh"
               ]
             }
           },

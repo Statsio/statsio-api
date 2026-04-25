@@ -8,6 +8,7 @@ use App\Http\Requests\Media\UploadMediaRequest;
 use App\Http\Requests\Media\UploadMultipleMediaRequest;
 use App\Models\Media;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Storage;
 
 class MediaController extends Controller
 {
@@ -102,5 +103,12 @@ class MediaController extends Controller
                 'updated_at' => $media->updated_at,
             ]
         ]);
+    }
+
+    public function file(Media $media)
+    {
+        abort_unless(Storage::disk('public')->exists($media->path), 404);
+
+        return Storage::disk('public')->response($media->path);
     }
 }

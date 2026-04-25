@@ -3,15 +3,20 @@
 namespace App\Models\StatsData;
 
 use App\Domain\StatsData\Enums\StatsDataVisibility;
+use App\Models\Media;
 use App\Models\User\User;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo as EloquentBelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class StatsDataDocument extends Model
 {
+    use SoftDeletes;
+
     public $incrementing = false;
 
     protected $keyType = 'string';
@@ -21,8 +26,12 @@ class StatsDataDocument extends Model
         'user_id',
         'title',
         'subtitle',
+        'description',
+        'categories',
+        'tags',
+        'cover_media_id',
         'visibility',
-        'blocks',
+        'pages',
         'slug',
     ];
 
@@ -30,7 +39,9 @@ class StatsDataDocument extends Model
     {
         return [
             'visibility' => StatsDataVisibility::class,
-            'blocks' => 'array',
+            'pages' => 'array',
+            'categories' => 'array',
+            'tags' => 'array',
         ];
     }
 
@@ -57,6 +68,11 @@ class StatsDataDocument extends Model
         return $this->hasMany(StatsDataSource::class, 'stats_data_document_id');
     }
 
+    public function coverMedia(): EloquentBelongsTo
+    {
+        return $this->belongsTo(Media::class, 'cover_media_id');
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -66,16 +82,30 @@ class StatsDataDocument extends Model
             ? $this->sources
             : $this->sources()->orderBy('sort_order')->orderBy('created_at')->get();
 
+        $cover = $this->relationLoaded('coverMedia') ? $this->coverMedia : $this->coverMedia()->first();
+        $profile = $this->relationLoaded('user') ? ($this->user?->profile) : ($this->user()->with('profile')->first()?->profile);
+
         return [
             'id' => $this->id,
             'title' => $this->title,
             'subtitle' => $this->subtitle,
+            'description' => $this->description,
+            'categories' => $this->categories ?? [],
+            'tags' => $this->tags ?? [],
+            'cover_media_id' => $this->cover_media_id,
+            'cover_url' => $cover ? $cover->getUrl() : null,
             'visibility' => $this->visibility->value,
-            'blocks' => $this->blocks ?? [],
+            'pages' => $this->pages ?? [],
             'dataSources' => $sources->map(fn (StatsDataSource $s) => $s->toApiArray())->values()->all(),
             'slug' => $this->slug,
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
+            'created_by' => [
+                'id' => $this->user_id,
+                'email' => $this->user?->email,
+                'first_name' => $profile?->first_name,
+                'last_name' => $profile?->last_name,
+            ],
         ];
     }
 }

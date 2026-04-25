@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{base_url}}/api/statsdata/{{statsdata_document_id}}/query"
+method: POST
+headers:
+  Accept-Language: "{{language}}"
+  Authorization: "{{token_type}} {{token}}"
+  Content-Type: application/json
+body:
+  type: json
+  content: |
+    {
+      "sources": [
+        { "alias": "main", "sourceId": "{{statsdata_source_id}}" }
+      ],
+      "columns": [
+        { "label": "Exemple", "from": "main.ville" }
+      ],
+      "limit": 100
+    }
+order: 3045

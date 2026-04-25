@@ -47,6 +47,6 @@ class MediaAction
 
     public function getUrl(Media $media): string
     {
-        return asset('storage/' . $media->path);
+        return route('media.file', ['media' => $media->id]);
     }
 }

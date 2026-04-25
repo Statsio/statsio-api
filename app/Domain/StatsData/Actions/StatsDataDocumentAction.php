@@ -14,8 +14,12 @@ class StatsDataDocumentAction
             'user_id' => $user->id,
             'title' => $data['title'],
             'subtitle' => $data['subtitle'] ?? '',
+            'description' => $data['description'] ?? '',
+            'categories' => $data['categories'] ?? [],
+            'tags' => $data['tags'] ?? [],
+            'cover_media_id' => $data['cover_media_id'] ?? null,
             'visibility' => $data['visibility'],
-            'blocks' => $data['blocks'] ?? [],
+            'pages' => $data['pages'] ?? [['id' => 'page_' . uniqid(), 'name' => 'Page 1', 'blocks' => []]],
             'slug' => $this->makeUniqueSlug($data['title']),
         ]);
     }
@@ -40,8 +44,20 @@ class StatsDataDocumentAction
         if (array_key_exists('visibility', $data)) {
             $fill['visibility'] = $data['visibility'];
         }
-        if (array_key_exists('blocks', $data)) {
-            $fill['blocks'] = $data['blocks'];
+        if (array_key_exists('pages', $data)) {
+            $fill['pages'] = $data['pages'];
+        }
+        if (array_key_exists('description', $data)) {
+            $fill['description'] = $data['description'];
+        }
+        if (array_key_exists('categories', $data)) {
+            $fill['categories'] = $data['categories'];
+        }
+        if (array_key_exists('tags', $data)) {
+            $fill['tags'] = $data['tags'];
+        }
+        if (array_key_exists('cover_media_id', $data)) {
+            $fill['cover_media_id'] = $data['cover_media_id'];
         }
 
         if ($fill !== []) {
@@ -60,6 +76,42 @@ class StatsDataDocumentAction
         }
 
         return (bool) $doc->delete();
+    }
+
+    public function restoreForUser(User $user, string $id): bool
+    {
+        if (! Str::isUuid($id)) {
+            return false;
+        }
+
+        $doc = StatsDataDocument::onlyTrashed()
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $doc) {
+            return false;
+        }
+
+        return (bool) $doc->restore();
+    }
+
+    public function forceDeleteForUser(User $user, string $id): bool
+    {
+        if (! Str::isUuid($id)) {
+            return false;
+        }
+
+        $doc = StatsDataDocument::onlyTrashed()
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $doc) {
+            return false;
+        }
+
+        return (bool) $doc->forceDelete();
     }
 
     public function findOwnedOrNull(User $user, string $id): ?StatsDataDocument

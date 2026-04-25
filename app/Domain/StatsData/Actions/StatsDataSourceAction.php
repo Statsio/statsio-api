@@ -55,6 +55,10 @@ class StatsDataSourceAction
             StatsDataSourceType::Api => $this->fillApiSource($source, $data, (bool) ($data['verify'] ?? false)),
         };
 
+        if (array_key_exists('normalization_mapping', $data)) {
+            $source->normalization_mapping = $data['normalization_mapping'];
+        }
+
         $source->save();
 
         return $source->fresh();
@@ -79,6 +83,10 @@ class StatsDataSourceAction
             StatsDataSourceType::File => $this->patchFile($source, $source->stats_data_document_id, $data, $uploadedFile),
             StatsDataSourceType::Api => $this->patchApi($source, $data),
         };
+
+        if (array_key_exists('normalization_mapping', $data)) {
+            $source->normalization_mapping = $data['normalization_mapping'];
+        }
 
         $source->save();
 
@@ -108,6 +116,18 @@ class StatsDataSourceAction
         if (array_key_exists('api_key', $data)) {
             $key = $data['api_key'];
             $source->api_key = ($key === null || $key === '') ? null : $key;
+        }
+        if (array_key_exists('api_limit', $data)) {
+            $limit = $data['api_limit'];
+            $source->api_limit = ($limit === null || $limit === '') ? null : (int) $limit;
+        }
+        if (array_key_exists('api_search_template', $data)) {
+            $tpl = $data['api_search_template'];
+            $source->api_search_template = ($tpl === null || trim((string) $tpl) === '') ? null : (string) $tpl;
+        }
+        if (array_key_exists('api_search_field', $data)) {
+            $f = $data['api_search_field'];
+            $source->api_search_field = ($f === null || trim((string) $f) === '') ? null : (string) $f;
         }
         if (! empty($data['verify']) && $source->api_url) {
             $probe = $this->apiProbe->probe((string) $source->api_url, $source->api_key);
@@ -181,6 +201,12 @@ class StatsDataSourceAction
         $source->api_url = $data['api_url'] ?? null;
         $key = $data['api_key'] ?? null;
         $source->api_key = ($key === null || $key === '') ? null : $key;
+        $limit = $data['api_limit'] ?? null;
+        $source->api_limit = ($limit === null || $limit === '') ? null : (int) $limit;
+        $tpl = $data['api_search_template'] ?? null;
+        $source->api_search_template = ($tpl === null || trim((string) $tpl) === '') ? null : (string) $tpl;
+        $f = $data['api_search_field'] ?? null;
+        $source->api_search_field = ($f === null || trim((string) $f) === '') ? null : (string) $f;
 
         if ($verify && $source->api_url) {
             $probe = $this->apiProbe->probe($source->api_url, $source->api_key);
