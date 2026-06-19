@@ -17,6 +17,7 @@ class CreateChannelRequest extends FormRequest
     {
         return [
             'name' => 'required|string|max:255',
+            'handle' => 'required|string|max:50|regex:/^[a-zA-Z0-9_]+$/|unique:channel_profiles,handle',
             'description' => 'sometimes|string|max:1000',
             'category' => ['sometimes', Rule::in(ChannelCategoryEnum::values())],
             'categories' => 'sometimes|array',
@@ -35,6 +36,11 @@ class CreateChannelRequest extends FormRequest
             'name.required' => 'Le nom est requis',
             'name.string' => 'Le nom doit être une chaîne de caractères',
             'name.max' => 'Le nom ne doit pas dépasser 255 caractères',
+            'handle.required' => 'L\'identifiant est requis',
+            'handle.string' => 'L\'identifiant doit être une chaîne de caractères',
+            'handle.max' => 'L\'identifiant ne doit pas dépasser 50 caractères',
+            'handle.regex' => 'L\'identifiant ne peut contenir que des lettres, chiffres et underscores',
+            'handle.unique' => 'Cet identifiant est déjà utilisé',
             'description.string' => 'La description doit être une chaîne de caractères',
             'description.max' => 'La description ne doit pas dépasser 1000 caractères',
             'logo.file' => 'Le logo doit être un fichier',

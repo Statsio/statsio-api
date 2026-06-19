@@ -20,6 +20,7 @@ if [ "${DB_CONNECTION}" = "pgsql" ]; then
     done
 fi
 
-php artisan migrate --force
+echo "🗄️  Running migrations..."
+php artisan migrate --force --no-interaction || echo "⚠️  Migration warning (tables may already exist), continuing..."
 
 exec "$@"

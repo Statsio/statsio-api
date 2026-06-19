@@ -10,7 +10,7 @@ services:
     depends_on:
       - db
       - mailhog
-    # PHP-FPM n’a pas de healthcheck, c’est Nginx qui gère l’accès HTTP
+    # PHP-FPM n'a pas de healthcheck, c'est Nginx qui gère l'accès HTTP
 
   nginx:
     image: nginx:alpine
@@ -54,6 +54,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: statsio-api-worker
+    volumes:
+      - .:/var/www
+    working_dir: /var/www
+    depends_on:
+      - db
+      - app
+    command: ["php", "artisan", "queue:work", "--queue=ingestion,default", "--timeout=300", "--tries=3", "--sleep=3"]
+    restart: unless-stopped
 
   cloudbeaver:
     image: dbeaver/cloudbeaver:25.0.2

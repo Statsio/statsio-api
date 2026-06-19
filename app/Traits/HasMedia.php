@@ -15,7 +15,7 @@ trait HasMedia
         return $this->morphMany(Media::class, 'mediable');
     }
 
-    public function addMedia(UploadedFile $file, string $directory = 'media'): Media
+    public function addMedia(UploadedFile $file, string $directory = 'media', string $collection = ''): Media
     {
         $extension = $file->getClientOriginalExtension();
         $filename = \Illuminate\Support\Str::uuid() . '.' . $extension;
@@ -25,6 +25,7 @@ trait HasMedia
         $media = new Media([
             'path' => $path,
             'type' => $file->getMimeType(),
+            'collection_name' => $collection ?: null,
         ]);
 
         $this->media()->save($media);

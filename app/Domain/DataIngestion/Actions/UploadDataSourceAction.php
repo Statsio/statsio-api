@@ -1,0 +1,59 @@
+<?php
+
+namespace App\Domain\DataIngestion\Actions;
+
+use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
+use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
+use App\Jobs\ProcessDataSourceJob;
+use App\Models\DataIngestion\DataSource;
+use App\Models\User\User;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+
+class UploadDataSourceAction
+{
+    /**
+     * Stocke le fichier brut, crée la DataSource et dispatch le job de traitement.
+     *
+     * @throws UnsupportedFileTypeException
+     */
+    public function execute(UploadedFile $file, User $user, ?string $name = null): DataSource
+    {
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        try {
+            $type = DataSourceTypeEnum::fromExtension($extension);
+        } catch (\ValueError) {
+            throw new UnsupportedFileTypeException($extension);
+        }
+
+        $originalFilename = $file->getClientOriginalName();
+        $storagePath = $this->storeRawFile($file);
+
+        $dataSource = DataSource::create([
+            'user_id' => $user->id,
+            'name' => $name ?? pathinfo($originalFilename, PATHINFO_FILENAME),
+            'type' => $type,
+            'original_filename' => $originalFilename,
+            'raw_storage_path' => $storagePath,
+            'file_size_bytes' => $file->getSize(),
+            'status' => 'pending',
+        ]);
+
+        ProcessDataSourceJob::dispatch($dataSource);
+
+        return $dataSource;
+    }
+
+    private function storeRawFile(UploadedFile $file): string
+    {
+        $uuid = Str::uuid();
+        $extension = strtolower($file->getClientOriginalExtension());
+        $path = "private/datasources/{$uuid}/raw.{$extension}";
+
+        Storage::put($path, file_get_contents($file->getRealPath()));
+
+        return $path;
+    }
+}

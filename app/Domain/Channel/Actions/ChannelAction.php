@@ -7,6 +7,7 @@ use App\Models\Channel\ChannelProfile;
 use App\Domain\Channel\Enums\ChannelStatusEnum;
 use App\Domain\Channel\Actions\ChannelProfileAction;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Auth;
 
 class ChannelAction
 {
@@ -14,7 +15,7 @@ class ChannelAction
         private ChannelProfileAction $profileAction
     ) {}
 
-    public function createChannel(array $data): ChannelProfile
+    public function createChannel(array $data): Channel
     {
         // Créer le channel sans profil d'abord
         $channel = Channel::create([
@@ -23,11 +24,22 @@ class ChannelAction
             'anonymized_at' => $data['anonymized_at'] ?? null,
         ]);
 
+        // Lier l'utilisateur connecté comme owner
+        if ($userId = Auth::id()) {
+            $channel->users()->attach($userId, [
+                'role' => 'owner',
+                'subscribed_at' => now(),
+                'notifications_enabled' => true,
+            ]);
+        }
+
         // Ajouter l'ID du channel aux données
         $data['channel_id'] = $channel->id;
 
         // Créer le profil avec le ChannelProfileAction
-        return $this->profileAction->createProfile($data);
+        $this->profileAction->createProfile($data);
+
+        return $channel->load('profile.channelCategories');
     }
 
     public function updateChannel(Channel $channel, array $data): Channel
@@ -46,9 +58,9 @@ class ChannelAction
         return $channel->delete();
     }
 
-    public function getChannelById(int $id): ?ChannelProfile
+    public function getChannelById(int $id): ?Channel
     {
-        return Channel::with('profile')->find($id)?->profile;
+        return Channel::with('profile.channelCategories')->find($id);
     }
 
     public function getChannelProfileById(int $id): ?ChannelProfile
@@ -58,7 +70,14 @@ class ChannelAction
 
     public function getAllChannels(int $perPage = 15)
     {
-        return Channel::with('profile')->paginate($perPage);
+        return Channel::with('profile.channelCategories')->paginate($perPage);
+    }
+
+    public function getChannelsForUser(int $userId, int $perPage = 15)
+    {
+        return Channel::with('profile.channelCategories')
+            ->whereHas('users', fn ($q) => $q->where('users.id', $userId)->whereIn('channel_users.role', ['owner', 'admin']))
+            ->paginate($perPage);
     }
 
     public function suspendChannel(Channel $channel): Channel

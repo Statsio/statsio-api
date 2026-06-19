@@ -1,18 +1,30 @@
 <?php
 
 use App\Http\Controllers\Api\Channel\ChannelController;
+use App\Http\Controllers\Api\Channel\ChannelValidationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('channels')->name('channels.')->group(function () {
+    // Routes statiques en premier (avant les routes avec paramètres)
+    Route::get('check-handle/{handle}', [ChannelValidationController::class, 'checkHandle'])->name('check-handle');
+    Route::get('categories', [ChannelController::class, 'categories'])->name('categories');
     Route::get('/', [ChannelController::class, 'index'])->name('index');
-    Route::post('/', [ChannelController::class, 'create'])->name('create');
-    Route::get('/{id}', [ChannelController::class, 'show'])->name('show');
-    Route::put('/{id}', [ChannelController::class, 'update'])->name('update');
-    Route::delete('/{id}', [ChannelController::class, 'destroy'])->name('destroy');
-    
-    // Gestion du statut
-    Route::post('/{id}/suspend', [ChannelController::class, 'suspend'])->name('suspend');
-    Route::post('/{id}/ban', [ChannelController::class, 'ban'])->name('ban');
-    Route::post('/{id}/activate', [ChannelController::class, 'activate'])->name('activate');
-    Route::post('/{id}/anonymize', [ChannelController::class, 'anonymize'])->name('anonymize');
+
+    // Route "my" AVANT {id} pour éviter le conflit de routing
+    Route::middleware('auth:api')->group(function () {
+        Route::get('my', [ChannelController::class, 'myChannels'])->name('my');
+        Route::post('/', [ChannelController::class, 'create'])->name('create');
+        Route::put('{id}', [ChannelController::class, 'update'])->name('update');
+        Route::post('{id}/media', [ChannelController::class, 'updateMedia'])->name('update-media');
+        Route::delete('{id}', [ChannelController::class, 'destroy'])->name('destroy');
+        Route::get('{id}/members', [ChannelController::class, 'members'])->name('members');
+        Route::get('{id}/subscribers', [ChannelController::class, 'subscribers'])->name('subscribers');
+        Route::post('{id}/suspend', [ChannelController::class, 'suspend'])->name('suspend');
+        Route::post('{id}/ban', [ChannelController::class, 'ban'])->name('ban');
+        Route::post('{id}/activate', [ChannelController::class, 'activate'])->name('activate');
+        Route::post('{id}/anonymize', [ChannelController::class, 'anonymize'])->name('anonymize');
+    });
+
+    // Route paramétrique en dernier
+    Route::get('{id}', [ChannelController::class, 'show'])->name('show');
 });

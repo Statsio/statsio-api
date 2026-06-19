@@ -4,6 +4,7 @@ namespace App\Domain\Channel\Actions;
 
 use App\Models\Channel\ChannelProfile;
 use App\Models\Channel\ChannelProfileLink;
+use App\Models\Channel\ChannelCategory;
 use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
 use App\Domain\Channel\Enums\ChannelCategoryEnum;
 use Illuminate\Http\UploadedFile;
@@ -13,85 +14,78 @@ class ChannelProfileAction
     public function createProfile(array $data): ChannelProfile
     {
         $profileData = [
-            'channel_id' => $data['channel_id'],
-            'name' => $data['name'],
-            'description' => $data['description'] ?? null,
-            'categories' => $this->normalizeCategories($data['categories'] ?? $data['category'] ?? null),
-            'tags' => $data['tags'] ?? null,
-            'country' => $data['country'] ?? null,
-            'is_featured' => $data['is_featured'] ?? false,
-            'custom_color_primary' => $data['custom_color_primary'] ?? null,
+            'channel_id'             => $data['channel_id'],
+            'name'                   => $data['name'],
+            'handle'                 => $data['handle'],
+            'description'            => $data['description'] ?? null,
+            'tags'                   => $data['tags'] ?? null,
+            'country'                => $data['country'] ?? null,
+            'is_featured'            => $data['is_featured'] ?? false,
+            'custom_color_primary'   => $data['custom_color_primary'] ?? null,
             'custom_color_secondary' => $data['custom_color_secondary'] ?? null,
-            'age_restriction' => isset($data['age_restriction'])
+            'age_restriction'        => isset($data['age_restriction'])
                 ? ChannelAgeRestrictionEnum::fromValue((int) $data['age_restriction'])
                 : ChannelAgeRestrictionEnum::ALL_AGES,
         ];
 
         $channelProfile = ChannelProfile::create($profileData);
 
-        // Uploader et associer le logo si fourni
+        // Associer les catégories via la table pivot
+        $this->syncCategories($channelProfile, $data['categories'] ?? $data['category'] ?? null);
+
         if (isset($data['logo']) && $data['logo'] instanceof UploadedFile) {
-            $channelProfile->addMedia($data['logo'], 'channels/logos');
+            $channelProfile->addMedia($data['logo'], 'channels/logos', 'logo');
         }
 
-        // Uploader et associer la banner si fournie
         if (isset($data['banner']) && $data['banner'] instanceof UploadedFile) {
-            $channelProfile->addMedia($data['banner'], 'channels/banners');
+            $channelProfile->addMedia($data['banner'], 'channels/banners', 'banner');
         }
 
-        return $channelProfile->load('channel');
+        return $channelProfile->load(['channel', 'channelCategories']);
     }
 
     public function updateProfile(ChannelProfile $profile, array $data): ChannelProfile
     {
         $profileData = [];
 
-        // Mettre à jour les champs du profil
-        if (isset($data['name'])) {
-            $profileData['name'] = $data['name'];
-        }
-        if (isset($data['description'])) {
-            $profileData['description'] = $data['description'];
-        }
-        if (isset($data['categories']) || isset($data['category'])) {
-            $profileData['categories'] = $this->normalizeCategories($data['categories'] ?? $data['category']);
-        }
-        if (isset($data['tags'])) {
-            $profileData['tags'] = $data['tags'];
-        }
-        if (isset($data['country'])) {
-            $profileData['country'] = $data['country'];
-        }
-        if (isset($data['is_featured'])) {
-            $profileData['is_featured'] = $data['is_featured'];
-        }
-        if (isset($data['custom_color_primary'])) {
-            $profileData['custom_color_primary'] = $data['custom_color_primary'];
-        }
-        if (isset($data['custom_color_secondary'])) {
-            $profileData['custom_color_secondary'] = $data['custom_color_secondary'];
-        }
+        if (isset($data['name']))                   $profileData['name']                   = $data['name'];
+        if (isset($data['handle']))                 $profileData['handle']                 = $data['handle'];
+        if (isset($data['description']))            $profileData['description']            = $data['description'];
+        if (isset($data['tags']))                   $profileData['tags']                   = $data['tags'];
+        if (isset($data['country']))                $profileData['country']                = $data['country'];
+        if (isset($data['is_featured']))            $profileData['is_featured']            = $data['is_featured'];
+        if (isset($data['custom_color_primary']))   $profileData['custom_color_primary']   = $data['custom_color_primary'];
+        if (isset($data['custom_color_secondary'])) $profileData['custom_color_secondary'] = $data['custom_color_secondary'];
         if (isset($data['age_restriction'])) {
             $profileData['age_restriction'] = ChannelAgeRestrictionEnum::fromValue((int) $data['age_restriction']);
         }
 
-        $profile->update($profileData);
+        if (!empty($profileData)) {
+            $profile->update($profileData);
+        }
 
-        // Uploader et associer le logo si fourni
+        // Sync catégories si fournies
+        if (isset($data['categories']) || isset($data['category'])) {
+            $this->syncCategories($profile, $data['categories'] ?? $data['category']);
+        }
+
+        // Logo
         if (isset($data['logo']) && $data['logo'] instanceof UploadedFile) {
-            // Supprimer l'ancien logo s'il existe
-            $profile->clearMedia();
-            $profile->addMedia($data['logo'], 'channels/logos');
+            $profile->media()->where('collection_name', 'logo')->get()->each(function ($m) {
+                app(\App\Domain\Media\Actions\MediaAction::class)->delete($m);
+            });
+            $profile->addMedia($data['logo'], 'channels/logos', 'logo');
         }
 
-        // Uploader et associer la banner si fournie
+        // Bannière
         if (isset($data['banner']) && $data['banner'] instanceof UploadedFile) {
-            // Supprimer l'ancienne banner si elle existe
-            $profile->clearMedia();
-            $profile->addMedia($data['banner'], 'channels/banners');
+            $profile->media()->where('collection_name', 'banner')->get()->each(function ($m) {
+                app(\App\Domain\Media\Actions\MediaAction::class)->delete($m);
+            });
+            $profile->addMedia($data['banner'], 'channels/banners', 'banner');
         }
 
-        return $profile->load('channel');
+        return $profile->load(['channel', 'channelCategories']);
     }
 
     public function getProfileById(int $id): ?ChannelProfile
@@ -230,20 +224,21 @@ class ChannelProfileAction
         return $profile->channelProfileLinks()->get();
     }
 
-    private function normalizeCategories(mixed $categories): ?array
+    private function syncCategories(ChannelProfile $profile, mixed $categories): void
     {
         if ($categories === null) {
-            return null;
+            $profile->channelCategories()->detach();
+            return;
         }
 
-        $categoriesArray = is_array($categories) ? $categories : [$categories];
+        $slugs = is_array($categories) ? $categories : [$categories];
         $allowed = ChannelCategoryEnum::values();
-
-        $normalized = array_values(array_unique(array_filter(
-            $categoriesArray,
-            static fn ($category) => is_string($category) && in_array($category, $allowed, true)
+        $slugs = array_values(array_unique(array_filter(
+            $slugs,
+            static fn ($s) => is_string($s) && in_array($s, $allowed, true)
         )));
 
-        return $normalized !== [] ? $normalized : null;
+        $ids = ChannelCategory::whereIn('slug', $slugs)->pluck('id')->toArray();
+        $profile->channelCategories()->sync($ids);
     }
 }

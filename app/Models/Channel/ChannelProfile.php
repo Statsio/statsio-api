@@ -4,6 +4,7 @@ namespace App\Models\Channel;
 
 use App\Traits\HasMedia;
 use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
+use App\Models\Channel\ChannelCategory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -14,14 +15,13 @@ class ChannelProfile extends Model
     protected $fillable = [
         'channel_id',
         'name',
+        'handle',
         'description',
         'logo',
         'banner',
-        'categories',
         'tags',
         'country',
         'is_featured',
-        'subscriber_count',
         'view_count',
         'custom_color_primary',
         'custom_color_secondary',
@@ -30,12 +30,53 @@ class ChannelProfile extends Model
 
     protected $casts = [
         'is_featured' => 'boolean',
-        'subscriber_count' => 'integer',
-        'view_count' => 'integer',
+        'view_count'  => 'integer',
         'age_restriction' => ChannelAgeRestrictionEnum::class,
-        'categories' => 'array',
         'tags' => 'array',
     ];
+
+    protected $appends = ['subscriber_count', 'logo_url', 'banner_url', 'categories'];
+
+    public function getSubscriberCountAttribute(): int
+    {
+        return $this->channel?->subscribers()->count() ?? 0;
+    }
+
+    public function getCategoriesAttribute(): array
+    {
+        return $this->channelCategories->pluck('slug')->toArray();
+    }
+
+    public function channelCategories(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(
+            ChannelCategory::class,
+            'channel_profile_categories',
+            'channel_profile_id',
+            'channel_category_id'
+        )->orderBy('position');
+    }
+
+    public function getLogoUrlAttribute(): ?string
+    {
+        $media = $this->media()->where('collection_name', 'logo')->latest()->first();
+        return $media ? $media->getUrl() : null;
+    }
+
+    public function getBannerUrlAttribute(): ?string
+    {
+        $media = $this->media()->where('collection_name', 'banner')->latest()->first();
+        return $media ? $media->getUrl() : null;
+    }
+
+    public function toArray(): array
+    {
+        $array = parent::toArray();
+        if (isset($array['age_restriction']) && $array['age_restriction'] instanceof ChannelAgeRestrictionEnum) {
+            $array['age_restriction'] = $array['age_restriction']->value;
+        }
+        return $array;
+    }
 
     public function channel()
     {
