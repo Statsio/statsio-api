@@ -25,6 +25,28 @@ class UserController extends Controller
         ]);
     }
 
+    public function update(Request $request)
+    {
+        $data = $request->validate([
+            'first_name' => 'sometimes|nullable|string|max:100',
+            'last_name'  => 'sometimes|nullable|string|max:100',
+        ]);
+
+        $user = $request->user();
+        if ($user->profile) {
+            $user->profile->update($data);
+        } else {
+            $user->profile()->create($data);
+        }
+
+        $user->load('profile');
+
+        return response()->json([
+            'success' => true,
+            'data' => ['user' => $user],
+        ]);
+    }
+
     public function anonymize(Request $request, AnonymizeAction $action)
     {
         $action->execute($request->user());

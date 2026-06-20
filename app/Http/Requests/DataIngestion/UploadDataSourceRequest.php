@@ -20,7 +20,7 @@ class UploadDataSourceRequest extends FormRequest
                 'required',
                 'file',
                 "max:{$maxSizeKb}",
-                'mimes:csv,txt,xlsx,xls,json',
+                'extensions:csv,txt,xlsx,xls,json,parquet',
             ],
             'name' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
@@ -32,7 +32,7 @@ class UploadDataSourceRequest extends FormRequest
             'file.required' => 'Un fichier est requis.',
             'file.file' => 'Le champ doit être un fichier.',
             'file.max' => 'Le fichier ne doit pas dépasser 100 Mo.',
-            'file.mimes' => 'Format non supporté. Formats acceptés : CSV, XLSX, JSON.',
+            'file.extensions' => 'Format non supporté. Formats acceptés : CSV, XLSX, JSON, Parquet.',
             'name.max' => 'Le nom ne doit pas dépasser 255 caractères.',
         ];
     }

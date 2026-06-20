@@ -7,6 +7,7 @@ enum DataSourceTypeEnum: string
     case CSV = 'csv';
     case XLSX = 'xlsx';
     case JSON = 'json';
+    case PARQUET = 'parquet';
 
     public static function fromMimeType(string $mimeType): self
     {
@@ -15,6 +16,7 @@ enum DataSourceTypeEnum: string
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'application/vnd.ms-excel' => self::XLSX,
             'application/json' => self::JSON,
+            'application/vnd.apache.parquet', 'application/octet-stream' => self::PARQUET,
             default => throw new \ValueError("Unsupported MIME type: {$mimeType}"),
         };
     }
@@ -25,6 +27,7 @@ enum DataSourceTypeEnum: string
             'csv' => self::CSV,
             'xlsx', 'xls' => self::XLSX,
             'json' => self::JSON,
+            'parquet' => self::PARQUET,
             default => throw new \ValueError("Unsupported extension: {$extension}"),
         };
     }
@@ -35,6 +38,7 @@ enum DataSourceTypeEnum: string
             self::CSV => 'Fichier CSV',
             self::XLSX => 'Fichier Excel',
             self::JSON => 'Fichier JSON',
+            self::PARQUET => 'Fichier Parquet',
         };
     }
 }

@@ -63,11 +63,26 @@ class DatasetController extends Controller
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
-        $limit   = min((int) $request->query('limit', 500), 5000);
-        $columns = $request->query('columns', []);
-        $filters = $request->query('filters', []);
+        $limit    = min((int) $request->query('limit', 500), 5000);
+        $columns  = $request->query('columns', []);
+        $filters  = $request->query('filters', []);
+        $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
         if (! is_array($columns)) $columns = [];
         if (! is_array($filters)) $filters = [];
+
+        if ($distinct && count($columns) === 1) {
+            $col    = $columns[0];
+            $search = (string) $request->query('search', '');
+            $rows   = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'columns'    => [$col],
+                    'rows'       => array_map(fn($v) => [$col => $v], $rows),
+                    'total_rows' => count($rows),
+                ],
+            ]);
+        }
 
         [$allColumns, $rows, $total] = $this->resolveRows(
             $dataset,
@@ -150,6 +165,57 @@ class DatasetController extends Controller
         }
 
         return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
+    }
+
+    private function resolveDistinctValues(Dataset $dataset, string $column, int $limit, string $search = ''): array
+    {
+        $version = $dataset->latestVersion;
+
+        if (! $version?->parquet_storage_path) return [];
+
+        $absolutePath = Storage::path($version->parquet_storage_path);
+        if (! file_exists($absolutePath)) return [];
+
+        $raw     = file_get_contents($absolutePath);
+        $decoded = json_decode($raw, true);
+
+        // Mock parquet path — scan all rows, no hard limit before filtering
+        if (is_array($decoded) && isset($decoded['__mock__'])) {
+            $allColumns = $decoded['schema'] ?? [];
+            $allRows    = $decoded['data'] ?? [];
+            $needle     = mb_strtolower($search);
+
+            $seen = [];
+            foreach ($allRows as $row) {
+                $assoc = array_is_list($row) ? array_combine($allColumns, $row) : $row;
+                $val   = $assoc[$column] ?? null;
+                if ($val === null || $val === '') continue;
+                $str = (string) $val;
+                if ($needle !== '' && mb_stripos($str, $needle) === false) continue;
+                $seen[$str] = true;
+            }
+            $values = array_keys($seen);
+            sort($values);
+            return array_slice($values, 0, $limit);
+        }
+
+        // Real Parquet via DuckDB
+        $escapedPath = escapeshellarg($absolutePath);
+        $escapedCol  = '"' . str_replace('"', '""', $column) . '"';
+        $whereSearch = $search !== ''
+            ? " AND lower({$escapedCol}::VARCHAR) LIKE lower(" . escapeshellarg('%' . $search . '%') . ")"
+            : '';
+        $sql    = "SELECT DISTINCT {$escapedCol} FROM read_parquet({$escapedPath}) WHERE {$escapedCol} IS NOT NULL{$whereSearch} ORDER BY {$escapedCol} LIMIT {$limit}";
+        $output = shell_exec('duckdb -json -c ' . escapeshellarg($sql) . ' 2>/dev/null');
+
+        if ($output) {
+            $jsonRows = json_decode($output, true);
+            if (is_array($jsonRows)) {
+                return array_values(array_filter(array_map(fn($r) => (string) ($r[$column] ?? ''), $jsonRows), fn($v) => $v !== ''));
+            }
+        }
+
+        return [];
     }
 
     private function matchesFilters(array $row, array $filters): bool

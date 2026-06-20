@@ -5,6 +5,7 @@ namespace App\Domain\DataIngestion\Actions;
 use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
 use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
 use App\Jobs\ProcessDataSourceJob;
+use App\Jobs\ProcessParquetJob;
 use App\Models\DataIngestion\DataSource;
 use App\Models\User\User;
 use Illuminate\Http\UploadedFile;
@@ -41,7 +42,11 @@ class UploadDataSourceAction
             'status' => 'pending',
         ]);
 
-        ProcessDataSourceJob::dispatch($dataSource);
+        if ($type === DataSourceTypeEnum::PARQUET) {
+            ProcessParquetJob::dispatch($dataSource);
+        } else {
+            ProcessDataSourceJob::dispatch($dataSource);
+        }
 
         return $dataSource;
     }
