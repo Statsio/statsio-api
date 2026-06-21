@@ -59,16 +59,23 @@ class DatasetController extends Controller
 
     public function query(Request $request, Dataset $dataset): JsonResponse
     {
-        if ($dataset->user_id !== $request->user()->id) {
+        $userId = $request->user()->id;
+
+        if ($dataset->user_id !== $userId) {
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
-        $limit    = min((int) $request->query('limit', 500), 5000);
-        $columns  = $request->query('columns', []);
-        $filters  = $request->query('filters', []);
-        $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
-        if (! is_array($columns)) $columns = [];
-        if (! is_array($filters)) $filters = [];
+        $limit      = min((int) $request->query('limit', 500), 5000);
+        $columns    = $request->query('columns', []);
+        $filters    = $request->query('filters', []);
+        $joins      = $request->query('joins', []);
+        $searchQ    = (string) $request->query('search_q', '');
+        $searchCols = $request->query('search_columns', []);
+        $distinct   = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        if (! is_array($columns))    $columns    = [];
+        if (! is_array($filters))    $filters    = [];
+        if (! is_array($joins))      $joins      = [];
+        if (! is_array($searchCols)) $searchCols = [];
 
         if ($distinct && count($columns) === 1) {
             $col    = $columns[0];
@@ -89,6 +96,10 @@ class DatasetController extends Controller
             count($columns) ? $columns : null,
             $filters,
             $limit,
+            $joins,
+            $userId,
+            $searchQ,
+            $searchCols,
         );
 
         $finalColumns = count($columns) ? array_values(array_intersect($allColumns, $columns)) : $allColumns;
@@ -107,8 +118,9 @@ class DatasetController extends Controller
      * Returns [columns, rows (as assoc arrays), total_row_count].
      *
      * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     * @param  array<int, array{dataset_id: string, left_column: string, right_column: string, columns: array<string>, type: string}>  $joins
      */
-    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit): array
+    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = []): array
     {
         $version = $dataset->latestVersion;
 
@@ -134,26 +146,85 @@ class DatasetController extends Controller
             foreach ($allRows as $row) {
                 $assoc = array_combine($allColumns, $row);
                 if (! $this->matchesFilters($assoc, $filters)) continue;
-                $rows[] = $selectColumns ? array_intersect_key($assoc, array_flip($selectColumns)) : $assoc;
+                if (! $this->matchesSearchQ($assoc, $searchQ, $searchCols)) continue;
+                $rows[] = $assoc;
                 if (count($rows) >= $limit) break;
+            }
+
+            // Apply each join using a hash join
+            foreach ($joins as $join) {
+                $rows       = $this->applyMockJoin($rows, $allColumns, $join, $userId);
+                $joinCols   = (array) ($join['columns'] ?? []);
+                foreach ($joinCols as $jc) {
+                    if (! in_array($jc, $allColumns)) $allColumns[] = $jc;
+                }
+            }
+
+            // Select columns after join so joined columns are included
+            if ($selectColumns) {
+                $rows = array_map(
+                    fn($r) => array_intersect_key($r, array_flip($selectColumns)),
+                    $rows,
+                );
             }
 
             $totalAfterFilter = count(array_filter(
                 $allRows,
-                fn($r) => $this->matchesFilters(array_combine($allColumns, $r), $filters),
+                fn($r) => $this->matchesFilters(array_combine($decoded['schema'] ?? [], $r), $filters),
             ));
 
             return [$allColumns, $rows, $totalAfterFilter];
         }
 
-        // Real Parquet via DuckDB CLI — build SQL WHERE clause
+        // Real Parquet via DuckDB CLI
         $escapedPath = escapeshellarg($absolutePath);
-        $colClause   = $selectColumns
-            ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
-            : '*';
 
-        $where = $this->buildDuckDbWhere($filters);
-        $sql   = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where} LIMIT {$limit}";
+        if (! empty($joins)) {
+            // Build JOIN SQL with DuckDB
+            $colClause = $selectColumns
+                ? implode(', ', array_map(fn($c) => 't0."' . str_replace('"', '""', $c) . '"', $selectColumns))
+                : 't0.*';
+
+            $joinSql = '';
+            foreach ($joins as $idx => $join) {
+                $joinDataset = Dataset::where('id', (int) ($join['dataset_id'] ?? 0))
+                    ->where('user_id', $userId)
+                    ->first();
+                if (! $joinDataset) continue;
+
+                $joinVersion = $joinDataset->latestVersion;
+                if (! $joinVersion?->parquet_storage_path) continue;
+
+                $joinPath = Storage::path($joinVersion->parquet_storage_path);
+                if (! file_exists($joinPath)) continue;
+
+                $alias     = "t" . ($idx + 1);
+                $jType     = strtoupper(in_array($join['type'] ?? '', ['inner', 'left']) ? $join['type'] : 'left');
+                $leftCol   = '"' . str_replace('"', '""', $join['left_column'] ?? '') . '"';
+                $rightCol  = '"' . str_replace('"', '""', $join['right_column'] ?? '') . '"';
+                $joinCols  = (array) ($join['columns'] ?? []);
+
+                foreach ($joinCols as $jc) {
+                    $colClause .= ', ' . $alias . '."' . str_replace('"', '""', $jc) . '"';
+                }
+
+                $joinSql .= " {$jType} JOIN read_parquet(" . escapeshellarg($joinPath) . ") {$alias}";
+                $joinSql .= " ON t0.{$leftCol} = {$alias}.{$rightCol}";
+            }
+
+            $where = $this->buildDuckDbWhere($filters, 't0');
+            $where = $this->appendSearchClause($where, $searchQ, $searchCols, 't0');
+            $sql   = "SELECT {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where} LIMIT {$limit}";
+        } else {
+            $colClause = $selectColumns
+                ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
+                : '*';
+
+            $where = $this->buildDuckDbWhere($filters);
+            $where = $this->appendSearchClause($where, $searchQ, $searchCols);
+            $sql   = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where} LIMIT {$limit}";
+        }
+
         $output = shell_exec('duckdb -json -c ' . escapeshellarg($sql) . ' 2>/dev/null');
 
         if ($output) {
@@ -165,6 +236,71 @@ class DatasetController extends Controller
         }
 
         return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
+    }
+
+    /**
+     * Hash join for mock parquet datasets.
+     *
+     * @param  array<int, array<string, mixed>>  $primaryRows
+     * @param  array<string>  $primaryColumns
+     * @param  array{dataset_id: string, left_column: string, right_column: string, columns: array<string>, type: string}  $join
+     */
+    private function applyMockJoin(array $primaryRows, array $primaryColumns, array $join, int $userId): array
+    {
+        $joinDataset = Dataset::where('id', (int) ($join['dataset_id'] ?? 0))
+            ->where('user_id', $userId)
+            ->first();
+
+        if (! $joinDataset) return $primaryRows;
+
+        $joinVersion = $joinDataset->latestVersion;
+        if (! $joinVersion?->parquet_storage_path) return $primaryRows;
+
+        $joinPath = Storage::path($joinVersion->parquet_storage_path);
+        if (! file_exists($joinPath)) return $primaryRows;
+
+        $joinRaw     = file_get_contents($joinPath);
+        $joinDecoded = json_decode($joinRaw, true);
+
+        if (! is_array($joinDecoded) || ! isset($joinDecoded['__mock__'])) return $primaryRows;
+
+        $jSchema   = $joinDecoded['schema'] ?? [];
+        $leftCol   = (string) ($join['left_column'] ?? '');
+        $rightCol  = (string) ($join['right_column'] ?? '');
+        $joinCols  = (array) ($join['columns'] ?? []);
+        $isInner   = ($join['type'] ?? 'left') === 'inner';
+
+        // Build hash index: rightColumn value → first matching row (1:1 join)
+        $index = [];
+        foreach ($joinDecoded['data'] ?? [] as $jRow) {
+            $jAssoc = array_combine($jSchema, $jRow);
+            $key    = (string) ($jAssoc[$rightCol] ?? '');
+            if ($key !== '' && ! isset($index[$key])) {
+                $index[$key] = $jAssoc;
+            }
+        }
+
+        $nullRow = array_fill_keys($joinCols, null);
+        $result  = [];
+
+        foreach ($primaryRows as $row) {
+            $key   = (string) ($row[$leftCol] ?? '');
+            $match = $index[$key] ?? null;
+
+            if ($match === null) {
+                if (! $isInner) {
+                    $result[] = array_merge($row, $nullRow);
+                }
+            } else {
+                $merged = $row;
+                foreach ($joinCols as $jc) {
+                    $merged[$jc] = $match[$jc] ?? null;
+                }
+                $result[] = $merged;
+            }
+        }
+
+        return $result;
     }
 
     private function resolveDistinctValues(Dataset $dataset, string $column, int $limit, string $search = ''): array
@@ -246,13 +382,37 @@ class DatasetController extends Controller
         return true;
     }
 
-    private function buildDuckDbWhere(array $filters): string
+    private function matchesSearchQ(array $row, string $searchQ, array $searchCols): bool
+    {
+        if ($searchQ === '' || empty($searchCols)) return true;
+        $needle = mb_strtolower($searchQ);
+        foreach ($searchCols as $col) {
+            if (mb_stripos((string) ($row[$col] ?? ''), $needle) !== false) return true;
+        }
+        return false;
+    }
+
+    private function appendSearchClause(string $where, string $searchQ, array $searchCols, string $tableAlias = ''): string
+    {
+        if ($searchQ === '' || empty($searchCols)) return $where;
+        $prefix   = $tableAlias ? "{$tableAlias}." : '';
+        $val      = "'" . str_replace("'", "''", $searchQ) . "'";
+        $clauses  = array_map(function ($col) use ($prefix, $val) {
+            $c = $prefix . '"' . str_replace('"', '""', $col) . '"';
+            return "LOWER({$c}::VARCHAR) LIKE LOWER(CONCAT('%', {$val}, '%'))";
+        }, $searchCols);
+        $clause = '(' . implode(' OR ', $clauses) . ')';
+        return $where === '' ? " WHERE {$clause}" : "{$where} AND {$clause}";
+    }
+
+    private function buildDuckDbWhere(array $filters, string $tableAlias = ''): string
     {
         if (empty($filters)) return '';
 
+        $prefix  = $tableAlias ? "{$tableAlias}." : '';
         $clauses = [];
         foreach ($filters as $filter) {
-            $col   = '"' . str_replace('"', '""', $filter['column'] ?? '') . '"';
+            $col   = $prefix . '"' . str_replace('"', '""', $filter['column'] ?? '') . '"';
             $val   = "'" . str_replace("'", "''", $filter['value'] ?? '') . "'";
             $op    = $filter['operator'] ?? '=';
 
