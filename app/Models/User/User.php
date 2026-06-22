@@ -28,6 +28,7 @@ class User extends Authenticatable
         'google_id',
         'email_verified_at',
         'status',
+        'is_admin',
         'suspended_until',
         'anonymized_at',
     ];
@@ -52,6 +53,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_admin' => 'boolean',
             'suspended_until' => 'datetime',
             'anonymized_at' => 'datetime',
         ];

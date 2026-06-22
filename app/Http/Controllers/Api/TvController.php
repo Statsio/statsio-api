@@ -7,12 +7,22 @@ use App\Domain\Tv\Actions\GetChannelSchedulesAction;
 use App\Domain\Tv\Actions\ToggleBroadcastViewAction;
 use App\Domain\Tv\Data\CncAudiencesData;
 use App\Models\Tv\TvBroadcast;
+use App\Models\Tv\TvChannel;
 use App\Models\Tv\TvUserView;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class TvController extends Controller
 {
+    public function channels(): JsonResponse
+    {
+        $channels = TvChannel::where('is_active', true)
+            ->orderBy('number')
+            ->get(['id', 'slug', 'number', 'display_name', 'epg_channel_id', 'logo_url']);
+
+        return response()->json($channels);
+    }
+
     public function epg(
         Request $request,
         GetChannelSchedulesAction $getSchedules,

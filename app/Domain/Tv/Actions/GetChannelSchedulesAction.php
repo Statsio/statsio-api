@@ -3,6 +3,7 @@
 namespace App\Domain\Tv\Actions;
 
 use App\Models\Tv\TvBroadcast;
+use App\Models\Tv\TvChannel;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -19,10 +20,17 @@ class GetChannelSchedulesAction
      */
     public function execute(string $date): array
     {
-        // Import from XMLTV if the DB has no data for this date
         if (!$this->hasDataForDate($date)) {
-            $xml = $this->fetchEpg->execute();
-            $this->storeBroadcasts->execute($xml, $date);
+            $channels = TvChannel::where('is_active', true)
+                ->whereNotNull('epg_channel_id')
+                ->get(['slug', 'epg_channel_id']);
+
+            foreach ($channels as $channel) {
+                $entries = $this->fetchEpg->execute($channel->epg_channel_id);
+                if (!empty($entries)) {
+                    $this->storeBroadcasts->execute($entries, $channel->slug, $date);
+                }
+            }
         }
 
         return $this->loadFromDatabase($date);
@@ -84,7 +92,6 @@ class GetChannelSchedulesAction
             ];
         }
 
-        // Shape into [{ channelId, programmes }]
         $result = [];
         foreach ($schedules as $channelId => $programmes) {
             $result[] = ['channelId' => $channelId, 'programmes' => $programmes];
