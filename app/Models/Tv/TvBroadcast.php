@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TvBroadcast extends Model
 {
-    protected $fillable = ['program_id', 'tv_channel_id', 'start_at', 'end_at', 'season', 'episode'];
+    protected $fillable = ['program_id', 'tv_channel_id', 'start_at', 'end_at', 'season', 'episode', 'broadcast_type'];
 
     protected $casts = [
         'start_at' => 'datetime',

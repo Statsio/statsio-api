@@ -11,7 +11,7 @@ class TvAudience extends Model
     public $incrementing = false;
     public $timestamps = false;
 
-    protected $fillable = ['broadcast_id', 'viewers', 'pda', 'rank'];
+    protected $fillable = ['broadcast_id', 'viewers', 'pda', 'rank', 'mediametrie_viewers'];
 
     protected $casts = [
         'viewers' => 'integer',

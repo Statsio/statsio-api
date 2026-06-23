@@ -1,0 +1,24 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('tv_programs', function (Blueprint $table) {
+            $table->string('image_url', 500)->nullable()->after('description');
+            $table->string('youtube_url', 500)->nullable()->after('image_url');
+            $table->boolean('is_tvstats_pick')->default(false)->after('youtube_url');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('tv_programs', function (Blueprint $table) {
+            $table->dropColumn(['image_url', 'youtube_url', 'is_tvstats_pick']);
+        });
+    }
+};
