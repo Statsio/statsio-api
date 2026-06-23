@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\AdminBroadcastController;
 use App\Http\Controllers\Api\Admin\AdminCategoryController;
 use App\Http\Controllers\Api\Admin\AdminChannelController;
 use App\Http\Controllers\Api\Admin\AdminProgramController;
+use App\Http\Controllers\Api\Admin\AdminReviewQuestionController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use Illuminate\Support\Facades\Route;
 
@@ -34,6 +35,12 @@ Route::middleware(['auth:api', 'admin'])->prefix('admin')->name('admin.')->group
     Route::get('/tv/programs/{id}', [AdminProgramController::class, 'show'])->name('tv.programs.show');
     Route::patch('/tv/programs/{id}', [AdminProgramController::class, 'update'])->name('tv.programs.update');
     Route::delete('/tv/programs/{id}', [AdminProgramController::class, 'destroy'])->name('tv.programs.destroy');
+
+    // Review Questions
+    Route::get('/tv/review-questions', [AdminReviewQuestionController::class, 'index'])->name('tv.review-questions.index');
+    Route::post('/tv/review-questions', [AdminReviewQuestionController::class, 'store'])->name('tv.review-questions.store');
+    Route::patch('/tv/review-questions/{id}', [AdminReviewQuestionController::class, 'update'])->name('tv.review-questions.update');
+    Route::delete('/tv/review-questions/{id}', [AdminReviewQuestionController::class, 'destroy'])->name('tv.review-questions.destroy');
 
     // Broadcasts
     Route::get('/tv/broadcasts', [AdminBroadcastController::class, 'index'])->name('tv.broadcasts.index');
