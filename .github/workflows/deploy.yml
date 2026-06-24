@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     environment: Production
 
     steps:
@@ -20,31 +21,32 @@ jobs:
 
           mkdir -p ~/.ssh
 
-          # clé privée
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          # clé privée (IMPORTANT: conserve les retours ligne)
+          printf "%s" "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          # known_hosts (évite les prompts interactifs)
+          # known_hosts pour éviter le prompt
           ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy to server
+      - name: Deploy to LWS server
         run: |
           set -e
 
           ssh -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=yes \
             ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
 
             set -e
 
             cd ~/public_html/statsio/statsio-api
 
-            echo "📥 Pull code"
+            echo "📥 Pull latest code"
             git pull origin main
 
-            echo "📦 Composer install"
+            echo "📦 Install dependencies"
             composer install --no-dev --optimize-autoloader
 
-            echo "🧱 Laravel optimize"
+            echo "⚙️ Laravel cache"
             php artisan migrate --force
             php artisan config:cache
             php artisan route:cache
