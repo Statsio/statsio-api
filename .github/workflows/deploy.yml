@@ -17,6 +17,16 @@ jobs:
           echo "HOST defined: ${{ secrets.SSH_HOST != '' }}"
           echo "KEY defined: ${{ secrets.SSH_PRIVATE_KEY != '' }}"
           
+      - name: Debug SSH
+        run: |
+          echo "HOST=${{ secrets.SSH_HOST }}"
+          nslookup "${{ secrets.SSH_HOST }}" || true
+          nc -zv "${{ secrets.SSH_HOST }}" 22 || true
+          
+      - name: Debug SSH 2
+        run: |
+          ping -c 3 "${{ secrets.SSH_HOST }}" || true
+          
       - name: Checkout
         uses: actions/checkout@v4
 
