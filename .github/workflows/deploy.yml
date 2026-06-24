@@ -11,6 +11,12 @@ jobs:
     environment: Production
 
     steps:
+      - name: Debug secrets
+        run: |
+          echo "USER defined: ${{ secrets.SSH_USER != '' }}"
+          echo "HOST defined: ${{ secrets.SSH_HOST != '' }}"
+          echo "KEY defined: ${{ secrets.SSH_PRIVATE_KEY != '' }}"
+          
       - name: Checkout
         uses: actions/checkout@v4
 
