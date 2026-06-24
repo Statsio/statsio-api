@@ -44,7 +44,7 @@ jobs:
           php artisan key:generate --force
 
       - name: Run tests
-        run: php artisan test --parallel --stop-on-failure
+        run: php artisan test --stop-on-failure
         env:
           APP_ENV: testing
           DB_CONNECTION: sqlite
