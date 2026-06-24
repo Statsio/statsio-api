@@ -78,7 +78,7 @@ class TvController extends Controller
             ->where('q.is_active', true)
             ->groupBy('q.id', 'q.label', 'q.sort_order')
             ->orderBy('q.sort_order')
-            ->select('q.id as question_id', 'q.label', DB::raw('round(avg(s.score)::numeric, 1) as avg_score'), DB::raw('count(*) as vote_count'))
+            ->select('q.id as question_id', 'q.label', DB::raw('ROUND(CAST(AVG(s.score) AS DECIMAL(10,1)), 1) as avg_score'), DB::raw('count(*) as vote_count'))
             ->get()
             ->map(fn($r) => [
                 'questionId' => $r->question_id,
