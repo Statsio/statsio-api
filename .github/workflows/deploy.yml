@@ -8,49 +8,43 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     environment: Production
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup SSH
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add known host
         run: |
-          set -e
-
-          mkdir -p ~/.ssh
-
-          # clé privée (IMPORTANT: conserve les retours ligne)
-          printf "%s" "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-
-          # known_hosts pour éviter le prompt
           ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy to LWS server
+      - name: Deploy
         run: |
           set -e
 
-          ssh -i ~/.ssh/id_ed25519 \
-            -o StrictHostKeyChecking=yes \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
+          ssh -o StrictHostKeyChecking=yes \
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} << 'EOF'
 
             set -e
 
             cd ~/public_html/statsio/statsio-api
 
-            echo "📥 Pull latest code"
+            echo "📥 git pull"
             git pull origin main
 
-            echo "📦 Install dependencies"
+            echo "📦 composer install"
             composer install --no-dev --optimize-autoloader
 
-            echo "⚙️ Laravel cache"
+            echo "⚙️ laravel cache"
             php artisan migrate --force
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
 
-            echo "✅ Deploy OK"
+            echo "✅ DEPLOY OK"
           EOF
