@@ -26,7 +26,7 @@ class DataIngestionOrchestrator
 
     /**
      * Exécute le pipeline complet pour une DataSource donnée :
-     * parse → inférence schema → écriture Parquet → persistance en base.
+     * parse → inférence schema → écriture Parquet locale → upload R2 → persistance en base.
      *
      * @throws \App\Domain\DataIngestion\Exceptions\FileParsingException
      * @throws \App\Domain\DataIngestion\Exceptions\ParquetConversionException
@@ -35,61 +35,67 @@ class DataIngestionOrchestrator
     public function process(DataSource $dataSource): Dataset
     {
         $dataSource->markAsProcessing();
+        $localTempPath = null;
 
         try {
-            $dataset = DB::transaction(function () use ($dataSource) {
-                // 1. Parse the raw file
-                $absolutePath = Storage::path($dataSource->raw_storage_path);
-                $parser = $this->parserFactory->make($dataSource->type);
-                $parsed = $parser->parse($absolutePath, $this->maxRows);
+            // 1. Parse raw file (local)
+            $absolutePath = Storage::path($dataSource->raw_storage_path);
+            $parser = $this->parserFactory->make($dataSource->type);
+            $parsed = $parser->parse($absolutePath, $this->maxRows);
 
-                // 2. Infer schema
-                $schema = $this->schemaInferenceService->infer($parsed);
+            // 2. Infer schema
+            $schema = $this->schemaInferenceService->infer($parsed);
 
-                // 3. Determine Parquet destination path
-                $parquetStoragePath = $this->buildParquetPath($dataSource);
-                $parquetAbsolutePath = Storage::path($parquetStoragePath);
+            // 3. Write Parquet to local temp path
+            $r2Path = $this->buildR2Path($dataSource);
+            $localTempPath = storage_path('app/temp/' . $r2Path);
+            $this->ensureDirectory(dirname($localTempPath));
+            $this->parquetWriter->write($parsed, $localTempPath);
 
-                // 4. Write Parquet file
-                $this->parquetWriter->write($parsed, $parquetAbsolutePath);
+            // 4. Compute metadata from local file
+            $fileSizeBytes = filesize($localTempPath) ?: null;
+            $checksum = md5_file($localTempPath) ?: null;
 
-                $fileSizeBytes = filesize($parquetAbsolutePath) ?: null;
-                $checksum = md5_file($parquetAbsolutePath) ?: null;
+            // 5. Upload to R2
+            $stream = fopen($localTempPath, 'r');
+            Storage::disk('r2-datasets')->put($r2Path, $stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
 
-                // 5. Create Dataset record
+            // 6. Persist to DB
+            $dataset = DB::transaction(function () use ($dataSource, $parsed, $schema, $r2Path, $fileSizeBytes, $checksum) {
                 $dataset = Dataset::create([
                     'data_source_id' => $dataSource->id,
-                    'user_id' => $dataSource->user_id,
-                    'name' => $dataSource->name,
-                    'parquet_path' => $parquetStoragePath,
-                    'row_count' => $parsed->rowCount,
-                    'status' => 'ready',
+                    'user_id'        => $dataSource->user_id,
+                    'name'           => $dataSource->name,
+                    'parquet_path'   => $r2Path,
+                    'row_count'      => $parsed->rowCount,
+                    'status'         => 'ready',
                 ]);
 
-                // 6. Create DatasetColumn records
                 $columnRecords = [];
                 foreach ($schema as $columnName => $columnMeta) {
                     $columnRecords[] = [
-                        'dataset_id' => $dataset->id,
-                        'name' => $columnName,
-                        'type' => $columnMeta['type']->value,
-                        'nullable' => $columnMeta['nullable'],
-                        'sample_values' => json_encode($columnMeta['sample_values']),
+                        'dataset_id'   => $dataset->id,
+                        'name'         => $columnName,
+                        'type'         => $columnMeta['type']->value,
+                        'nullable'     => $columnMeta['nullable'],
+                        'sample_values'=> json_encode($columnMeta['sample_values']),
                         'column_order' => array_search($columnName, $parsed->headers),
-                        'created_at' => now(),
-                        'updated_at' => now(),
+                        'created_at'   => now(),
+                        'updated_at'   => now(),
                     ];
                 }
                 DatasetColumn::insert($columnRecords);
 
-                // 7. Create DatasetVersion record (first version)
                 DatasetVersion::create([
-                    'dataset_id' => $dataset->id,
-                    'version_number' => 1,
-                    'parquet_storage_path' => $parquetStoragePath,
-                    'file_size_bytes' => $fileSizeBytes,
-                    'row_count' => $parsed->rowCount,
-                    'checksum' => $checksum,
+                    'dataset_id'           => $dataset->id,
+                    'version_number'       => 1,
+                    'parquet_storage_path' => $r2Path,
+                    'file_size_bytes'      => $fileSizeBytes,
+                    'row_count'            => $parsed->rowCount,
+                    'checksum'             => $checksum,
                 ]);
 
                 return $dataset;
@@ -97,7 +103,10 @@ class DataIngestionOrchestrator
 
             $dataSource->markAsReady();
 
-            // Delete raw file now that Parquet is written — original_filename and type are kept in DB
+            // 7. Cleanup local files
+            if ($localTempPath && file_exists($localTempPath)) {
+                unlink($localTempPath);
+            }
             if ($dataSource->raw_storage_path && Storage::exists($dataSource->raw_storage_path)) {
                 Storage::delete($dataSource->raw_storage_path);
             }
@@ -105,14 +114,24 @@ class DataIngestionOrchestrator
 
             return $dataset;
         } catch (\Throwable $e) {
+            if ($localTempPath && file_exists($localTempPath)) {
+                unlink($localTempPath);
+            }
             $dataSource->markAsFailed($e->getMessage());
             throw $e;
         }
     }
 
-    private function buildParquetPath(DataSource $dataSource): string
+    private function buildR2Path(DataSource $dataSource): string
     {
         $uuid = Str::uuid();
-        return "private/datasets/{$uuid}/v1.parquet";
+        return "datasets/{$dataSource->user_id}/{$uuid}/v1.parquet";
+    }
+
+    private function ensureDirectory(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
     }
 }

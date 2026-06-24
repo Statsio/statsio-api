@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 /**
  * Ingère un fichier Parquet natif sans transformation :
- * copie dans le stockage final, inférence de schéma via DuckDB.
+ * lit le schéma via DuckDB depuis le fichier local, upload sur R2, puis supprime le local.
  */
 class ParquetIngestionService
 {
@@ -21,26 +21,29 @@ class ParquetIngestionService
         $dataSource->markAsProcessing();
 
         try {
-            $dataset = DB::transaction(function () use ($dataSource) {
-                $rawAbsPath = Storage::path($dataSource->raw_storage_path);
+            $rawAbsPath = Storage::path($dataSource->raw_storage_path);
 
-                // Destination finale dans le stockage datasets
-                $parquetStoragePath = $this->buildParquetPath($dataSource);
-                $parquetAbsPath     = Storage::path($parquetStoragePath);
+            // 1. Read schema from local raw file (DuckDB needs a local path)
+            [$columns, $rowCount] = $this->readSchema($rawAbsPath);
 
-                $this->ensureDirectory(dirname($parquetAbsPath));
-                copy($rawAbsPath, $parquetAbsPath);
+            $fileSizeBytes = filesize($rawAbsPath) ?: null;
+            $checksum      = md5_file($rawAbsPath) ?: null;
 
-                [$columns, $rowCount] = $this->readSchema($parquetAbsPath);
+            // 2. Upload raw Parquet to R2
+            $r2Path = $this->buildR2Path($dataSource);
+            $stream = fopen($rawAbsPath, 'r');
+            Storage::disk('r2-datasets')->put($r2Path, $stream);
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
 
-                $fileSizeBytes = filesize($parquetAbsPath) ?: null;
-                $checksum      = md5_file($parquetAbsPath) ?: null;
-
+            // 3. Persist to DB
+            $dataset = DB::transaction(function () use ($dataSource, $columns, $rowCount, $r2Path, $fileSizeBytes, $checksum) {
                 $dataset = Dataset::create([
                     'data_source_id' => $dataSource->id,
                     'user_id'        => $dataSource->user_id,
                     'name'           => $dataSource->name,
-                    'parquet_path'   => $parquetStoragePath,
+                    'parquet_path'   => $r2Path,
                     'row_count'      => $rowCount,
                     'status'         => 'ready',
                 ]);
@@ -65,7 +68,7 @@ class ParquetIngestionService
                 DatasetVersion::create([
                     'dataset_id'           => $dataset->id,
                     'version_number'       => 1,
-                    'parquet_storage_path' => $parquetStoragePath,
+                    'parquet_storage_path' => $r2Path,
                     'file_size_bytes'      => $fileSizeBytes,
                     'row_count'            => $rowCount,
                     'checksum'             => $checksum,
@@ -76,6 +79,7 @@ class ParquetIngestionService
 
             $dataSource->markAsReady();
 
+            // 4. Cleanup local raw file
             if ($dataSource->raw_storage_path && Storage::exists($dataSource->raw_storage_path)) {
                 Storage::delete($dataSource->raw_storage_path);
             }
@@ -139,15 +143,8 @@ class ParquetIngestionService
         };
     }
 
-    private function buildParquetPath(DataSource $dataSource): string
+    private function buildR2Path(DataSource $dataSource): string
     {
-        return 'private/datasets/' . Str::uuid() . '/v1.parquet';
-    }
-
-    private function ensureDirectory(string $dir): void
-    {
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
+        return 'datasets/' . $dataSource->user_id . '/' . Str::uuid() . '/v1.parquet';
     }
 }
