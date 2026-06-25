@@ -11,6 +11,19 @@ jobs:
     environment: Production
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.SSH_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "."
+          target: "/opt/statsio/api"
+          rm: false
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
@@ -29,7 +42,6 @@ jobs:
             set -e
 
             cd /opt/statsio/api
-            git pull origin dev
 
             cat > .env.prod << ENVEOF
             APP_NAME=Statsio
