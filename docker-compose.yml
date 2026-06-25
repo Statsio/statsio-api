@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: statsio-db
+    environment:
+      POSTGRES_DB: statsio
+      POSTGRES_USER: statsio
+      POSTGRES_PASSWORD: statsio
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U statsio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    container_name: statsio-api
+    working_dir: /var/www
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost:8080
+      - DB_CONNECTION=pgsql
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_DATABASE=statsio
+      - DB_USERNAME=statsio
+      - DB_PASSWORD=statsio
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000
+      - SANCTUM_STATEFUL_DOMAINS=localhost:3000
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/var/www
+      - vendor:/var/www/vendor
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "
+        composer install --no-interaction &&
+        php artisan key:generate --force &&
+        php artisan migrate --force &&
+        php artisan serve --host=0.0.0.0 --port=8080
+      "
+
+volumes:
+  postgres_data:
+  vendor:
