@@ -2,12 +2,13 @@ name: Deploy API
 
 on:
   push:
-    branches: [dev]
+    branches: [main]
 
 jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
+    environment: Production
 
     steps:
       - name: Deploy via SSH
