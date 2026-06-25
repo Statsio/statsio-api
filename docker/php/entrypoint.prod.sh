@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+git config --global --add safe.directory /var/www
+
 echo "Installing dependencies..."
 composer install --no-interaction --optimize-autoloader --no-dev
 
