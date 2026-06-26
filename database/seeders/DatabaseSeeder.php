@@ -23,7 +23,9 @@ class DatabaseSeeder extends Seeder
             'email' => 'test@example.com',
         ]);
 
-        // seed reference lookup tables for user profiles
-        $this->call(UserProfileReferenceSeeder::class);
+        $this->call([
+            UserProfileReferenceSeeder::class,
+            AdminUserSeeder::class,
+        ]);
     }
 }

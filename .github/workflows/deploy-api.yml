@@ -30,6 +30,7 @@ jobs:
           APP_KEY: ${{ secrets.APP_KEY }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           APP_URL: ${{ vars.APP_URL }}
           CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           SANCTUM_STATEFUL_DOMAINS: ${{ vars.SANCTUM_STATEFUL_DOMAINS }}
@@ -37,7 +38,7 @@ jobs:
           host: ${{ vars.SSH_HOST }}
           username: ${{ vars.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: APP_KEY,DB_PASSWORD,GOOGLE_CLIENT_ID,APP_URL,CORS_ALLOWED_ORIGINS,SANCTUM_STATEFUL_DOMAINS
+          envs: APP_KEY,DB_PASSWORD,GOOGLE_CLIENT_ID,ADMIN_PASSWORD,APP_URL,CORS_ALLOWED_ORIGINS,SANCTUM_STATEFUL_DOMAINS
           script: |
             set -e
 
@@ -77,6 +78,8 @@ jobs:
             AUTH_REFRESH_TOKEN_TTL_DAYS=30
 
             GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+
+            ADMIN_PASSWORD=${ADMIN_PASSWORD}
 
             STATS_DATA_MAX_SNAPSHOT_ROWS=500000
             ENVEOF
