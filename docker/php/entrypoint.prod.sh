@@ -14,6 +14,9 @@ chmod -R 775 /var/www/storage /var/www/bootstrap/cache
 echo "Running migrations..."
 php artisan migrate --force
 
+echo "Seeding admin user..."
+php artisan db:seed --class=Database\\Seeders\\AdminUserSeeder --force
+
 echo "Caching config..."
 php artisan config:cache
 php artisan route:cache
