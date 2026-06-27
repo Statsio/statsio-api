@@ -3,7 +3,7 @@
 namespace App\Providers;
 
 use App\Services\DataIngestion\Contracts\ParquetWriterInterface;
-use App\Services\DataIngestion\MockParquetWriter;
+use App\Services\DataIngestion\DuckDbParquetWriter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
