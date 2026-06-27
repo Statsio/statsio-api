@@ -326,10 +326,9 @@ class DatasetController extends Controller
         $joinVersion = $joinDataset->latestVersion;
         if (! $joinVersion?->parquet_storage_path) return $primaryRows;
 
-        $joinPath = Storage::path($joinVersion->parquet_storage_path);
-        if (! file_exists($joinPath)) return $primaryRows;
-
-        $joinRaw     = file_get_contents($joinPath);
+        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
+        $joinRaw = Storage::disk($datasetsDisk)->get($joinVersion->parquet_storage_path);
+        if ($joinRaw === null) return $primaryRows;
         $joinDecoded = json_decode($joinRaw, true);
 
         if (! is_array($joinDecoded) || ! isset($joinDecoded['__mock__'])) return $primaryRows;
@@ -380,10 +379,10 @@ class DatasetController extends Controller
         if (! $version?->parquet_storage_path) return [];
 
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
-        $absolutePath = Storage::disk($datasetsDisk)->path($version->parquet_storage_path);
-        if (! file_exists($absolutePath)) return [];
 
-        $raw     = file_get_contents($absolutePath);
+        $raw = Storage::disk($datasetsDisk)->get($version->parquet_storage_path);
+        if ($raw === null) return [];
+
         $decoded = json_decode($raw, true);
 
         // Mock parquet path — scan all rows, no hard limit before filtering
@@ -406,8 +405,10 @@ class DatasetController extends Controller
             return array_slice($values, 0, $limit);
         }
 
-        // Real Parquet via DuckDB
-        $escapedPath = escapeshellarg($absolutePath);
+        // Real Parquet via DuckDB — write to local temp
+        $localParquet = tempnam(sys_get_temp_dir(), 'statsio_');
+        file_put_contents($localParquet, $raw);
+        $escapedPath = escapeshellarg($localParquet);
         $escapedCol  = '"' . str_replace('"', '""', $column) . '"';
         $whereSearch = $search !== ''
             ? " AND lower({$escapedCol}::VARCHAR) LIKE lower(" . escapeshellarg('%' . $search . '%') . ")"
@@ -529,11 +530,12 @@ class DatasetController extends Controller
         }
 
         $dataSource = $dataset->dataSource;
+        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
 
-        // Delete parquet files
+        // Delete parquet files from the datasets disk (local or R2)
         foreach ($dataset->versions as $version) {
             if ($version->parquet_storage_path) {
-                Storage::delete($version->parquet_storage_path);
+                Storage::disk($datasetsDisk)->delete($version->parquet_storage_path);
             }
         }
         // Raw file may already be null (deleted after conversion)

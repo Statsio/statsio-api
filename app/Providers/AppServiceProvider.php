@@ -13,8 +13,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Swap MockParquetWriter for a real Parquet writer when ready for production.
-        $this->app->bind(ParquetWriterInterface::class, MockParquetWriter::class);
+        $this->app->bind(ParquetWriterInterface::class, DuckDbParquetWriter::class);
     }
 
     /**
