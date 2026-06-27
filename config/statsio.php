@@ -11,6 +11,9 @@ return [
 
         // Disque de stockage (local ou s3)
         'storage_disk' => env('FILESYSTEM_DISK', 'local'),
+
+        // Disque pour les fichiers Parquet des datasets (local en dev, r2-datasets en prod)
+        'datasets_disk' => env('DATASETS_DISK', 'local'),
     ],
 
 ];

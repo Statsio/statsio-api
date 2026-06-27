@@ -56,23 +56,26 @@ class DataIngestionOrchestrator
             $fileSizeBytes = filesize($localTempPath) ?: null;
             $checksum = md5_file($localTempPath) ?: null;
 
-            // 5. Upload to R2
+            // 5. Upload to configured storage disk
+            $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
             $stream = fopen($localTempPath, 'r');
-            Storage::disk('r2-datasets')->put($r2Path, $stream);
+            Storage::disk($datasetsDisk)->put($r2Path, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
             }
 
             // 6. Persist to DB
             $dataset = DB::transaction(function () use ($dataSource, $parsed, $schema, $r2Path, $fileSizeBytes, $checksum) {
-                $dataset = Dataset::create([
+                $dataset = $dataSource->dataset ?? Dataset::make([
                     'data_source_id' => $dataSource->id,
                     'user_id'        => $dataSource->user_id,
-                    'name'           => $dataSource->name,
-                    'parquet_path'   => $r2Path,
-                    'row_count'      => $parsed->rowCount,
-                    'status'         => 'ready',
                 ]);
+                $dataset->fill([
+                    'name'         => $dataSource->name,
+                    'parquet_path' => $r2Path,
+                    'row_count'    => $parsed->rowCount,
+                    'status'       => 'ready',
+                ])->save();
 
                 $columnRecords = [];
                 foreach ($schema as $columnName => $columnMeta) {

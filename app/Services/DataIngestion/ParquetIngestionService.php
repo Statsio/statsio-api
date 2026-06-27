@@ -29,24 +29,27 @@ class ParquetIngestionService
             $fileSizeBytes = filesize($rawAbsPath) ?: null;
             $checksum      = md5_file($rawAbsPath) ?: null;
 
-            // 2. Upload raw Parquet to R2
+            // 2. Upload to configured storage disk
             $r2Path = $this->buildR2Path($dataSource);
+            $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
             $stream = fopen($rawAbsPath, 'r');
-            Storage::disk('r2-datasets')->put($r2Path, $stream);
+            Storage::disk($datasetsDisk)->put($r2Path, $stream);
             if (is_resource($stream)) {
                 fclose($stream);
             }
 
             // 3. Persist to DB
             $dataset = DB::transaction(function () use ($dataSource, $columns, $rowCount, $r2Path, $fileSizeBytes, $checksum) {
-                $dataset = Dataset::create([
+                $dataset = $dataSource->dataset ?? Dataset::make([
                     'data_source_id' => $dataSource->id,
                     'user_id'        => $dataSource->user_id,
-                    'name'           => $dataSource->name,
-                    'parquet_path'   => $r2Path,
-                    'row_count'      => $rowCount,
-                    'status'         => 'ready',
                 ]);
+                $dataset->fill([
+                    'name'         => $dataSource->name,
+                    'parquet_path' => $r2Path,
+                    'row_count'    => $rowCount,
+                    'status'       => 'ready',
+                ])->save();
 
                 if (!empty($columns)) {
                     $records = [];
