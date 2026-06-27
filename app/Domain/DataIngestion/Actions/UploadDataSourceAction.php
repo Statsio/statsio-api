@@ -7,6 +7,7 @@ use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
 use App\Jobs\ProcessDataSourceJob;
 use App\Jobs\ProcessParquetJob;
 use App\Models\DataIngestion\DataSource;
+use App\Models\DataIngestion\Dataset;
 use App\Models\User\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -40,6 +41,14 @@ class UploadDataSourceAction
             'raw_storage_path' => $storagePath,
             'file_size_bytes' => $file->getSize(),
             'status' => 'pending',
+        ]);
+
+        Dataset::create([
+            'data_source_id' => $dataSource->id,
+            'user_id'        => $dataSource->user_id,
+            'name'           => $dataSource->name,
+            'status'         => 'pending',
+            'row_count'      => 0,
         ]);
 
         if ($type === DataSourceTypeEnum::PARQUET) {

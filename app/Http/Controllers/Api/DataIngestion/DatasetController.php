@@ -128,7 +128,8 @@ class DatasetController extends Controller
             return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
         }
 
-        $absolutePath = Storage::path($version->parquet_storage_path);
+        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
+        $absolutePath = Storage::disk($datasetsDisk)->path($version->parquet_storage_path);
 
         if (! file_exists($absolutePath)) {
             return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
@@ -195,7 +196,7 @@ class DatasetController extends Controller
                 $joinVersion = $joinDataset->latestVersion;
                 if (! $joinVersion?->parquet_storage_path) continue;
 
-                $joinPath = Storage::path($joinVersion->parquet_storage_path);
+                $joinPath = Storage::disk(config('statsio.data_ingestion.datasets_disk', 'local'))->path($joinVersion->parquet_storage_path);
                 if (! file_exists($joinPath)) continue;
 
                 $alias     = "t" . ($idx + 1);
@@ -309,7 +310,8 @@ class DatasetController extends Controller
 
         if (! $version?->parquet_storage_path) return [];
 
-        $absolutePath = Storage::path($version->parquet_storage_path);
+        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
+        $absolutePath = Storage::disk($datasetsDisk)->path($version->parquet_storage_path);
         if (! file_exists($absolutePath)) return [];
 
         $raw     = file_get_contents($absolutePath);
