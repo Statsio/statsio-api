@@ -28,6 +28,20 @@ services:
       db:
         condition: service_healthy
 
+  queue:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile.prod
+    container_name: statsio-queue
+    restart: unless-stopped
+    env_file: .env.prod
+    volumes:
+      - .:/var/www
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["php", "artisan", "queue:work", "--queue=ingestion", "--sleep=3", "--tries=3", "--timeout=300"]
+
   nginx:
     image: nginx:alpine
     container_name: statsio-nginx
