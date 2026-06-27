@@ -135,13 +135,13 @@ class DatasetController extends Controller
         }
 
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
-        $absolutePath = Storage::disk($datasetsDisk)->path($version->parquet_storage_path);
+        $storagePath = $version->parquet_storage_path;
 
-        if (! file_exists($absolutePath)) {
+        $raw = Storage::disk($datasetsDisk)->get($storagePath);
+        if ($raw === null) {
             return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
         }
 
-        $raw = file_get_contents($absolutePath);
         $decoded = json_decode($raw, true);
 
         // Mock parquet: { "__mock__": true, "schema": [...], "data": [[...], ...] }
@@ -206,8 +206,10 @@ class DatasetController extends Controller
             return [$allColumns, $rows, $totalAfterFilter];
         }
 
-        // Real Parquet via DuckDB CLI
-        $escapedPath = escapeshellarg($absolutePath);
+        // Real Parquet via DuckDB CLI — ensure local file
+        $localParquet = tempnam(sys_get_temp_dir(), 'statsio_');
+        file_put_contents($localParquet, $raw);
+        $escapedPath = escapeshellarg($localParquet);
 
         $orderClause = $sortColumn
             ? ' ORDER BY "' . str_replace('"', '""', $sortColumn) . '" ' . strtoupper($sortDirection)
@@ -227,8 +229,10 @@ class DatasetController extends Controller
                 $joinVersion = $joinDataset->latestVersion;
                 if (! $joinVersion?->parquet_storage_path) continue;
 
-                $joinPath = Storage::disk(config('statsio.data_ingestion.datasets_disk', 'local'))->path($joinVersion->parquet_storage_path);
-                if (! file_exists($joinPath)) continue;
+                $joinRaw = Storage::disk($datasetsDisk)->get($joinVersion->parquet_storage_path);
+                if ($joinRaw === null) continue;
+                $joinPath = tempnam(sys_get_temp_dir(), 'statsio_');
+                file_put_contents($joinPath, $joinRaw);
 
                 $alias     = "t" . ($idx + 1);
                 $jType     = strtoupper(in_array($join['type'] ?? '', ['inner', 'left']) ? $join['type'] : 'left');
