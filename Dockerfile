@@ -20,6 +20,12 @@ RUN apt-get update && apt-get install -y \
         echo "max_execution_time=300"; \
     } > /usr/local/etc/php/conf.d/uploads.ini
 
+# Install DuckDB CLI
+RUN curl -L https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip -o /tmp/duckdb.zip \
+    && unzip /tmp/duckdb.zip -d /usr/local/bin \
+    && rm /tmp/duckdb.zip \
+    && chmod +x /usr/local/bin/duckdb
+
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
