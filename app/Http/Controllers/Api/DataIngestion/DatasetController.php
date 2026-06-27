@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\DataIngestion;
 
 use App\Http\Controllers\Controller;
 use App\Models\DataIngestion\Dataset;
+use App\Models\StudioContent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -101,6 +102,82 @@ class DatasetController extends Controller
             $limit,
             $joins,
             $userId,
+            $searchQ,
+            $searchCols,
+            $distinctColumn ?: null,
+            $sortColumn ?: null,
+            $sortDirection,
+        );
+
+        $finalColumns = count($columns) ? array_values(array_intersect($allColumns, $columns)) : $allColumns;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'columns'    => $finalColumns,
+                'rows'       => $rows,
+                'total_rows' => $total,
+            ],
+        ]);
+    }
+
+    public function queryPublic(Request $request, string $slug, Dataset $dataset): JsonResponse
+    {
+        $content = StudioContent::where('status', 'published')
+            ->where(function ($q) use ($slug) {
+                $q->where('slug', $slug);
+                if (is_numeric($slug)) $q->orWhere('id', (int) $slug);
+            })
+            ->firstOrFail();
+
+        $docDatasetIds = collect($content->blocks ?? [])
+            ->pluck('datasetId')
+            ->filter()
+            ->unique()
+            ->values()
+            ->map(fn($id) => (string) $id)
+            ->toArray();
+
+        if (! in_array((string) $dataset->id, $docDatasetIds, true)) {
+            return response()->json(['success' => false, 'message' => 'Dataset non autorisé.'], 403);
+        }
+
+        $limit          = min((int) $request->query('limit', 500), 5000);
+        $columns        = $request->query('columns', []);
+        $filters        = $request->query('filters', []);
+        $joins          = $request->query('joins', []);
+        $searchQ        = (string) $request->query('search_q', '');
+        $searchCols     = $request->query('search_columns', []);
+        $distinct       = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        $distinctColumn = (string) $request->query('distinct_column', '');
+        $sortColumn     = (string) $request->query('sort_column', '');
+        $sortDirection  = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
+        if (! is_array($columns))    $columns    = [];
+        if (! is_array($filters))    $filters    = [];
+        if (! is_array($joins))      $joins      = [];
+        if (! is_array($searchCols)) $searchCols = [];
+
+        if ($distinct && count($columns) === 1) {
+            $col    = $columns[0];
+            $search = (string) $request->query('search', '');
+            $rows   = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'columns'    => [$col],
+                    'rows'       => array_map(fn($v) => [$col => $v], $rows),
+                    'total_rows' => count($rows),
+                ],
+            ]);
+        }
+
+        [$allColumns, $rows, $total] = $this->resolveRows(
+            $dataset,
+            count($columns) ? $columns : null,
+            $filters,
+            $limit,
+            $joins,
+            $content->user_id,
             $searchQ,
             $searchCols,
             $distinctColumn ?: null,

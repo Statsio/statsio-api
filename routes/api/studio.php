@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\StudioContentController;
+use App\Http\Controllers\Api\DataIngestion\DatasetController;
 use Illuminate\Support\Facades\Route;
 
 // Public read-only access (no auth required)
 Route::get('/studio/content/public', [StudioContentController::class, 'indexPublic']);
 Route::get('/studio/content/public/{slug}', [StudioContentController::class, 'showPublic']);
+Route::get('/studio/content/public/{slug}/datasets/{dataset}/query', [DatasetController::class, 'queryPublic']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/studio/content', [StudioContentController::class, 'index']);
