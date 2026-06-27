@@ -65,13 +65,16 @@ class DatasetController extends Controller
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
-        $limit      = min((int) $request->query('limit', 500), 5000);
-        $columns    = $request->query('columns', []);
-        $filters    = $request->query('filters', []);
-        $joins      = $request->query('joins', []);
-        $searchQ    = (string) $request->query('search_q', '');
-        $searchCols = $request->query('search_columns', []);
-        $distinct   = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        $limit          = min((int) $request->query('limit', 500), 5000);
+        $columns        = $request->query('columns', []);
+        $filters        = $request->query('filters', []);
+        $joins          = $request->query('joins', []);
+        $searchQ        = (string) $request->query('search_q', '');
+        $searchCols     = $request->query('search_columns', []);
+        $distinct       = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        $distinctColumn = (string) $request->query('distinct_column', '');
+        $sortColumn     = (string) $request->query('sort_column', '');
+        $sortDirection  = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
         if (! is_array($columns))    $columns    = [];
         if (! is_array($filters))    $filters    = [];
         if (! is_array($joins))      $joins      = [];
@@ -100,6 +103,9 @@ class DatasetController extends Controller
             $userId,
             $searchQ,
             $searchCols,
+            $distinctColumn ?: null,
+            $sortColumn ?: null,
+            $sortDirection,
         );
 
         $finalColumns = count($columns) ? array_values(array_intersect($allColumns, $columns)) : $allColumns;
@@ -120,7 +126,7 @@ class DatasetController extends Controller
      * @param  array<int, array{column: string, operator: string, value: string}>  $filters
      * @param  array<int, array{dataset_id: string, left_column: string, right_column: string, columns: array<string>, type: string}>  $joins
      */
-    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = []): array
+    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc'): array
     {
         $version = $dataset->latestVersion;
 
@@ -143,14 +149,42 @@ class DatasetController extends Controller
             $allColumns = $decoded['schema'] ?? [];
             $allRows    = $decoded['data'] ?? [];
 
+            // 1. Filter
             $rows = [];
             foreach ($allRows as $row) {
                 $assoc = array_combine($allColumns, $row);
                 if (! $this->matchesFilters($assoc, $filters)) continue;
                 if (! $this->matchesSearchQ($assoc, $searchQ, $searchCols)) continue;
                 $rows[] = $assoc;
-                if (count($rows) >= $limit) break;
             }
+
+            // 2. Sort (before distinct so we pick the "best" row per group)
+            if ($sortColumn) {
+                usort($rows, function ($a, $b) use ($sortColumn, $sortDirection) {
+                    $av = $a[$sortColumn] ?? null;
+                    $bv = $b[$sortColumn] ?? null;
+                    $cmp = is_numeric($av) && is_numeric($bv)
+                        ? ($av <=> $bv)
+                        : strcmp((string) $av, (string) $bv);
+                    return $sortDirection === 'desc' ? -$cmp : $cmp;
+                });
+            }
+
+            // 3. Distinct (keep first occurrence per unique column value)
+            if ($distinctColumn) {
+                $seen = [];
+                $rows = array_values(array_filter($rows, function ($r) use ($distinctColumn, &$seen) {
+                    $val = (string) ($r[$distinctColumn] ?? '');
+                    if (isset($seen[$val])) return false;
+                    $seen[$val] = true;
+                    return true;
+                }));
+            }
+
+            $totalAfterFilter = count($rows);
+
+            // 4. Limit
+            $rows = array_slice($rows, 0, $limit);
 
             // Apply each join using a hash join
             foreach ($joins as $join) {
@@ -169,22 +203,19 @@ class DatasetController extends Controller
                 );
             }
 
-            $totalAfterFilter = count(array_filter(
-                $allRows,
-                fn($r) => $this->matchesFilters(array_combine($decoded['schema'] ?? [], $r), $filters),
-            ));
-
             return [$allColumns, $rows, $totalAfterFilter];
         }
 
         // Real Parquet via DuckDB CLI
         $escapedPath = escapeshellarg($absolutePath);
 
+        $orderClause = $sortColumn
+            ? ' ORDER BY "' . str_replace('"', '""', $sortColumn) . '" ' . strtoupper($sortDirection)
+            : '';
+
         if (! empty($joins)) {
             // Build JOIN SQL with DuckDB
-            $colClause = $selectColumns
-                ? implode(', ', array_map(fn($c) => 't0."' . str_replace('"', '""', $c) . '"', $selectColumns))
-                : 't0.*';
+            $colClause = 't0.*';
 
             $joinSql = '';
             foreach ($joins as $idx => $join) {
@@ -215,7 +246,21 @@ class DatasetController extends Controller
 
             $where = $this->buildDuckDbWhere($filters, 't0');
             $where = $this->appendSearchClause($where, $searchQ, $searchCols, 't0');
-            $sql   = "SELECT {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where} LIMIT {$limit}";
+
+            if ($distinctColumn) {
+                $escapedDistinct = '"' . str_replace('"', '""', $distinctColumn) . '"';
+                $innerOrder = $sortColumn
+                    ? ' ORDER BY ' . $escapedDistinct . ', "' . str_replace('"', '""', $sortColumn) . '" ' . strtoupper($sortDirection)
+                    : ' ORDER BY ' . $escapedDistinct;
+                // Use t0.* in inner query so all columns (sort, distinct) are available in outer SELECT
+                $inner  = "SELECT DISTINCT ON ({$escapedDistinct}) {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$innerOrder}";
+                $outerCols = $selectColumns
+                    ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
+                    : '*';
+                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause} LIMIT {$limit}";
+            } else {
+                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$orderClause} LIMIT {$limit}";
+            }
         } else {
             $colClause = $selectColumns
                 ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
@@ -223,7 +268,21 @@ class DatasetController extends Controller
 
             $where = $this->buildDuckDbWhere($filters);
             $where = $this->appendSearchClause($where, $searchQ, $searchCols);
-            $sql   = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where} LIMIT {$limit}";
+
+            if ($distinctColumn) {
+                $escapedDistinct = '"' . str_replace('"', '""', $distinctColumn) . '"';
+                $innerOrder = $sortColumn
+                    ? ' ORDER BY ' . $escapedDistinct . ', "' . str_replace('"', '""', $sortColumn) . '" ' . strtoupper($sortDirection)
+                    : ' ORDER BY ' . $escapedDistinct;
+                // Use * in inner query so sort/distinct columns are available to the outer SELECT
+                $inner     = "SELECT DISTINCT ON ({$escapedDistinct}) * FROM read_parquet({$escapedPath}){$where}{$innerOrder}";
+                $outerCols = $selectColumns
+                    ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
+                    : '*';
+                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause} LIMIT {$limit}";
+            } else {
+                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where}{$orderClause} LIMIT {$limit}";
+            }
         }
 
         $output = shell_exec('duckdb -json -c ' . escapeshellarg($sql) . ' 2>/dev/null');
@@ -232,6 +291,12 @@ class DatasetController extends Controller
             $jsonRows = json_decode($output, true);
             if (is_array($jsonRows) && count($jsonRows) > 0) {
                 $allColumns = array_keys($jsonRows[0]);
+                if (! empty($joins) && $selectColumns) {
+                    $jsonRows = array_map(
+                        fn($r) => array_intersect_key($r, array_flip($selectColumns)),
+                        $jsonRows,
+                    );
+                }
                 return [$allColumns, $jsonRows, $dataset->row_count ?? count($jsonRows)];
             }
         }
