@@ -101,4 +101,7 @@ jobs:
 
             docker compose -f docker-compose.prod.yml up -d --build
 
+            # Redémarre nginx pour forcer la résolution DNS du nouveau container API
+            docker compose -f docker-compose.prod.yml restart nginx
+
             echo "Deploy OK"
