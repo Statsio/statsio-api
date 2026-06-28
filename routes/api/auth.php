@@ -16,11 +16,13 @@ use App\Http\Controllers\Api\User\UserController;
 
 // regroupe toutes les routes d'authentification sous le préfixe /auth
 Route::prefix('auth')->group(function () {
-    // publique
-    Route::post('/login', [LoginController::class, 'login'])->name('login');
-    Route::post('/register', [RegisterController::class, 'register']);
-    Route::post('/google', [GoogleAuthController::class, 'authenticate']);
-    Route::post('/refresh', [RefreshTokenController::class, 'refresh']);
+    // publique — limitées à 10 tentatives par minute par IP
+    Route::middleware('throttle:10,1')->group(function () {
+        Route::post('/login', [LoginController::class, 'login'])->name('login');
+        Route::post('/register', [RegisterController::class, 'register']);
+        Route::post('/google', [GoogleAuthController::class, 'authenticate']);
+        Route::post('/refresh', [RefreshTokenController::class, 'refresh']);
+    });
 
     // Auth protégée
     Route::middleware('auth:api')->group(function () {
