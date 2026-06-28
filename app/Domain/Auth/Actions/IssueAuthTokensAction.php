@@ -12,7 +12,7 @@ class IssueAuthTokensAction
     public function execute(User $user): AuthTokenDTO
     {
         $accessTokenTtlMinutes = (int) config('sanctum.expiration', 15);
-        $refreshTokenTtlDays = (int) env('AUTH_REFRESH_TOKEN_TTL_DAYS', 30);
+        $refreshTokenTtlDays = (int) config('auth.refresh_token_ttl_days', 30);
 
         $newAccessToken = $user->createToken(
             'api-token',
@@ -36,6 +36,9 @@ class IssueAuthTokensAction
             user: [
                 'id' => $user->id,
                 'email' => $user->email,
+                'is_admin' => (bool) $user->is_admin,
+                'status' => $user->status,
+                'email_verified_at' => $user->email_verified_at,
                 'profile' => $user->profile,
             ]
         );

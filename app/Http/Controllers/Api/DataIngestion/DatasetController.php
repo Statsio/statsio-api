@@ -131,7 +131,19 @@ class DatasetController extends Controller
             ->firstOrFail();
 
         $docDatasetIds = collect($content->blocks ?? [])
-            ->pluck('datasetId')
+            ->flatMap(function ($block) {
+                $ids = [$block['datasetId'] ?? null];
+                foreach ($block['joins'] ?? [] as $join) {
+                    $ids[] = $join['datasetId'] ?? null;
+                }
+                foreach ($block['fieldMapping']['searchSources'] ?? [] as $source) {
+                    $ids[] = $source['datasetId'] ?? null;
+                }
+                foreach ($block['fieldMapping']['searchJoins'] ?? [] as $j) {
+                    $ids[] = $j['datasetId'] ?? null;
+                }
+                return $ids;
+            })
             ->filter()
             ->unique()
             ->values()
