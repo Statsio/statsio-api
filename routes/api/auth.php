@@ -1,11 +1,12 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\Auth\LoginController;
-use App\Http\Controllers\Api\Auth\RegisterController;
-use App\Http\Controllers\Api\Auth\LogoutController;
+use App\Http\Controllers\Api\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\Auth\GoogleAuthController;
+use App\Http\Controllers\Api\Auth\LoginController;
+use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\RefreshTokenController;
+use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\User\UserController;
 
 /*
@@ -22,6 +23,8 @@ Route::prefix('auth')->group(function () {
         Route::post('/register', [RegisterController::class, 'register']);
         Route::post('/google', [GoogleAuthController::class, 'authenticate']);
         Route::post('/refresh', [RefreshTokenController::class, 'refresh']);
+        Route::post('/verify-email', [EmailVerificationController::class, 'verify']);
+        Route::post('/verify-email/resend', [EmailVerificationController::class, 'resend']);
     });
 
     // Auth protégée

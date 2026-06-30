@@ -16,16 +16,24 @@ class StudioContent extends Model
         'title',
         'description',
         'status',
+        'visibility',
         'slug',
         'pages',
         'blocks',
         'sections',
+        'categories',
+        'coverage_type',
+        'coverage_data',
+        'published_as',
+        'channel_id',
     ];
 
     protected $casts = [
-        'pages' => 'array',
-        'blocks' => 'array',
-        'sections' => 'array',
+        'pages'         => 'array',
+        'blocks'        => 'array',
+        'sections'      => 'array',
+        'categories'    => 'array',
+        'coverage_data' => 'array',
     ];
 
     /**
