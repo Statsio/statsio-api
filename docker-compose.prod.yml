@@ -63,16 +63,47 @@ services:
     image: nginx:alpine
     container_name: statsio-nginx
     restart: unless-stopped
+    volumes:
+      - .:/var/www:ro
+      - ./docker/nginx/nginx.fastcgi.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.statsio-api.rule: "Host(`api.statsio.fr`)"
+      traefik.http.routers.statsio-api.entrypoints: "websecure"
+      traefik.http.routers.statsio-api.tls: "true"
+      traefik.http.services.statsio-api.loadbalancer.server.port: "80"
+
+  traefik:
+    image: traefik:v3.2
+    container_name: statsio-traefik
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--api.dashboard=true"
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - .:/var/www:ro
-      - ./docker/nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./docker/nginx/certs:/etc/nginx/certs:ro
-    depends_on:
-      - api
-      - openobserve
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik/dynamic:/etc/traefik/dynamic:ro
+      - ./docker/traefik/certs:/certs:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.traefik-dashboard.rule: "Host(`traefik.statsio.fr`)"
+      traefik.http.routers.traefik-dashboard.entrypoints: "websecure"
+      traefik.http.routers.traefik-dashboard.tls: "true"
+      traefik.http.routers.traefik-dashboard.service: "api@internal"
+      traefik.http.routers.traefik-dashboard.middlewares: "traefik-dashboard-auth"
+      traefik.http.middlewares.traefik-dashboard-auth.basicauth.users: "${TRAEFIK_DASHBOARD_AUTH}"
 
   openobserve:
     image: public.ecr.aws/zinclabs/openobserve:latest
@@ -84,6 +115,12 @@ services:
       ZO_DATA_DIR: /data
     volumes:
       - openobserve_data:/data
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.statsio-observe.rule: "Host(`observe.statsio.fr`)"
+      traefik.http.routers.statsio-observe.entrypoints: "websecure"
+      traefik.http.routers.statsio-observe.tls: "true"
+      traefik.http.services.statsio-observe.loadbalancer.server.port: "5080"
 
   vector:
     image: timberio/vector:latest-alpine
