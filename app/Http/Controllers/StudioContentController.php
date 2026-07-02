@@ -28,17 +28,30 @@ class StudioContentController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'title'    => 'required|string|max:255',
-            'sections' => 'nullable|array',
-            'blocks'   => 'nullable|array',
+            'title'         => 'required|string|max:255',
+            'sections'      => 'nullable|array',
+            'blocks'        => 'nullable|array',
+            'categories'    => 'nullable|array',
+            'categories.*'  => 'string|max:50',
+            'coverage_type' => 'nullable|string|in:monde,pays,ville',
+            'coverage_data' => 'nullable|array',
+            'visibility'    => 'nullable|string|in:private,public',
+            'published_as'  => 'nullable|string|in:user,channel',
+            'channel_id'    => 'nullable|integer|exists:channels,id',
         ]);
 
         $content = StudioContent::create([
-            'user_id'  => $request->user()->id,
-            'title'    => $data['title'],
-            'slug'     => $this->generateUniqueSlug($data['title']),
-            'sections' => $data['sections'] ?? [],
-            'blocks'   => $data['blocks'] ?? [],
+            'user_id'       => $request->user()->id,
+            'title'         => $data['title'],
+            'slug'          => $this->generateUniqueSlug($data['title']),
+            'sections'      => $data['sections'] ?? [],
+            'blocks'        => $data['blocks'] ?? [],
+            'categories'    => $data['categories'] ?? [],
+            'coverage_type' => $data['coverage_type'] ?? null,
+            'coverage_data' => $data['coverage_data'] ?? null,
+            'visibility'    => $data['visibility'] ?? 'private',
+            'published_as'  => $data['published_as'] ?? null,
+            'channel_id'    => $data['channel_id'] ?? null,
         ]);
 
         return response()->json([
@@ -95,12 +108,19 @@ class StudioContentController extends Controller
         $content = $this->findBySlug($request->user()->id, $slug);
 
         $data = $request->validate([
-            'title'       => 'sometimes|required|string|max:255',
-            'description' => 'sometimes|nullable|string|max:2000',
-            'status'      => 'sometimes|string|in:draft,published',
-            'pages'       => 'sometimes|nullable|array',
-            'sections'    => 'sometimes|nullable|array',
-            'blocks'      => 'sometimes|nullable|array',
+            'title'         => 'sometimes|required|string|max:255',
+            'description'   => 'sometimes|nullable|string|max:2000',
+            'status'        => 'sometimes|string|in:draft,published',
+            'pages'         => 'sometimes|nullable|array',
+            'sections'      => 'sometimes|nullable|array',
+            'blocks'        => 'sometimes|nullable|array',
+            'categories'    => 'sometimes|nullable|array',
+            'categories.*'  => 'string|max:50',
+            'coverage_type' => 'sometimes|nullable|string|in:monde,pays,ville',
+            'coverage_data' => 'sometimes|nullable|array',
+            'visibility'    => 'sometimes|string|in:private,public',
+            'published_as'  => 'sometimes|nullable|string|in:user,channel',
+            'channel_id'    => 'sometimes|nullable|integer|exists:channels,id',
         ]);
 
         $content->update($data);
@@ -174,18 +194,24 @@ class StudioContentController extends Controller
         }
 
         return [
-            'id'          => (string) $content->id,
-            'title'       => $content->title,
-            'description' => $content->description,
-            'status'      => $content->status ?? 'draft',
-            'slug'        => $content->slug,
-            'author'      => ['name' => $authorName ?: 'Anonyme'],
-            'datasets'    => $datasets,
-            'pages'       => $content->pages ?? [],
-            'sections'    => $content->sections ?? [],
-            'blocks'      => $content->blocks ?? [],
-            'created_at'  => $content->created_at->toIso8601String(),
-            'updated_at'  => $content->updated_at->toIso8601String(),
+            'id'            => (string) $content->id,
+            'title'         => $content->title,
+            'description'   => $content->description,
+            'status'        => $content->status ?? 'draft',
+            'visibility'    => $content->visibility ?? 'private',
+            'slug'          => $content->slug,
+            'categories'    => $content->categories ?? [],
+            'coverage_type' => $content->coverage_type,
+            'coverage_data' => $content->coverage_data ?? [],
+            'published_as'  => $content->published_as,
+            'channel_id'    => $content->channel_id,
+            'author'        => ['name' => $authorName ?: 'Anonyme'],
+            'datasets'      => $datasets,
+            'pages'         => $content->pages ?? [],
+            'sections'      => $content->sections ?? [],
+            'blocks'        => $content->blocks ?? [],
+            'created_at'    => $content->created_at->toIso8601String(),
+            'updated_at'    => $content->updated_at->toIso8601String(),
         ];
     }
 }

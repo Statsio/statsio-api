@@ -3,6 +3,7 @@
 namespace App\Models\Channel;
 
 use App\Traits\HasMedia;
+use Database\Factories\ChannelFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -12,6 +13,11 @@ use App\Models\User\User;
 class Channel extends Model
 {
     use HasFactory, HasMedia;
+
+    protected static function newFactory(): ChannelFactory
+    {
+        return ChannelFactory::new();
+    }
 
     protected $fillable = [
         'status',

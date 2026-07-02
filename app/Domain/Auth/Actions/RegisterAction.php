@@ -7,10 +7,10 @@ use Illuminate\Support\Facades\Hash;
 class RegisterAction
 {
     public function __construct(
-        private readonly IssueAuthTokensAction $issueAuthTokensAction
+        private readonly SendVerificationEmailAction $sendVerificationEmailAction,
     ) {}
 
-    public function execute(array $data): \App\Domain\Auth\DTOs\AuthTokenDTO
+    public function execute(array $data): array
     {
         $user = User::create([
             'email' => $data['email'],
@@ -23,6 +23,8 @@ class RegisterAction
             'birthday' => $data['birthday'],
         ]);
 
-        return $this->issueAuthTokensAction->execute($user->fresh('profile'));
+        $this->sendVerificationEmailAction->execute($user->fresh('profile'));
+
+        return ['email' => $user->email];
     }
 }
