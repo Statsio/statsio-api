@@ -9,14 +9,12 @@ class RegisterController extends Controller
 {
     public function register(RegisterRequest $request, RegisterAction $action)
     {
-        $data = $request->validated();
-
-        $token = $action->execute($data);
+        $result = $action->execute($request->validated());
 
         return response()->json([
             'success' => true,
-            'message' => __('auth.register_success'),
-            'data' => $token->toArray(),
+            'message' => __('auth.verification_email_sent'),
+            'data' => $result,
         ], 201);
     }
 }
