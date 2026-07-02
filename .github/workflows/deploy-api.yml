@@ -40,11 +40,13 @@ jobs:
           R2_DATASETS_BUCKET: ${{ vars.R2_DATASETS_BUCKET }}
           R2_MEDIA_BUCKET: ${{ vars.R2_MEDIA_BUCKET }}
           DATASETS_DISK: ${{ vars.DATASETS_DISK }}
+          ZO_ROOT_USER_EMAIL: ${{ secrets.ZO_ROOT_USER_EMAIL }}
+          ZO_ROOT_USER_PASSWORD: ${{ secrets.ZO_ROOT_USER_PASSWORD }}
         with:
           host: ${{ vars.SSH_HOST }}
           username: ${{ vars.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: APP_KEY,DB_PASSWORD,GOOGLE_CLIENT_ID,ADMIN_PASSWORD,APP_URL,CORS_ALLOWED_ORIGINS,SANCTUM_STATEFUL_DOMAINS,R2_ENDPOINT,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY,R2_DATASETS_BUCKET,R2_MEDIA_BUCKET,DATASETS_DISK
+          envs: APP_KEY,DB_PASSWORD,GOOGLE_CLIENT_ID,ADMIN_PASSWORD,APP_URL,CORS_ALLOWED_ORIGINS,SANCTUM_STATEFUL_DOMAINS,R2_ENDPOINT,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY,R2_DATASETS_BUCKET,R2_MEDIA_BUCKET,DATASETS_DISK,ZO_ROOT_USER_EMAIL,ZO_ROOT_USER_PASSWORD
           script: |
             set -e
 
@@ -60,7 +62,7 @@ jobs:
             APP_FALLBACK_LOCALE=en
 
             LOG_CHANNEL=stderr
-            LOG_LEVEL=error
+            LOG_LEVEL=info
 
             DB_CONNECTION=pgsql
             DB_HOST=db
@@ -95,6 +97,9 @@ jobs:
             R2_DATASETS_BUCKET=${R2_DATASETS_BUCKET}
             R2_MEDIA_BUCKET=${R2_MEDIA_BUCKET}
             DATASETS_DISK=${DATASETS_DISK}
+
+            ZO_ROOT_USER_EMAIL=${ZO_ROOT_USER_EMAIL}
+            ZO_ROOT_USER_PASSWORD=${ZO_ROOT_USER_PASSWORD}
             ENVEOF
 
             export $(grep -v '^#' .env.prod | xargs)

@@ -1,0 +1,44 @@
+sources:
+  docker_logs:
+    type: docker_logs
+    exclude_containers:
+      - statsio-vector
+
+  host_metrics:
+    type: host_metrics
+    collectors:
+      - cpu
+      - disk
+      - filesystem
+      - memory
+      - network
+    scrape_interval_secs: 30
+
+sinks:
+  openobserve_logs:
+    type: elasticsearch
+    inputs:
+      - docker_logs
+    endpoints:
+      - http://openobserve:5080/api/default
+    mode: bulk
+    bulk:
+      index: docker-logs
+    api_version: v7
+    compression: none
+    auth:
+      strategy: basic
+      user: "${ZO_ROOT_USER_EMAIL}"
+      password: "${ZO_ROOT_USER_PASSWORD}"
+    healthcheck:
+      enabled: false
+
+  openobserve_metrics:
+    type: prometheus_remote_write
+    inputs:
+      - host_metrics
+    endpoint: http://openobserve:5080/api/default/prometheus/api/v1/write
+    auth:
+      strategy: basic
+      user: "${ZO_ROOT_USER_EMAIL}"
+      password: "${ZO_ROOT_USER_PASSWORD}"
