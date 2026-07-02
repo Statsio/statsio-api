@@ -13,7 +13,7 @@ API backend pour Statsio, une plateforme de data journalism. Fournit les endpoin
 - Architecture: Domain-Driven Design (DDD)
 - Conteneurisation: Docker + Docker Compose
 - Queue: Database driver
-- Cache: Database driver
+- Cache: Redis
 - Tests: PHPUnit
 
 ## Architecture du projet
@@ -118,7 +118,7 @@ Linting:
 
 ## Docker
 
-Services: PHP/Laravel, PostgreSQL, MailHog
+Services: PHP/Laravel, PostgreSQL, Redis, MailHog
 
 docker-compose up -d
 docker-compose down

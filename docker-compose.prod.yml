@@ -15,6 +15,19 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: statsio-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: .
@@ -26,6 +39,8 @@ services:
       - .:/var/www
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   queue:
@@ -39,6 +54,8 @@ services:
       - .:/var/www
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     command: ["php", "artisan", "queue:work", "--queue=ingestion", "--sleep=3", "--tries=3", "--timeout=300"]
 
@@ -58,3 +75,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
