@@ -70,7 +70,19 @@ services:
         php artisan serve --host=0.0.0.0 --port=8080
       "
 
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    container_name: statsio-openobserve
+    environment:
+      - ZO_ROOT_USER_EMAIL=admin@statsio.local
+      - ZO_ROOT_USER_PASSWORD=password
+    ports:
+      - "5080:5080"
+    volumes:
+      - openobserve_data:/data
+
 volumes:
   postgres_data:
   vendor:
   redis_data:
+  openobserve_data:
