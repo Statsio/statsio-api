@@ -6,10 +6,13 @@ use App\Models\StudioContent;
 use App\Models\DataIngestion\Dataset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 class StudioContentController extends Controller
 {
+    private const PUBLIC_CACHE_TTL = 300; // 5 minutes
+
     public function index(Request $request): JsonResponse
     {
         $contents = StudioContent::where('user_id', $request->user()->id)
@@ -56,33 +59,35 @@ class StudioContentController extends Controller
 
     public function indexPublic(): JsonResponse
     {
-        $contents = StudioContent::with('user.profile')
-            ->where('status', 'published')
-            ->orderBy('updated_at', 'desc')
-            ->get();
+        $data = Cache::remember('studio.public.index', self::PUBLIC_CACHE_TTL, function () {
+            $contents = StudioContent::with('user.profile')
+                ->where('status', 'published')
+                ->orderBy('updated_at', 'desc')
+                ->get();
 
-        return response()->json([
-            'success' => true,
-            'data'    => $contents->map(fn ($c) => $this->format($c)),
-        ]);
+            return $contents->map(fn ($c) => $this->format($c))->values()->all();
+        });
+
+        return response()->json(['success' => true, 'data' => $data]);
     }
 
     public function showPublic(string $slug): JsonResponse
     {
-        $content = StudioContent::with('user.profile')
-            ->where('status', 'published')
-            ->where(function ($q) use ($slug) {
-                $q->where('slug', $slug);
-                if (is_numeric($slug)) {
-                    $q->orWhere('id', (int) $slug);
-                }
-            })
-            ->firstOrFail();
+        $data = Cache::remember("studio.public.show.{$slug}", self::PUBLIC_CACHE_TTL, function () use ($slug) {
+            $content = StudioContent::with('user.profile')
+                ->where('status', 'published')
+                ->where(function ($q) use ($slug) {
+                    $q->where('slug', $slug);
+                    if (is_numeric($slug)) {
+                        $q->orWhere('id', (int) $slug);
+                    }
+                })
+                ->firstOrFail();
 
-        return response()->json([
-            'success' => true,
-            'data'    => $this->format($content),
-        ]);
+            return $this->format($content);
+        });
+
+        return response()->json(['success' => true, 'data' => $data]);
     }
 
     public function update(Request $request, string $slug): JsonResponse
@@ -99,6 +104,7 @@ class StudioContentController extends Controller
         ]);
 
         $content->update($data);
+        $this->forgetPublicCache($content);
 
         return response()->json([
             'success' => true,
@@ -110,8 +116,16 @@ class StudioContentController extends Controller
     {
         $content = $this->findBySlug($request->user()->id, $slug);
         $content->delete();
+        $this->forgetPublicCache($content);
 
         return response()->json(['success' => true, 'message' => 'Contenu supprimé.']);
+    }
+
+    private function forgetPublicCache(StudioContent $content): void
+    {
+        Cache::forget('studio.public.index');
+        Cache::forget("studio.public.show.{$content->slug}");
+        Cache::forget("studio.public.show.{$content->id}");
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────

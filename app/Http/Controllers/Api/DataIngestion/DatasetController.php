@@ -4,13 +4,22 @@ namespace App\Http\Controllers\Api\DataIngestion;
 
 use App\Http\Controllers\Controller;
 use App\Models\DataIngestion\Dataset;
+use App\Models\DataIngestion\DatasetVersion;
 use App\Models\StudioContent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class DatasetController extends Controller
 {
+    /**
+     * TTL for cached parquet query/preview/distinct-values responses.
+     * Cache keys embed the dataset version checksum, so a re-ingested dataset
+     * busts its cache automatically — the TTL only bounds worst-case staleness.
+     */
+    private const CACHE_TTL = 900; // 15 minutes
+
     public function index(Request $request): JsonResponse
     {
         $datasets = Dataset::where('user_id', $request->user()->id)
@@ -223,6 +232,28 @@ class DatasetController extends Controller
             return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
         }
 
+        $cacheKey = $this->buildQueryCacheKey('rows', $dataset, $version, $joins, [
+            'columns' => $selectColumns,
+            'filters' => $filters,
+            'limit' => $limit,
+            'userId' => $userId,
+            'searchQ' => $searchQ,
+            'searchCols' => $searchCols,
+            'distinctColumn' => $distinctColumn,
+            'sortColumn' => $sortColumn,
+            'sortDirection' => $sortDirection,
+        ]);
+
+        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchParquetRows(
+            $dataset, $version, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols, $distinctColumn, $sortColumn, $sortDirection,
+        ));
+    }
+
+    /**
+     * Runs the actual DuckDB / mock-parquet query. Only called on a cache miss.
+     */
+    private function fetchParquetRows(Dataset $dataset, DatasetVersion $version, ?array $selectColumns, array $filters, int $limit, array $joins, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection): array
+    {
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
         $storagePath = $version->parquet_storage_path;
 
@@ -467,6 +498,20 @@ class DatasetController extends Controller
 
         if (! $version?->parquet_storage_path) return [];
 
+        $cacheKey = $this->buildQueryCacheKey('distinct', $dataset, $version, [], [
+            'column' => $column,
+            'limit' => $limit,
+            'search' => $search,
+        ]);
+
+        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchDistinctValues($dataset, $version, $column, $limit, $search));
+    }
+
+    /**
+     * Runs the actual DuckDB / mock-parquet distinct-values query. Only called on a cache miss.
+     */
+    private function fetchDistinctValues(Dataset $dataset, DatasetVersion $version, string $column, int $limit, string $search): array
+    {
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
 
         $raw = Storage::disk($datasetsDisk)->get($version->parquet_storage_path);
@@ -513,6 +558,37 @@ class DatasetController extends Controller
         }
 
         return [];
+    }
+
+    /**
+     * Builds a cache key for a parquet query/preview/distinct-values response.
+     * Embeds the dataset version checksum (and, for joins, the joined datasets'
+     * checksums) so the key changes — and the cache naturally invalidates —
+     * whenever any involved dataset is re-ingested.
+     *
+     * @param  array<int, array{dataset_id: string}>  $joins
+     */
+    private function buildQueryCacheKey(string $kind, Dataset $dataset, DatasetVersion $version, array $joins, array $params): string
+    {
+        $joinDatasetIds = array_values(array_unique(array_filter(array_map(
+            fn ($join) => (int) ($join['dataset_id'] ?? 0),
+            $joins,
+        ))));
+
+        $joinChecksums = $joinDatasetIds
+            ? DatasetVersion::whereIn('dataset_id', $joinDatasetIds)
+                ->orderByDesc('version_number')
+                ->get(['dataset_id', 'checksum'])
+                ->unique('dataset_id')
+                ->pluck('checksum', 'dataset_id')
+                ->sortKeys()
+                ->toArray()
+            : [];
+
+        $paramsHash = md5(json_encode([$params, $joins, $joinChecksums]));
+        $versionKey = $version->checksum ?? "v{$version->id}";
+
+        return "datasets.query.{$kind}.{$dataset->id}.{$versionKey}.{$paramsHash}";
     }
 
     private function matchesFilters(array $row, array $filters): bool
