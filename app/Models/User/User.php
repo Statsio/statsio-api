@@ -32,6 +32,7 @@ class User extends Authenticatable
         'email',
         'password',
         'google_id',
+        'locale',
         'email_verified_at',
         'status',
         'is_admin',

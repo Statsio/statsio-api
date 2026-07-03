@@ -73,9 +73,12 @@ services:
   openobserve:
     image: public.ecr.aws/zinclabs/openobserve:latest
     container_name: statsio-openobserve
+    env_file:
+      - path: .env
+        required: false
     environment:
-      - ZO_ROOT_USER_EMAIL=admin@statsio.local
-      - ZO_ROOT_USER_PASSWORD=password
+      - ZO_ROOT_USER_EMAIL=${ZO_ROOT_USER_EMAIL:-admin@statsio.local}
+      - ZO_ROOT_USER_PASSWORD=${ZO_ROOT_USER_PASSWORD:-password}
     ports:
       - "5080:5080"
     volumes:
