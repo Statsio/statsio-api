@@ -44,26 +44,37 @@ class GoogleAuthAction
                 ->orWhere('email', $email)
                 ->first();
 
+            $locale = Arr::get($payload, 'locale');
+
             if (!$user) {
                 $user = User::create([
                     'email' => $email,
                     'password' => Str::random(32),
                     'google_id' => $googleId,
+                    'locale' => $locale,
                     'email_verified_at' => now(),
                 ]);
             } else {
                 $user->forceFill([
                     'google_id' => $googleId,
+                    'locale' => $locale ?: $user->locale,
                     'email_verified_at' => $user->email_verified_at ?: now(),
                 ])->save();
             }
 
+            $profileData = [
+                'first_name' => Arr::get($payload, 'given_name'),
+                'last_name' => Arr::get($payload, 'family_name'),
+            ];
+
+            $picture = Arr::get($payload, 'picture');
+            if ($picture && !$user->profile?->avatar) {
+                $profileData['avatar'] = $picture;
+            }
+
             $user->profile()->updateOrCreate(
                 ['user_id' => $user->id],
-                [
-                    'first_name' => Arr::get($payload, 'given_name'),
-                    'last_name' => Arr::get($payload, 'family_name'),
-                ]
+                $profileData
             );
 
             return $user->fresh('profile');
