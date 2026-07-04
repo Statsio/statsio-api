@@ -1,0 +1,120 @@
+name: Deploy API Staging
+
+on:
+  push:
+    branches: [staging]
+
+jobs:
+  deploy:
+    name: Deploy to VPS (staging)
+    runs-on: ubuntu-latest
+    environment: Staging
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ vars.SSH_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "."
+          target: "/opt/statsio/api-staging"
+          rm: false
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          APP_KEY: ${{ secrets.APP_KEY }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          APP_URL: ${{ vars.APP_URL }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          SANCTUM_STATEFUL_DOMAINS: ${{ vars.SANCTUM_STATEFUL_DOMAINS }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_DATASETS_BUCKET: ${{ vars.R2_DATASETS_BUCKET }}
+          R2_MEDIA_BUCKET: ${{ vars.R2_MEDIA_BUCKET }}
+          DATASETS_DISK: ${{ vars.DATASETS_DISK }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+        with:
+          host: ${{ vars.SSH_HOST }}
+          username: ${{ vars.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: APP_KEY,DB_PASSWORD,REDIS_PASSWORD,GOOGLE_CLIENT_ID,ADMIN_PASSWORD,APP_URL,CORS_ALLOWED_ORIGINS,SANCTUM_STATEFUL_DOMAINS,R2_ENDPOINT,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY,R2_DATASETS_BUCKET,R2_MEDIA_BUCKET,DATASETS_DISK,MAIL_USERNAME,MAIL_PASSWORD
+          script: |
+            set -e
+
+            cd /opt/statsio/api-staging
+
+            cat > .env.staging << ENVEOF
+            APP_NAME=Statsio
+            APP_ENV=staging
+            APP_KEY=${APP_KEY}
+            APP_DEBUG=false
+            APP_URL=${APP_URL}
+            APP_LOCALE=fr
+            APP_FALLBACK_LOCALE=en
+
+            LOG_CHANNEL=stderr
+            LOG_LEVEL=info
+
+            DB_CONNECTION=pgsql
+            DB_HOST=db
+            DB_PORT=5432
+            DB_DATABASE=statsio
+            DB_USERNAME=statsio
+            DB_PASSWORD=${DB_PASSWORD}
+
+            POSTGRES_DB=statsio
+            POSTGRES_USER=statsio
+            POSTGRES_PASSWORD=${DB_PASSWORD}
+
+            SESSION_DRIVER=database
+            SESSION_LIFETIME=120
+            CACHE_STORE=database
+            QUEUE_CONNECTION=database
+
+            CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+            SANCTUM_STATEFUL_DOMAINS=${SANCTUM_STATEFUL_DOMAINS}
+            SANCTUM_EXPIRATION=1440
+            AUTH_REFRESH_TOKEN_TTL_DAYS=30
+
+            GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+
+            ADMIN_PASSWORD=${ADMIN_PASSWORD}
+
+            STATS_DATA_MAX_SNAPSHOT_ROWS=500000
+
+            R2_ENDPOINT=${R2_ENDPOINT}
+            R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}
+            R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}
+            R2_DATASETS_BUCKET=${R2_DATASETS_BUCKET}
+            R2_MEDIA_BUCKET=${R2_MEDIA_BUCKET}
+            DATASETS_DISK=${DATASETS_DISK}
+
+            MAIL_MAILER=smtp
+            MAIL_SCHEME=null
+            MAIL_HOST=smtp-relay.brevo.com
+            MAIL_PORT=587
+            MAIL_USERNAME=${MAIL_USERNAME}
+            MAIL_PASSWORD=${MAIL_PASSWORD}
+            MAIL_FROM_ADDRESS=noreply@statsio.fr
+            MAIL_FROM_NAME=Statsio (staging)
+            ENVEOF
+
+            docker compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
+
+            # Redémarre nginx pour forcer la résolution DNS du nouveau container API
+            docker compose -f docker-compose.staging.yml restart nginx
+
+            # Nettoie les images non utilisées pour éviter l'accumulation de layers au fil des déploiements
+            docker image prune -f
+
+            echo "Deploy staging OK"
