@@ -35,6 +35,7 @@ class ProcessDataSourceJob implements ShouldQueue
             $this->dataSource->markAsFailed(
                 "Le traitement a échoué après {$this->tries} tentatives : " . $exception->getMessage()
             );
+            $this->dataSource->dataset?->markAsFailed();
         }
     }
 

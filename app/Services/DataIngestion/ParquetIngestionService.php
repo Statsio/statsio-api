@@ -91,6 +91,7 @@ class ParquetIngestionService
             return $dataset;
         } catch (\Throwable $e) {
             $dataSource->markAsFailed($e->getMessage());
+            $dataSource->dataset?->markAsFailed();
             throw $e;
         }
     }

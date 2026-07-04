@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\AdminCategoryController;
 use App\Http\Controllers\Api\Admin\AdminChannelController;
 use App\Http\Controllers\Api\Admin\AdminProgramController;
 use App\Http\Controllers\Api\Admin\AdminReviewQuestionController;
+use App\Http\Controllers\Api\Admin\AdminSourceProvenanceController;
 use App\Http\Controllers\Api\Admin\AdminUserController;
 use Illuminate\Support\Facades\Route;
 
@@ -29,6 +30,12 @@ Route::middleware(['auth:api', 'admin'])->prefix('admin')->name('admin.')->group
     Route::post('/tv/categories', [AdminCategoryController::class, 'store'])->name('tv.categories.store');
     Route::patch('/tv/categories/{id}', [AdminCategoryController::class, 'update'])->name('tv.categories.update');
     Route::delete('/tv/categories/{id}', [AdminCategoryController::class, 'destroy'])->name('tv.categories.destroy');
+
+    // Source provenances CRUD
+    Route::get('/source-provenances', [AdminSourceProvenanceController::class, 'index'])->name('source-provenances.index');
+    Route::post('/source-provenances', [AdminSourceProvenanceController::class, 'store'])->name('source-provenances.store');
+    Route::patch('/source-provenances/{id}', [AdminSourceProvenanceController::class, 'update'])->name('source-provenances.update');
+    Route::delete('/source-provenances/{id}', [AdminSourceProvenanceController::class, 'destroy'])->name('source-provenances.destroy');
 
     // Programs
     Route::get('/tv/programs', [AdminProgramController::class, 'index'])->name('tv.programs.index');

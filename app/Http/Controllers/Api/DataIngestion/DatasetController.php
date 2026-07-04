@@ -22,13 +22,16 @@ class DatasetController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $datasets = Dataset::where('user_id', $request->user()->id)
+        $userId = $request->user()->id;
+
+        $datasets = Dataset::where('user_id', $userId)
+            ->orWhereHas('dataSource.users', fn ($q) => $q->where('user_id', $userId))
             ->latest()
             ->paginate(20);
 
         return response()->json([
             'success' => true,
-            'data' => $datasets->map(fn ($dataset) => $this->formatDataset($dataset)),
+            'data' => $datasets->map(fn ($dataset) => $this->formatDataset($dataset, $userId)),
             'meta' => [
                 'total' => $datasets->total(),
                 'per_page' => $datasets->perPage(),
@@ -40,7 +43,7 @@ class DatasetController extends Controller
 
     public function show(Request $request, Dataset $dataset): JsonResponse
     {
-        if ($dataset->user_id !== $request->user()->id) {
+        if (! $dataset->isAccessibleBy($request->user()->id)) {
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
@@ -48,13 +51,13 @@ class DatasetController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatDatasetFull($dataset),
+            'data' => $this->formatDatasetFull($dataset, $request->user()->id),
         ]);
     }
 
     public function preview(Request $request, Dataset $dataset): JsonResponse
     {
-        if ($dataset->user_id !== $request->user()->id) {
+        if (! $dataset->isAccessibleBy($request->user()->id)) {
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
@@ -71,34 +74,43 @@ class DatasetController extends Controller
     {
         $userId = $request->user()->id;
 
-        if ($dataset->user_id !== $userId) {
+        if (! $dataset->isAccessibleBy($userId)) {
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
-        $limit          = min((int) $request->query('limit', 500), 5000);
-        $columns        = $request->query('columns', []);
-        $filters        = $request->query('filters', []);
-        $joins          = $request->query('joins', []);
-        $searchQ        = (string) $request->query('search_q', '');
-        $searchCols     = $request->query('search_columns', []);
-        $distinct       = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        $limit = min((int) $request->query('limit', 500), 5000);
+        $columns = $request->query('columns', []);
+        $filters = $request->query('filters', []);
+        $joins = $request->query('joins', []);
+        $searchQ = (string) $request->query('search_q', '');
+        $searchCols = $request->query('search_columns', []);
+        $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
         $distinctColumn = (string) $request->query('distinct_column', '');
-        $sortColumn     = (string) $request->query('sort_column', '');
-        $sortDirection  = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
-        if (! is_array($columns))    $columns    = [];
-        if (! is_array($filters))    $filters    = [];
-        if (! is_array($joins))      $joins      = [];
-        if (! is_array($searchCols)) $searchCols = [];
+        $sortColumn = (string) $request->query('sort_column', '');
+        $sortDirection = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
+        if (! is_array($columns)) {
+            $columns = [];
+        }
+        if (! is_array($filters)) {
+            $filters = [];
+        }
+        if (! is_array($joins)) {
+            $joins = [];
+        }
+        if (! is_array($searchCols)) {
+            $searchCols = [];
+        }
 
         if ($distinct && count($columns) === 1) {
-            $col    = $columns[0];
+            $col = $columns[0];
             $search = (string) $request->query('search', '');
-            $rows   = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+            $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'columns'    => [$col],
-                    'rows'       => array_map(fn($v) => [$col => $v], $rows),
+                    'columns' => [$col],
+                    'rows' => array_map(fn ($v) => [$col => $v], $rows),
                     'total_rows' => count($rows),
                 ],
             ]);
@@ -123,8 +135,8 @@ class DatasetController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'columns'    => $finalColumns,
-                'rows'       => $rows,
+                'columns' => $finalColumns,
+                'rows' => $rows,
                 'total_rows' => $total,
             ],
         ]);
@@ -135,7 +147,9 @@ class DatasetController extends Controller
         $content = StudioContent::where('status', 'published')
             ->where(function ($q) use ($slug) {
                 $q->where('slug', $slug);
-                if (is_numeric($slug)) $q->orWhere('id', (int) $slug);
+                if (is_numeric($slug)) {
+                    $q->orWhere('id', (int) $slug);
+                }
             })
             ->firstOrFail();
 
@@ -151,42 +165,52 @@ class DatasetController extends Controller
                 foreach ($block['fieldMapping']['searchJoins'] ?? [] as $j) {
                     $ids[] = $j['datasetId'] ?? null;
                 }
+
                 return $ids;
             })
             ->filter()
             ->unique()
             ->values()
-            ->map(fn($id) => (string) $id)
+            ->map(fn ($id) => (string) $id)
             ->toArray();
 
         if (! in_array((string) $dataset->id, $docDatasetIds, true)) {
             return response()->json(['success' => false, 'message' => 'Dataset non autorisé.'], 403);
         }
 
-        $limit          = min((int) $request->query('limit', 500), 5000);
-        $columns        = $request->query('columns', []);
-        $filters        = $request->query('filters', []);
-        $joins          = $request->query('joins', []);
-        $searchQ        = (string) $request->query('search_q', '');
-        $searchCols     = $request->query('search_columns', []);
-        $distinct       = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        $limit = min((int) $request->query('limit', 500), 5000);
+        $columns = $request->query('columns', []);
+        $filters = $request->query('filters', []);
+        $joins = $request->query('joins', []);
+        $searchQ = (string) $request->query('search_q', '');
+        $searchCols = $request->query('search_columns', []);
+        $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
         $distinctColumn = (string) $request->query('distinct_column', '');
-        $sortColumn     = (string) $request->query('sort_column', '');
-        $sortDirection  = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
-        if (! is_array($columns))    $columns    = [];
-        if (! is_array($filters))    $filters    = [];
-        if (! is_array($joins))      $joins      = [];
-        if (! is_array($searchCols)) $searchCols = [];
+        $sortColumn = (string) $request->query('sort_column', '');
+        $sortDirection = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
+        if (! is_array($columns)) {
+            $columns = [];
+        }
+        if (! is_array($filters)) {
+            $filters = [];
+        }
+        if (! is_array($joins)) {
+            $joins = [];
+        }
+        if (! is_array($searchCols)) {
+            $searchCols = [];
+        }
 
         if ($distinct && count($columns) === 1) {
-            $col    = $columns[0];
+            $col = $columns[0];
             $search = (string) $request->query('search', '');
-            $rows   = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+            $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'columns'    => [$col],
-                    'rows'       => array_map(fn($v) => [$col => $v], $rows),
+                    'columns' => [$col],
+                    'rows' => array_map(fn ($v) => [$col => $v], $rows),
                     'total_rows' => count($rows),
                 ],
             ]);
@@ -211,8 +235,8 @@ class DatasetController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'columns'    => $finalColumns,
-                'rows'       => $rows,
+                'columns' => $finalColumns,
+                'rows' => $rows,
                 'total_rows' => $total,
             ],
         ]);
@@ -267,14 +291,18 @@ class DatasetController extends Controller
         // Mock parquet: { "__mock__": true, "schema": [...], "data": [[...], ...] }
         if (is_array($decoded) && isset($decoded['__mock__'])) {
             $allColumns = $decoded['schema'] ?? [];
-            $allRows    = $decoded['data'] ?? [];
+            $allRows = $decoded['data'] ?? [];
 
             // 1. Filter
             $rows = [];
             foreach ($allRows as $row) {
                 $assoc = array_combine($allColumns, $row);
-                if (! $this->matchesFilters($assoc, $filters)) continue;
-                if (! $this->matchesSearchQ($assoc, $searchQ, $searchCols)) continue;
+                if (! $this->matchesFilters($assoc, $filters)) {
+                    continue;
+                }
+                if (! $this->matchesSearchQ($assoc, $searchQ, $searchCols)) {
+                    continue;
+                }
                 $rows[] = $assoc;
             }
 
@@ -286,6 +314,7 @@ class DatasetController extends Controller
                     $cmp = is_numeric($av) && is_numeric($bv)
                         ? ($av <=> $bv)
                         : strcmp((string) $av, (string) $bv);
+
                     return $sortDirection === 'desc' ? -$cmp : $cmp;
                 });
             }
@@ -295,8 +324,11 @@ class DatasetController extends Controller
                 $seen = [];
                 $rows = array_values(array_filter($rows, function ($r) use ($distinctColumn, &$seen) {
                     $val = (string) ($r[$distinctColumn] ?? '');
-                    if (isset($seen[$val])) return false;
+                    if (isset($seen[$val])) {
+                        return false;
+                    }
                     $seen[$val] = true;
+
                     return true;
                 }));
             }
@@ -308,17 +340,19 @@ class DatasetController extends Controller
 
             // Apply each join using a hash join
             foreach ($joins as $join) {
-                $rows       = $this->applyMockJoin($rows, $allColumns, $join, $userId);
-                $joinCols   = (array) ($join['columns'] ?? []);
+                $rows = $this->applyMockJoin($rows, $allColumns, $join, $userId);
+                $joinCols = (array) ($join['columns'] ?? []);
                 foreach ($joinCols as $jc) {
-                    if (! in_array($jc, $allColumns)) $allColumns[] = $jc;
+                    if (! in_array($jc, $allColumns)) {
+                        $allColumns[] = $jc;
+                    }
                 }
             }
 
             // Select columns after join so joined columns are included
             if ($selectColumns) {
                 $rows = array_map(
-                    fn($r) => array_intersect_key($r, array_flip($selectColumns)),
+                    fn ($r) => array_intersect_key($r, array_flip($selectColumns)),
                     $rows,
                 );
             }
@@ -332,7 +366,7 @@ class DatasetController extends Controller
         $escapedPath = escapeshellarg($localParquet);
 
         $orderClause = $sortColumn
-            ? ' ORDER BY "' . str_replace('"', '""', $sortColumn) . '" ' . strtoupper($sortDirection)
+            ? ' ORDER BY "'.str_replace('"', '""', $sortColumn).'" '.strtoupper($sortDirection)
             : '';
 
         if (! empty($joins)) {
@@ -344,27 +378,33 @@ class DatasetController extends Controller
                 $joinDataset = Dataset::where('id', (int) ($join['dataset_id'] ?? 0))
                     ->where('user_id', $userId)
                     ->first();
-                if (! $joinDataset) continue;
+                if (! $joinDataset) {
+                    continue;
+                }
 
                 $joinVersion = $joinDataset->latestVersion;
-                if (! $joinVersion?->parquet_storage_path) continue;
+                if (! $joinVersion?->parquet_storage_path) {
+                    continue;
+                }
 
                 $joinRaw = Storage::disk($datasetsDisk)->get($joinVersion->parquet_storage_path);
-                if ($joinRaw === null) continue;
+                if ($joinRaw === null) {
+                    continue;
+                }
                 $joinPath = tempnam(sys_get_temp_dir(), 'statsio_');
                 file_put_contents($joinPath, $joinRaw);
 
-                $alias     = "t" . ($idx + 1);
-                $jType     = strtoupper(in_array($join['type'] ?? '', ['inner', 'left']) ? $join['type'] : 'left');
-                $leftCol   = '"' . str_replace('"', '""', $join['left_column'] ?? '') . '"';
-                $rightCol  = '"' . str_replace('"', '""', $join['right_column'] ?? '') . '"';
-                $joinCols  = (array) ($join['columns'] ?? []);
+                $alias = 't'.($idx + 1);
+                $jType = strtoupper(in_array($join['type'] ?? '', ['inner', 'left']) ? $join['type'] : 'left');
+                $leftCol = '"'.str_replace('"', '""', $join['left_column'] ?? '').'"';
+                $rightCol = '"'.str_replace('"', '""', $join['right_column'] ?? '').'"';
+                $joinCols = (array) ($join['columns'] ?? []);
 
                 foreach ($joinCols as $jc) {
-                    $colClause .= ', ' . $alias . '."' . str_replace('"', '""', $jc) . '"';
+                    $colClause .= ', '.$alias.'."'.str_replace('"', '""', $jc).'"';
                 }
 
-                $joinSql .= " {$jType} JOIN read_parquet(" . escapeshellarg($joinPath) . ") {$alias}";
+                $joinSql .= " {$jType} JOIN read_parquet(".escapeshellarg($joinPath).") {$alias}";
                 $joinSql .= " ON t0.{$leftCol} = {$alias}.{$rightCol}";
             }
 
@@ -372,14 +412,14 @@ class DatasetController extends Controller
             $where = $this->appendSearchClause($where, $searchQ, $searchCols, 't0');
 
             if ($distinctColumn) {
-                $escapedDistinct = '"' . str_replace('"', '""', $distinctColumn) . '"';
+                $escapedDistinct = '"'.str_replace('"', '""', $distinctColumn).'"';
                 $innerOrder = $sortColumn
-                    ? ' ORDER BY ' . $escapedDistinct . ', "' . str_replace('"', '""', $sortColumn) . '" ' . strtoupper($sortDirection)
-                    : ' ORDER BY ' . $escapedDistinct;
+                    ? ' ORDER BY '.$escapedDistinct.', "'.str_replace('"', '""', $sortColumn).'" '.strtoupper($sortDirection)
+                    : ' ORDER BY '.$escapedDistinct;
                 // Use t0.* in inner query so all columns (sort, distinct) are available in outer SELECT
-                $inner  = "SELECT DISTINCT ON ({$escapedDistinct}) {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$innerOrder}";
+                $inner = "SELECT DISTINCT ON ({$escapedDistinct}) {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$innerOrder}";
                 $outerCols = $selectColumns
-                    ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
+                    ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
                     : '*';
                 $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause} LIMIT {$limit}";
             } else {
@@ -387,21 +427,21 @@ class DatasetController extends Controller
             }
         } else {
             $colClause = $selectColumns
-                ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
+                ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
                 : '*';
 
             $where = $this->buildDuckDbWhere($filters);
             $where = $this->appendSearchClause($where, $searchQ, $searchCols);
 
             if ($distinctColumn) {
-                $escapedDistinct = '"' . str_replace('"', '""', $distinctColumn) . '"';
+                $escapedDistinct = '"'.str_replace('"', '""', $distinctColumn).'"';
                 $innerOrder = $sortColumn
-                    ? ' ORDER BY ' . $escapedDistinct . ', "' . str_replace('"', '""', $sortColumn) . '" ' . strtoupper($sortDirection)
-                    : ' ORDER BY ' . $escapedDistinct;
+                    ? ' ORDER BY '.$escapedDistinct.', "'.str_replace('"', '""', $sortColumn).'" '.strtoupper($sortDirection)
+                    : ' ORDER BY '.$escapedDistinct;
                 // Use * in inner query so sort/distinct columns are available to the outer SELECT
-                $inner     = "SELECT DISTINCT ON ({$escapedDistinct}) * FROM read_parquet({$escapedPath}){$where}{$innerOrder}";
+                $inner = "SELECT DISTINCT ON ({$escapedDistinct}) * FROM read_parquet({$escapedPath}){$where}{$innerOrder}";
                 $outerCols = $selectColumns
-                    ? implode(', ', array_map(fn($c) => '"' . str_replace('"', '""', $c) . '"', $selectColumns))
+                    ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
                     : '*';
                 $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause} LIMIT {$limit}";
             } else {
@@ -409,7 +449,7 @@ class DatasetController extends Controller
             }
         }
 
-        $output = shell_exec('duckdb -json -c ' . escapeshellarg($sql) . ' 2>/dev/null');
+        $output = shell_exec('duckdb -json -c '.escapeshellarg($sql).' 2>/dev/null');
 
         if ($output) {
             $jsonRows = json_decode($output, true);
@@ -417,10 +457,11 @@ class DatasetController extends Controller
                 $allColumns = array_keys($jsonRows[0]);
                 if (! empty($joins) && $selectColumns) {
                     $jsonRows = array_map(
-                        fn($r) => array_intersect_key($r, array_flip($selectColumns)),
+                        fn ($r) => array_intersect_key($r, array_flip($selectColumns)),
                         $jsonRows,
                     );
                 }
+
                 return [$allColumns, $jsonRows, $dataset->row_count ?? count($jsonRows)];
             }
         }
@@ -441,39 +482,47 @@ class DatasetController extends Controller
             ->where('user_id', $userId)
             ->first();
 
-        if (! $joinDataset) return $primaryRows;
+        if (! $joinDataset) {
+            return $primaryRows;
+        }
 
         $joinVersion = $joinDataset->latestVersion;
-        if (! $joinVersion?->parquet_storage_path) return $primaryRows;
+        if (! $joinVersion?->parquet_storage_path) {
+            return $primaryRows;
+        }
 
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
         $joinRaw = Storage::disk($datasetsDisk)->get($joinVersion->parquet_storage_path);
-        if ($joinRaw === null) return $primaryRows;
+        if ($joinRaw === null) {
+            return $primaryRows;
+        }
         $joinDecoded = json_decode($joinRaw, true);
 
-        if (! is_array($joinDecoded) || ! isset($joinDecoded['__mock__'])) return $primaryRows;
+        if (! is_array($joinDecoded) || ! isset($joinDecoded['__mock__'])) {
+            return $primaryRows;
+        }
 
-        $jSchema   = $joinDecoded['schema'] ?? [];
-        $leftCol   = (string) ($join['left_column'] ?? '');
-        $rightCol  = (string) ($join['right_column'] ?? '');
-        $joinCols  = (array) ($join['columns'] ?? []);
-        $isInner   = ($join['type'] ?? 'left') === 'inner';
+        $jSchema = $joinDecoded['schema'] ?? [];
+        $leftCol = (string) ($join['left_column'] ?? '');
+        $rightCol = (string) ($join['right_column'] ?? '');
+        $joinCols = (array) ($join['columns'] ?? []);
+        $isInner = ($join['type'] ?? 'left') === 'inner';
 
         // Build hash index: rightColumn value → first matching row (1:1 join)
         $index = [];
         foreach ($joinDecoded['data'] ?? [] as $jRow) {
             $jAssoc = array_combine($jSchema, $jRow);
-            $key    = (string) ($jAssoc[$rightCol] ?? '');
+            $key = (string) ($jAssoc[$rightCol] ?? '');
             if ($key !== '' && ! isset($index[$key])) {
                 $index[$key] = $jAssoc;
             }
         }
 
         $nullRow = array_fill_keys($joinCols, null);
-        $result  = [];
+        $result = [];
 
         foreach ($primaryRows as $row) {
-            $key   = (string) ($row[$leftCol] ?? '');
+            $key = (string) ($row[$leftCol] ?? '');
             $match = $index[$key] ?? null;
 
             if ($match === null) {
@@ -496,7 +545,9 @@ class DatasetController extends Controller
     {
         $version = $dataset->latestVersion;
 
-        if (! $version?->parquet_storage_path) return [];
+        if (! $version?->parquet_storage_path) {
+            return [];
+        }
 
         $cacheKey = $this->buildQueryCacheKey('distinct', $dataset, $version, [], [
             'column' => $column,
@@ -515,27 +566,34 @@ class DatasetController extends Controller
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
 
         $raw = Storage::disk($datasetsDisk)->get($version->parquet_storage_path);
-        if ($raw === null) return [];
+        if ($raw === null) {
+            return [];
+        }
 
         $decoded = json_decode($raw, true);
 
         // Mock parquet path — scan all rows, no hard limit before filtering
         if (is_array($decoded) && isset($decoded['__mock__'])) {
             $allColumns = $decoded['schema'] ?? [];
-            $allRows    = $decoded['data'] ?? [];
-            $needle     = mb_strtolower($search);
+            $allRows = $decoded['data'] ?? [];
+            $needle = mb_strtolower($search);
 
             $seen = [];
             foreach ($allRows as $row) {
                 $assoc = array_is_list($row) ? array_combine($allColumns, $row) : $row;
-                $val   = $assoc[$column] ?? null;
-                if ($val === null || $val === '') continue;
+                $val = $assoc[$column] ?? null;
+                if ($val === null || $val === '') {
+                    continue;
+                }
                 $str = (string) $val;
-                if ($needle !== '' && mb_stripos($str, $needle) === false) continue;
+                if ($needle !== '' && mb_stripos($str, $needle) === false) {
+                    continue;
+                }
                 $seen[$str] = true;
             }
             $values = array_keys($seen);
             sort($values);
+
             return array_slice($values, 0, $limit);
         }
 
@@ -543,17 +601,17 @@ class DatasetController extends Controller
         $localParquet = tempnam(sys_get_temp_dir(), 'statsio_');
         file_put_contents($localParquet, $raw);
         $escapedPath = escapeshellarg($localParquet);
-        $escapedCol  = '"' . str_replace('"', '""', $column) . '"';
+        $escapedCol = '"'.str_replace('"', '""', $column).'"';
         $whereSearch = $search !== ''
-            ? " AND lower({$escapedCol}::VARCHAR) LIKE lower(" . escapeshellarg('%' . $search . '%') . ")"
+            ? " AND lower({$escapedCol}::VARCHAR) LIKE lower(".escapeshellarg('%'.$search.'%').')'
             : '';
-        $sql    = "SELECT DISTINCT {$escapedCol} FROM read_parquet({$escapedPath}) WHERE {$escapedCol} IS NOT NULL{$whereSearch} ORDER BY {$escapedCol} LIMIT {$limit}";
-        $output = shell_exec('duckdb -json -c ' . escapeshellarg($sql) . ' 2>/dev/null');
+        $sql = "SELECT DISTINCT {$escapedCol} FROM read_parquet({$escapedPath}) WHERE {$escapedCol} IS NOT NULL{$whereSearch} ORDER BY {$escapedCol} LIMIT {$limit}";
+        $output = shell_exec('duckdb -json -c '.escapeshellarg($sql).' 2>/dev/null');
 
         if ($output) {
             $jsonRows = json_decode($output, true);
             if (is_array($jsonRows)) {
-                return array_values(array_filter(array_map(fn($r) => (string) ($r[$column] ?? ''), $jsonRows), fn($v) => $v !== ''));
+                return array_values(array_filter(array_map(fn ($r) => (string) ($r[$column] ?? ''), $jsonRows), fn ($v) => $v !== ''));
             }
         }
 
@@ -594,79 +652,95 @@ class DatasetController extends Controller
     private function matchesFilters(array $row, array $filters): bool
     {
         foreach ($filters as $filter) {
-            $col      = $filter['column'] ?? '';
+            $col = $filter['column'] ?? '';
             $operator = $filter['operator'] ?? '=';
-            $value    = (string) ($filter['value'] ?? '');
+            $value = (string) ($filter['value'] ?? '');
 
-            if (! isset($row[$col])) continue;
+            if (! isset($row[$col])) {
+                continue;
+            }
 
             $cell = (string) $row[$col];
 
             $match = match ($operator) {
-                '='           => strtolower($cell) === strtolower($value),
-                '!='          => strtolower($cell) !== strtolower($value),
-                '>'           => is_numeric($cell) && is_numeric($value) && (float) $cell > (float) $value,
-                '>='          => is_numeric($cell) && is_numeric($value) && (float) $cell >= (float) $value,
-                '<'           => is_numeric($cell) && is_numeric($value) && (float) $cell < (float) $value,
-                '<='          => is_numeric($cell) && is_numeric($value) && (float) $cell <= (float) $value,
-                'contains'    => str_contains(strtolower($cell), strtolower($value)),
-                'not_contains'=> ! str_contains(strtolower($cell), strtolower($value)),
-                default       => true,
+                '=' => strtolower($cell) === strtolower($value),
+                '!=' => strtolower($cell) !== strtolower($value),
+                '>' => is_numeric($cell) && is_numeric($value) && (float) $cell > (float) $value,
+                '>=' => is_numeric($cell) && is_numeric($value) && (float) $cell >= (float) $value,
+                '<' => is_numeric($cell) && is_numeric($value) && (float) $cell < (float) $value,
+                '<=' => is_numeric($cell) && is_numeric($value) && (float) $cell <= (float) $value,
+                'contains' => str_contains(strtolower($cell), strtolower($value)),
+                'not_contains' => ! str_contains(strtolower($cell), strtolower($value)),
+                default => true,
             };
 
-            if (! $match) return false;
+            if (! $match) {
+                return false;
+            }
         }
+
         return true;
     }
 
     private function matchesSearchQ(array $row, string $searchQ, array $searchCols): bool
     {
-        if ($searchQ === '' || empty($searchCols)) return true;
+        if ($searchQ === '' || empty($searchCols)) {
+            return true;
+        }
         $needle = mb_strtolower($searchQ);
         foreach ($searchCols as $col) {
-            if (mb_stripos((string) ($row[$col] ?? ''), $needle) !== false) return true;
+            if (mb_stripos((string) ($row[$col] ?? ''), $needle) !== false) {
+                return true;
+            }
         }
+
         return false;
     }
 
     private function appendSearchClause(string $where, string $searchQ, array $searchCols, string $tableAlias = ''): string
     {
-        if ($searchQ === '' || empty($searchCols)) return $where;
-        $prefix   = $tableAlias ? "{$tableAlias}." : '';
-        $val      = "'" . str_replace("'", "''", $searchQ) . "'";
-        $clauses  = array_map(function ($col) use ($prefix, $val) {
-            $c = $prefix . '"' . str_replace('"', '""', $col) . '"';
+        if ($searchQ === '' || empty($searchCols)) {
+            return $where;
+        }
+        $prefix = $tableAlias ? "{$tableAlias}." : '';
+        $val = "'".str_replace("'", "''", $searchQ)."'";
+        $clauses = array_map(function ($col) use ($prefix, $val) {
+            $c = $prefix.'"'.str_replace('"', '""', $col).'"';
+
             return "LOWER({$c}::VARCHAR) LIKE LOWER(CONCAT('%', {$val}, '%'))";
         }, $searchCols);
-        $clause = '(' . implode(' OR ', $clauses) . ')';
+        $clause = '('.implode(' OR ', $clauses).')';
+
         return $where === '' ? " WHERE {$clause}" : "{$where} AND {$clause}";
     }
 
     private function buildDuckDbWhere(array $filters, string $tableAlias = ''): string
     {
-        if (empty($filters)) return '';
+        if (empty($filters)) {
+            return '';
+        }
 
-        $prefix  = $tableAlias ? "{$tableAlias}." : '';
+        $prefix = $tableAlias ? "{$tableAlias}." : '';
         $clauses = [];
         foreach ($filters as $filter) {
-            $col   = $prefix . '"' . str_replace('"', '""', $filter['column'] ?? '') . '"';
-            $val   = "'" . str_replace("'", "''", $filter['value'] ?? '') . "'";
-            $op    = $filter['operator'] ?? '=';
+            $col = $prefix.'"'.str_replace('"', '""', $filter['column'] ?? '').'"';
+            $val = "'".str_replace("'", "''", $filter['value'] ?? '')."'";
+            $op = $filter['operator'] ?? '=';
 
             $clauses[] = match ($op) {
-                '='           => "{$col} = {$val}",
-                '!='          => "{$col} != {$val}",
-                '>'           => "TRY_CAST({$col} AS DOUBLE) > TRY_CAST({$val} AS DOUBLE)",
-                '>='          => "TRY_CAST({$col} AS DOUBLE) >= TRY_CAST({$val} AS DOUBLE)",
-                '<'           => "TRY_CAST({$col} AS DOUBLE) < TRY_CAST({$val} AS DOUBLE)",
-                '<='          => "TRY_CAST({$col} AS DOUBLE) <= TRY_CAST({$val} AS DOUBLE)",
-                'contains'    => "LOWER({$col}) LIKE LOWER(CONCAT('%', {$val}, '%'))",
-                'not_contains'=> "LOWER({$col}) NOT LIKE LOWER(CONCAT('%', {$val}, '%'))",
-                default       => '1=1',
+                '=' => "{$col} = {$val}",
+                '!=' => "{$col} != {$val}",
+                '>' => "TRY_CAST({$col} AS DOUBLE) > TRY_CAST({$val} AS DOUBLE)",
+                '>=' => "TRY_CAST({$col} AS DOUBLE) >= TRY_CAST({$val} AS DOUBLE)",
+                '<' => "TRY_CAST({$col} AS DOUBLE) < TRY_CAST({$val} AS DOUBLE)",
+                '<=' => "TRY_CAST({$col} AS DOUBLE) <= TRY_CAST({$val} AS DOUBLE)",
+                'contains' => "LOWER({$col}) LIKE LOWER(CONCAT('%', {$val}, '%'))",
+                'not_contains' => "LOWER({$col}) NOT LIKE LOWER(CONCAT('%', {$val}, '%'))",
+                default => '1=1',
             };
         }
 
-        return ' WHERE ' . implode(' AND ', $clauses);
+        return ' WHERE '.implode(' AND ', $clauses);
     }
 
     public function update(Request $request, Dataset $dataset): JsonResponse
@@ -684,13 +758,24 @@ class DatasetController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $this->formatDataset($dataset->fresh()),
+            'data' => $this->formatDataset($dataset->fresh(), $request->user()->id),
         ]);
     }
 
     public function destroy(Request $request, Dataset $dataset): JsonResponse
     {
-        if ($dataset->user_id !== $request->user()->id) {
+        $userId = $request->user()->id;
+
+        if (! $dataset->isOwnedBy($userId)) {
+            // Utilisateur rattaché à une source publique (pas propriétaire) :
+            // "supprimer" ne fait que retirer son rattachement, la source reste
+            // intacte pour les autres comptes qui l'utilisent.
+            if ($dataset->dataSource?->users()->where('user_id', $userId)->exists()) {
+                $dataset->dataSource->users()->detach($userId);
+
+                return response()->json(['success' => true, 'message' => 'Source retirée de vos sources.'], 200);
+            }
+
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
@@ -714,7 +799,7 @@ class DatasetController extends Controller
         return response()->json(['success' => true, 'message' => 'Source supprimée.'], 200);
     }
 
-    private function formatDataset(Dataset $dataset): array
+    private function formatDataset(Dataset $dataset, int $requestUserId): array
     {
         return [
             'id' => $dataset->id,
@@ -723,13 +808,14 @@ class DatasetController extends Controller
             'row_count' => $dataset->row_count,
             'status' => $dataset->status->value,
             'created_at' => $dataset->created_at->toIso8601String(),
+            'is_owner' => $dataset->isOwnedBy($requestUserId),
         ];
     }
 
-    private function formatDatasetFull(Dataset $dataset): array
+    private function formatDatasetFull(Dataset $dataset, int $requestUserId): array
     {
         return [
-            ...$this->formatDataset($dataset),
+            ...$this->formatDataset($dataset, $requestUserId),
             'data_source_id' => $dataset->data_source_id,
             'columns' => $dataset->columns->map(fn ($col) => [
                 'name' => $col->name,

@@ -67,4 +67,19 @@ class Dataset extends Model
     {
         $this->update(['status' => DatasetStatusEnum::FAILED]);
     }
+
+    public function isOwnedBy(int $userId): bool
+    {
+        return $this->user_id === $userId;
+    }
+
+    /**
+     * True if the user owns this dataset's source, or has attached its
+     * (public) source via the data_source_user pivot.
+     */
+    public function isAccessibleBy(int $userId): bool
+    {
+        return $this->isOwnedBy($userId)
+            || $this->dataSource?->users()->where('user_id', $userId)->exists();
+    }
 }

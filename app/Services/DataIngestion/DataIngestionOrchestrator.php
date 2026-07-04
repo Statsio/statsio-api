@@ -121,6 +121,7 @@ class DataIngestionOrchestrator
                 unlink($localTempPath);
             }
             $dataSource->markAsFailed($e->getMessage());
+            $dataSource->dataset?->markAsFailed();
             throw $e;
         }
     }

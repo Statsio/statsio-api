@@ -16,4 +16,10 @@ return [
         'datasets_disk' => env('DATASETS_DISK', 'local'),
     ],
 
+    'media' => [
+        // Disque pour les médias uploadés (avatars exclus, cf. Google) (public en dev, r2-media en prod)
+        // "public" (et non "local") car les logos de chaîne TV sont servis via une URL directe, pas via le contrôleur media.file
+        'disk' => env('MEDIA_DISK', 'public'),
+    ],
+
 ];
