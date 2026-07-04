@@ -93,6 +93,7 @@ services:
       - api
     labels:
       traefik.enable: "true"
+      traefik.docker.network: "edge"
       traefik.http.routers.statsio-api-staging.rule: "Host(`api-staging.statsio.fr`)"
       traefik.http.routers.statsio-api-staging.entrypoints: "websecure"
       traefik.http.routers.statsio-api-staging.tls: "true"
