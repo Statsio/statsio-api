@@ -106,7 +106,7 @@ jobs:
             MAIL_USERNAME=${MAIL_USERNAME}
             MAIL_PASSWORD=${MAIL_PASSWORD}
             MAIL_FROM_ADDRESS=noreply@statsio.fr
-            MAIL_FROM_NAME=Statsio (staging)
+            MAIL_FROM_NAME="Statsio (staging)"
             ENVEOF
 
             docker compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
