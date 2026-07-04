@@ -63,6 +63,9 @@ services:
     image: nginx:alpine
     container_name: statsio-nginx
     restart: unless-stopped
+    networks:
+      - default
+      - edge
     volumes:
       - .:/var/www:ro
       - ./docker/nginx/nginx.fastcgi.conf:/etc/nginx/conf.d/default.conf:ro
@@ -79,6 +82,9 @@ services:
     image: traefik:v3.7.6
     container_name: statsio-traefik
     restart: unless-stopped
+    networks:
+      - default
+      - edge
     environment:
       # Le client Docker embarqué dans Traefik négocie par défaut depuis l'API 1.24,
       # que les daemons Docker récents rejettent (minimum requis plus haut). On force
@@ -140,6 +146,11 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     depends_on:
       - openobserve
+
+networks:
+  default:
+  edge:
+    external: true
 
 volumes:
   postgres_data:
