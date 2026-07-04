@@ -78,59 +78,30 @@ class DatasetController extends Controller
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
-        $limit = min((int) $request->query('limit', 500), 5000);
-        $columns = $request->query('columns', []);
-        $filters = $request->query('filters', []);
-        $joins = $request->query('joins', []);
-        $searchQ = (string) $request->query('search_q', '');
-        $searchCols = $request->query('search_columns', []);
-        $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
-        $distinctColumn = (string) $request->query('distinct_column', '');
-        $sortColumn = (string) $request->query('sort_column', '');
-        $sortDirection = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
-        if (! is_array($columns)) {
-            $columns = [];
-        }
-        if (! is_array($filters)) {
-            $filters = [];
-        }
-        if (! is_array($joins)) {
-            $joins = [];
-        }
-        if (! is_array($searchCols)) {
-            $searchCols = [];
-        }
+        $p = $this->parseQueryParams($request);
 
-        if ($distinct && count($columns) === 1) {
-            $col = $columns[0];
-            $search = (string) $request->query('search', '');
-            $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search);
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'columns' => [$col],
-                    'rows' => array_map(fn ($v) => [$col => $v], $rows),
-                    'total_rows' => count($rows),
-                ],
-            ]);
+        if ($p['distinct'] && count($p['columns']) === 1) {
+            return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
         }
 
         [$allColumns, $rows, $total] = $this->resolveRows(
             $dataset,
-            count($columns) ? $columns : null,
-            $filters,
-            $limit,
-            $joins,
+            count($p['columns']) ? $p['columns'] : null,
+            $p['filters'],
+            $p['limit'],
+            $p['joins'],
             $userId,
-            $searchQ,
-            $searchCols,
-            $distinctColumn ?: null,
-            $sortColumn ?: null,
-            $sortDirection,
+            $p['searchQ'],
+            $p['searchCols'],
+            $p['distinctColumn'],
+            $p['sortColumn'],
+            $p['sortDirection'],
+            $p['aggregate'],
+            $p['aggregateColumns'],
+            $p['groupBy'],
         );
 
-        $finalColumns = count($columns) ? array_values(array_intersect($allColumns, $columns)) : $allColumns;
+        $finalColumns = count($p['columns']) ? array_values(array_intersect($allColumns, $p['columns'])) : $allColumns;
 
         return response()->json([
             'success' => true,
@@ -178,59 +149,30 @@ class DatasetController extends Controller
             return response()->json(['success' => false, 'message' => 'Dataset non autorisé.'], 403);
         }
 
-        $limit = min((int) $request->query('limit', 500), 5000);
-        $columns = $request->query('columns', []);
-        $filters = $request->query('filters', []);
-        $joins = $request->query('joins', []);
-        $searchQ = (string) $request->query('search_q', '');
-        $searchCols = $request->query('search_columns', []);
-        $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
-        $distinctColumn = (string) $request->query('distinct_column', '');
-        $sortColumn = (string) $request->query('sort_column', '');
-        $sortDirection = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
-        if (! is_array($columns)) {
-            $columns = [];
-        }
-        if (! is_array($filters)) {
-            $filters = [];
-        }
-        if (! is_array($joins)) {
-            $joins = [];
-        }
-        if (! is_array($searchCols)) {
-            $searchCols = [];
-        }
+        $p = $this->parseQueryParams($request);
 
-        if ($distinct && count($columns) === 1) {
-            $col = $columns[0];
-            $search = (string) $request->query('search', '');
-            $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search);
-
-            return response()->json([
-                'success' => true,
-                'data' => [
-                    'columns' => [$col],
-                    'rows' => array_map(fn ($v) => [$col => $v], $rows),
-                    'total_rows' => count($rows),
-                ],
-            ]);
+        if ($p['distinct'] && count($p['columns']) === 1) {
+            return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
         }
 
         [$allColumns, $rows, $total] = $this->resolveRows(
             $dataset,
-            count($columns) ? $columns : null,
-            $filters,
-            $limit,
-            $joins,
+            count($p['columns']) ? $p['columns'] : null,
+            $p['filters'],
+            $p['limit'],
+            $p['joins'],
             $content->user_id,
-            $searchQ,
-            $searchCols,
-            $distinctColumn ?: null,
-            $sortColumn ?: null,
-            $sortDirection,
+            $p['searchQ'],
+            $p['searchCols'],
+            $p['distinctColumn'],
+            $p['sortColumn'],
+            $p['sortDirection'],
+            $p['aggregate'],
+            $p['aggregateColumns'],
+            $p['groupBy'],
         );
 
-        $finalColumns = count($columns) ? array_values(array_intersect($allColumns, $columns)) : $allColumns;
+        $finalColumns = count($p['columns']) ? array_values(array_intersect($allColumns, $p['columns'])) : $allColumns;
 
         return response()->json([
             'success' => true,
@@ -243,12 +185,88 @@ class DatasetController extends Controller
     }
 
     /**
+     * Parses and validates the query params shared by query() and queryPublic().
+     *
+     * @return array{limit: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>}
+     */
+    private function parseQueryParams(Request $request): array
+    {
+        $limit = min((int) $request->query('limit', 500), 5000);
+        $columns = $request->query('columns', []);
+        $filters = $request->query('filters', []);
+        $joins = $request->query('joins', []);
+        $searchQ = (string) $request->query('search_q', '');
+        $searchCols = $request->query('search_columns', []);
+        $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        $distinctColumn = (string) $request->query('distinct_column', '');
+        $sortColumn = (string) $request->query('sort_column', '');
+        $sortDirection = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
+        $aggregate = strtolower((string) $request->query('aggregate', ''));
+        $aggregateColumns = $request->query('aggregate_columns', []);
+        $groupBy = $request->query('group_by', []);
+
+        if (! is_array($columns)) {
+            $columns = [];
+        }
+        if (! is_array($filters)) {
+            $filters = [];
+        }
+        if (! is_array($joins)) {
+            $joins = [];
+        }
+        if (! is_array($searchCols)) {
+            $searchCols = [];
+        }
+        if (! is_array($aggregateColumns)) {
+            $aggregateColumns = [];
+        }
+        if (! is_array($groupBy)) {
+            $groupBy = [];
+        }
+        if (! in_array($aggregate, ['sum', 'avg', 'count', 'min', 'max'], true) || empty($aggregateColumns)) {
+            $aggregate = null;
+            $aggregateColumns = [];
+            $groupBy = [];
+        }
+
+        return [
+            'limit' => $limit,
+            'columns' => $columns,
+            'filters' => $filters,
+            'joins' => $joins,
+            'searchQ' => $searchQ,
+            'searchCols' => $searchCols,
+            'distinct' => $distinct,
+            'distinctColumn' => $distinctColumn ?: null,
+            'sortColumn' => $sortColumn ?: null,
+            'sortDirection' => $sortDirection,
+            'aggregate' => $aggregate,
+            'aggregateColumns' => array_values($aggregateColumns),
+            'groupBy' => array_values($groupBy),
+        ];
+    }
+
+    private function distinctResponse(Dataset $dataset, string $col, int $limit, string $search): JsonResponse
+    {
+        $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'columns' => [$col],
+                'rows' => array_map(fn ($v) => [$col => $v], $rows),
+                'total_rows' => count($rows),
+            ],
+        ]);
+    }
+
+    /**
      * Returns [columns, rows (as assoc arrays), total_row_count].
      *
      * @param  array<int, array{column: string, operator: string, value: string}>  $filters
      * @param  array<int, array{dataset_id: string, left_column: string, right_column: string, columns: array<string>, type: string}>  $joins
      */
-    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc'): array
+    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc', ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = []): array
     {
         $version = $dataset->latestVersion;
 
@@ -266,17 +284,20 @@ class DatasetController extends Controller
             'distinctColumn' => $distinctColumn,
             'sortColumn' => $sortColumn,
             'sortDirection' => $sortDirection,
+            'aggregate' => $aggregate,
+            'aggregateColumns' => $aggregateColumns,
+            'groupBy' => $groupBy,
         ]);
 
         return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchParquetRows(
-            $dataset, $version, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols, $distinctColumn, $sortColumn, $sortDirection,
+            $dataset, $version, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols, $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy,
         ));
     }
 
     /**
      * Runs the actual DuckDB / mock-parquet query. Only called on a cache miss.
      */
-    private function fetchParquetRows(Dataset $dataset, DatasetVersion $version, ?array $selectColumns, array $filters, int $limit, array $joins, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection): array
+    private function fetchParquetRows(Dataset $dataset, DatasetVersion $version, ?array $selectColumns, array $filters, int $limit, array $joins, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection, ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = []): array
     {
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
         $storagePath = $version->parquet_storage_path;
@@ -334,6 +355,34 @@ class DatasetController extends Controller
             }
 
             $totalAfterFilter = count($rows);
+
+            if ($aggregate !== null && ! empty($aggregateColumns)) {
+                // Aggregation runs over every matching (joined) row, not a page of them —
+                // so joins are applied before grouping and the row-level limit is skipped.
+                foreach ($joins as $join) {
+                    $rows = $this->applyMockJoin($rows, $allColumns, $join, $userId);
+                    $joinCols = (array) ($join['columns'] ?? []);
+                    foreach ($joinCols as $jc) {
+                        if (! in_array($jc, $allColumns)) {
+                            $allColumns[] = $jc;
+                        }
+                    }
+                }
+
+                $rows = $this->aggregateRows($rows, $aggregate, $aggregateColumns, $groupBy);
+                $allColumns = array_values(array_unique(array_merge($groupBy, $aggregateColumns)));
+                $totalAfterFilter = count($rows);
+                $rows = array_slice($rows, 0, $limit);
+
+                if ($selectColumns) {
+                    $rows = array_map(
+                        fn ($r) => array_intersect_key($r, array_flip($selectColumns)),
+                        $rows,
+                    );
+                }
+
+                return [$allColumns, $rows, $totalAfterFilter];
+            }
 
             // 4. Limit
             $rows = array_slice($rows, 0, $limit);
@@ -421,9 +470,9 @@ class DatasetController extends Controller
                 $outerCols = $selectColumns
                     ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
                     : '*';
-                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause} LIMIT {$limit}";
+                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause}";
             } else {
-                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$orderClause} LIMIT {$limit}";
+                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$orderClause}";
             }
         } else {
             $colClause = $selectColumns
@@ -443,10 +492,16 @@ class DatasetController extends Controller
                 $outerCols = $selectColumns
                     ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
                     : '*';
-                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause} LIMIT {$limit}";
+                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause}";
             } else {
-                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where}{$orderClause} LIMIT {$limit}";
+                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where}{$orderClause}";
             }
+        }
+
+        if ($aggregate !== null && ! empty($aggregateColumns)) {
+            $sql = $this->wrapAggregateSql($sql, $aggregate, $aggregateColumns, $groupBy)." LIMIT {$limit}";
+        } else {
+            $sql .= " LIMIT {$limit}";
         }
 
         $output = shell_exec('duckdb -json -c '.escapeshellarg($sql).' 2>/dev/null');
@@ -467,6 +522,88 @@ class DatasetController extends Controller
         }
 
         return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
+    }
+
+    /**
+     * Wraps an existing row-level SQL query (built from the same filter/join/search
+     * logic used everywhere else) in an outer aggregate SELECT, so the aggregation
+     * runs over every matching row instead of just the page that would otherwise be
+     * returned. $aggregate must already be validated against the sum/avg/count/min/max
+     * whitelist by the caller (parseQueryParams) before reaching here.
+     *
+     * @param  array<string>  $aggregateColumns
+     * @param  array<string>  $groupBy
+     */
+    private function wrapAggregateSql(string $innerSql, string $aggregate, array $aggregateColumns, array $groupBy): string
+    {
+        $fn = strtoupper($aggregate);
+        $quote = fn (string $c) => '"'.str_replace('"', '""', $c).'"';
+
+        $selectParts = array_map($quote, $groupBy);
+        foreach ($aggregateColumns as $col) {
+            $escaped = $quote($col);
+            $expr = $fn === 'COUNT' ? 'COUNT(*)' : "{$fn}(TRY_CAST({$escaped} AS DOUBLE))";
+            $selectParts[] = "{$expr} AS {$escaped}";
+        }
+
+        $sql = 'SELECT '.implode(', ', $selectParts)." FROM ({$innerSql}) agg_sub";
+        if (! empty($groupBy)) {
+            $sql .= ' GROUP BY '.implode(', ', array_map($quote, $groupBy));
+        }
+
+        return $sql;
+    }
+
+    /**
+     * Groups mock-parquet rows (already filtered/joined) by $groupBy and computes
+     * $aggregate over each $aggregateColumns entry — the PHP-side equivalent of
+     * wrapAggregateSql() for datasets that don't go through the DuckDB CLI.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<string>  $aggregateColumns
+     * @param  array<string>  $groupBy
+     * @return array<int, array<string, mixed>>
+     */
+    private function aggregateRows(array $rows, string $aggregate, array $aggregateColumns, array $groupBy): array
+    {
+        $groups = [];
+        foreach ($rows as $row) {
+            $key = implode("\0", array_map(fn ($c) => (string) ($row[$c] ?? ''), $groupBy));
+            if (! isset($groups[$key])) {
+                $groups[$key] = [
+                    'keyValues' => array_combine($groupBy, array_map(fn ($c) => $row[$c] ?? null, $groupBy)),
+                    'rowCount' => 0,
+                    'values' => [],
+                ];
+            }
+            $groups[$key]['rowCount']++;
+            foreach ($aggregateColumns as $col) {
+                $groups[$key]['values'][$col][] = $row[$col] ?? null;
+            }
+        }
+
+        $result = [];
+        foreach ($groups as $group) {
+            $out = $group['keyValues'];
+            foreach ($aggregateColumns as $col) {
+                if ($aggregate === 'count') {
+                    $out[$col] = $group['rowCount'];
+
+                    continue;
+                }
+                $vals = array_values(array_filter($group['values'][$col] ?? [], fn ($v) => is_numeric($v)));
+                $out[$col] = match ($aggregate) {
+                    'sum' => array_sum($vals),
+                    'avg' => count($vals) ? array_sum($vals) / count($vals) : 0,
+                    'min' => count($vals) ? min($vals) : null,
+                    'max' => count($vals) ? max($vals) : null,
+                    default => null,
+                };
+            }
+            $result[] = $out;
+        }
+
+        return $result;
     }
 
     /**
