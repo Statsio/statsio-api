@@ -6,8 +6,8 @@ use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
 use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
 use App\Jobs\ProcessDataSourceJob;
 use App\Jobs\ProcessParquetJob;
-use App\Models\DataIngestion\DataSource;
 use App\Models\DataIngestion\Dataset;
+use App\Models\DataIngestion\DataSource;
 use App\Models\User\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -20,8 +20,15 @@ class UploadDataSourceAction
      *
      * @throws UnsupportedFileTypeException
      */
-    public function execute(UploadedFile $file, User $user, ?string $name = null): DataSource
-    {
+    public function execute(
+        UploadedFile $file,
+        User $user,
+        ?string $name = null,
+        string $visibility = 'private',
+        array $categories = [],
+        ?int $provenanceId = null,
+        ?string $provenanceOtherLabel = null,
+    ): DataSource {
         $extension = strtolower($file->getClientOriginalExtension());
 
         try {
@@ -37,18 +44,23 @@ class UploadDataSourceAction
             'user_id' => $user->id,
             'name' => $name ?? pathinfo($originalFilename, PATHINFO_FILENAME),
             'type' => $type,
+            'source_kind' => 'upload',
             'original_filename' => $originalFilename,
             'raw_storage_path' => $storagePath,
             'file_size_bytes' => $file->getSize(),
             'status' => 'pending',
+            'visibility' => $visibility,
+            'categories' => $categories,
+            'provenance_id' => $provenanceId,
+            'provenance_other_label' => $provenanceOtherLabel,
         ]);
 
         Dataset::create([
             'data_source_id' => $dataSource->id,
-            'user_id'        => $dataSource->user_id,
-            'name'           => $dataSource->name,
-            'status'         => 'pending',
-            'row_count'      => 0,
+            'user_id' => $dataSource->user_id,
+            'name' => $dataSource->name,
+            'status' => 'pending',
+            'row_count' => 0,
         ]);
 
         if ($type === DataSourceTypeEnum::PARQUET) {

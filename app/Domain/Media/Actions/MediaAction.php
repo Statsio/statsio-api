@@ -9,13 +9,17 @@ use Illuminate\Support\Str;
 
 class MediaAction
 {
+    public function disk(): string
+    {
+        return config('statsio.media.disk', 'local');
+    }
+
     public function upload(UploadedFile $file, string $directory = 'media'): Media
     {
-        $originalName = $file->getClientOriginalName();
         $extension = $file->getClientOriginalExtension();
         $filename = Str::uuid() . '.' . $extension;
 
-        $path = $file->storeAs($directory, $filename, 'public');
+        $path = $file->storeAs($directory, $filename, $this->disk());
 
         return Media::create([
             'path' => $path,
@@ -38,8 +42,8 @@ class MediaAction
 
     public function delete(Media $media): bool
     {
-        if (Storage::disk('public')->exists($media->path)) {
-            Storage::disk('public')->delete($media->path);
+        if (Storage::disk($this->disk())->exists($media->path)) {
+            Storage::disk($this->disk())->delete($media->path);
         }
 
         return $media->delete();

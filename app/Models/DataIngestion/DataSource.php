@@ -7,6 +7,7 @@ use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
 use App\Models\User\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class DataSource extends Model
@@ -17,12 +18,18 @@ class DataSource extends Model
         'user_id',
         'name',
         'type',
+        'source_kind',
+        'api_config',
         'original_filename',
         'raw_storage_path',
         'file_size_bytes',
         'status',
         'error_message',
         'processed_at',
+        'visibility',
+        'categories',
+        'provenance_id',
+        'provenance_other_label',
     ];
 
     protected function casts(): array
@@ -31,6 +38,8 @@ class DataSource extends Model
             'type' => DataSourceTypeEnum::class,
             'status' => DataSourceStatusEnum::class,
             'processed_at' => 'datetime',
+            'api_config' => 'array',
+            'categories' => 'array',
         ];
     }
 
@@ -42,6 +51,30 @@ class DataSource extends Model
     public function dataset(): HasOne
     {
         return $this->hasOne(Dataset::class, 'data_source_id');
+    }
+
+    public function provenance(): BelongsTo
+    {
+        return $this->belongsTo(SourceProvenance::class, 'provenance_id');
+    }
+
+    /**
+     * Users who have attached this (public) source to their own Studio sidebar,
+     * without duplicating the underlying data — see AttachPublicDataSourceAction.
+     */
+    public function users(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'data_source_user')->withTimestamps();
+    }
+
+    public function isOwnedBy(int $userId): bool
+    {
+        return $this->user_id === $userId;
+    }
+
+    public function isAccessibleBy(int $userId): bool
+    {
+        return $this->isOwnedBy($userId) || $this->users()->where('user_id', $userId)->exists();
     }
 
     public function markAsProcessing(): void

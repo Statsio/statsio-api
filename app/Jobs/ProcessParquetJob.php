@@ -33,6 +33,7 @@ class ProcessParquetJob implements ShouldQueue
             $this->dataSource->markAsFailed(
                 "L'ingestion Parquet a échoué : " . $exception->getMessage()
             );
+            $this->dataSource->dataset?->markAsFailed();
         }
     }
 }

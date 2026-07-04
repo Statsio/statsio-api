@@ -17,16 +17,8 @@ trait HasMedia
 
     public function addMedia(UploadedFile $file, string $directory = 'media', string $collection = ''): Media
     {
-        $extension = $file->getClientOriginalExtension();
-        $filename = \Illuminate\Support\Str::uuid() . '.' . $extension;
-
-        $path = $file->storeAs($directory, $filename, 'public');
-
-        $media = new Media([
-            'path' => $path,
-            'type' => $file->getMimeType(),
-            'collection_name' => $collection ?: null,
-        ]);
+        $media = app(MediaAction::class)->upload($file, $directory);
+        $media->collection_name = $collection ?: null;
 
         $this->media()->save($media);
 

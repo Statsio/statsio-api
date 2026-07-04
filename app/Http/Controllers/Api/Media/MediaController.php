@@ -107,8 +107,10 @@ class MediaController extends Controller
 
     public function file(Media $media)
     {
-        abort_unless(Storage::disk('public')->exists($media->path), 404);
+        $disk = $this->mediaAction->disk();
 
-        return Storage::disk('public')->response($media->path);
+        abort_unless(Storage::disk($disk)->exists($media->path), 404);
+
+        return Storage::disk($disk)->response($media->path);
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Tv\TvChannel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class AdminChannelController extends Controller
@@ -77,14 +78,16 @@ class AdminChannelController extends Controller
             'logo' => ['required', 'file', 'max:2048', 'mimes:png,jpg,jpeg,webp,svg'],
         ]);
 
-        // Delete previous upload if it was a local file (not a CDN URL)
-        if ($channel->logo_url && str_contains($channel->logo_url, '/storage/channel-logos/')) {
-            $old = str_replace(url('/storage/'), '', $channel->logo_url);
-            Storage::disk('public')->delete($old);
+        $disk = config('statsio.media.disk');
+
+        // Delete previous upload if it was one of ours (not an externally set URL)
+        if ($channel->logo_url && str_contains($channel->logo_url, '/channel-logos/')) {
+            $old = 'channel-logos/' . Str::after($channel->logo_url, '/channel-logos/');
+            Storage::disk($disk)->delete($old);
         }
 
-        $path = $request->file('logo')->store('channel-logos', 'public');
-        $url  = url(Storage::url($path));
+        $path = $request->file('logo')->store('channel-logos', $disk);
+        $url  = Storage::disk($disk)->url($path);
 
         $channel->update(['logo_url' => $url]);
 

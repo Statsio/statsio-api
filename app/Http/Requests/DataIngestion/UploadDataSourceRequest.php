@@ -23,6 +23,11 @@ class UploadDataSourceRequest extends FormRequest
                 'extensions:csv,txt,xlsx,xls,json,parquet',
             ],
             'name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'visibility' => ['sometimes', 'nullable', 'in:private,public'],
+            'categories' => ['sometimes', 'nullable', 'array'],
+            'categories.*' => ['string', 'max:50'],
+            'provenance_id' => ['sometimes', 'nullable', 'integer', 'exists:source_provenances,id'],
+            'provenance_other_label' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
     }
 
@@ -34,6 +39,7 @@ class UploadDataSourceRequest extends FormRequest
             'file.max' => 'Le fichier ne doit pas dépasser 100 Mo.',
             'file.extensions' => 'Format non supporté. Formats acceptés : CSV, XLSX, JSON, Parquet.',
             'name.max' => 'Le nom ne doit pas dépasser 255 caractères.',
+            'provenance_id.exists' => 'Provenance invalide.',
         ];
     }
 }
