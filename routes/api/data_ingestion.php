@@ -14,7 +14,9 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/public', [DataSourceController::class, 'publicCatalog'])->name('public');
         Route::get('/', [DataSourceController::class, 'index'])->name('index');
         Route::get('/{dataSource}', [DataSourceController::class, 'show'])->name('show');
+        Route::patch('/{dataSource}', [DataSourceController::class, 'update'])->name('update');
         Route::post('/{dataSource}/attach', [DataSourceController::class, 'attachPublic'])->name('attach');
+        Route::post('/{dataSource}/refresh', [DataSourceController::class, 'refresh'])->name('refresh');
     });
 
     Route::post('/api-sources', [DataSourceController::class, 'createFromApi'])->name('api-sources.store');

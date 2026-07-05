@@ -52,4 +52,41 @@ class HttpProbeService
             );
         }
     }
+
+    /**
+     * Bas niveau : une requête, avec accès aux headers de réponse (nécessaire
+     * pour lire un header `Link: <url>; rel="next"`) et un timeout configurable —
+     * utilisé par PaginatedApiFetcher pour boucler sur plusieurs pages.
+     *
+     * @param  array<string, string>  $headers
+     * @param  array<string, mixed>  $query
+     * @return array{body: array, headers: array<string, string>, status: int, raw_size: int}
+     *
+     * @throws \RuntimeException si la requête échoue ou si le corps n'est pas du JSON valide.
+     */
+    public function fetchPage(string $url, string $method, array $headers, array $query, int $timeoutSeconds): array
+    {
+        $response = Http::withHeaders($headers)
+            ->timeout($timeoutSeconds)
+            ->send(strtoupper($method), $url, ['query' => $query]);
+
+        if ($response->failed()) {
+            throw new \RuntimeException(
+                "La requête a échoué avec le statut {$response->status()}."
+            );
+        }
+
+        $decoded = $response->json();
+
+        if (! is_array($decoded)) {
+            throw new \RuntimeException('La réponse ne contient pas de JSON valide.');
+        }
+
+        return [
+            'body' => $decoded,
+            'headers' => array_map(fn ($v) => is_array($v) ? implode(', ', $v) : $v, $response->headers()),
+            'status' => $response->status(),
+            'raw_size' => strlen($response->body()),
+        ];
+    }
 }
