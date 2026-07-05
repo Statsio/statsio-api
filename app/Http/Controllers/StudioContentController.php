@@ -15,7 +15,10 @@ class StudioContentController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $type = $request->query('type');
+
         $contents = StudioContent::where('user_id', $request->user()->id)
+            ->when($type, fn ($q) => $q->where('type', $type))
             ->orderBy('updated_at', 'desc')
             ->get();
 
@@ -29,6 +32,7 @@ class StudioContentController extends Controller
     {
         $data = $request->validate([
             'title'         => 'required|string|max:255',
+            'type'          => 'required|string|in:statsdata,article,survey',
             'sections'      => 'nullable|array',
             'blocks'        => 'nullable|array',
             'categories'    => 'nullable|array',
@@ -43,6 +47,7 @@ class StudioContentController extends Controller
         $content = StudioContent::create([
             'user_id'       => $request->user()->id,
             'title'         => $data['title'],
+            'type'          => $data['type'],
             'slug'          => $this->generateUniqueSlug($data['title']),
             'sections'      => $data['sections'] ?? [],
             'blocks'        => $data['blocks'] ?? [],
@@ -70,11 +75,15 @@ class StudioContentController extends Controller
         ]);
     }
 
-    public function indexPublic(): JsonResponse
+    public function indexPublic(Request $request): JsonResponse
     {
-        $data = Cache::remember('studio.public.index', self::PUBLIC_CACHE_TTL, function () {
+        $type = $request->query('type');
+        $cacheKey = 'studio.public.index' . ($type ? ".{$type}" : '');
+
+        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type) {
             $contents = StudioContent::with('user.profile')
                 ->where('status', 'published')
+                ->when($type, fn ($q) => $q->where('type', $type))
                 ->orderBy('updated_at', 'desc')
                 ->get();
 
@@ -144,6 +153,7 @@ class StudioContentController extends Controller
     private function forgetPublicCache(StudioContent $content): void
     {
         Cache::forget('studio.public.index');
+        Cache::forget("studio.public.index.{$content->type}");
         Cache::forget("studio.public.show.{$content->slug}");
         Cache::forget("studio.public.show.{$content->id}");
     }
@@ -196,6 +206,7 @@ class StudioContentController extends Controller
         return [
             'id'            => (string) $content->id,
             'title'         => $content->title,
+            'type'          => $content->type ?? 'statsdata',
             'description'   => $content->description,
             'status'        => $content->status ?? 'draft',
             'visibility'    => $content->visibility ?? 'private',

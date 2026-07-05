@@ -14,6 +14,7 @@ class StudioContent extends Model
     protected $fillable = [
         'user_id',
         'title',
+        'type',
         'description',
         'status',
         'visibility',

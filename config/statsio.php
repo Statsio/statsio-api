@@ -14,6 +14,15 @@ return [
 
         // Disque pour les fichiers Parquet des datasets (local en dev, r2-datasets en prod)
         'datasets_disk' => env('DATASETS_DISK', 'local'),
+
+        // Garde-fous pour la récupération paginée d'une source "api"
+        'pagination' => [
+            'default_max_pages' => (int) env('DATA_INGESTION_PAGINATION_MAX_PAGES', 100),
+            'max_pages_hard_cap' => (int) env('DATA_INGESTION_PAGINATION_MAX_PAGES_HARD_CAP', 500),
+            'time_budget_seconds' => (int) env('DATA_INGESTION_PAGINATION_TIME_BUDGET_SECONDS', 90),
+            'request_timeout_seconds' => (int) env('DATA_INGESTION_PAGINATION_REQUEST_TIMEOUT_SECONDS', 15),
+            'max_response_bytes_per_page' => (int) env('DATA_INGESTION_PAGINATION_MAX_RESPONSE_BYTES', 20 * 1024 * 1024),
+        ],
     ],
 
     'media' => [

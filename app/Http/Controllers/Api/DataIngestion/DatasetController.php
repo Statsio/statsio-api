@@ -24,7 +24,8 @@ class DatasetController extends Controller
     {
         $userId = $request->user()->id;
 
-        $datasets = Dataset::where('user_id', $userId)
+        $datasets = Dataset::with('dataSource')
+            ->where('user_id', $userId)
             ->orWhereHas('dataSource.users', fn ($q) => $q->where('user_id', $userId))
             ->latest()
             ->paginate(20);
@@ -47,7 +48,7 @@ class DatasetController extends Controller
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
-        $dataset->load(['columns', 'versions']);
+        $dataset->load(['columns', 'versions', 'dataSource']);
 
         return response()->json([
             'success' => true,
@@ -938,7 +939,7 @@ class DatasetController extends Controller
 
     private function formatDataset(Dataset $dataset, int $requestUserId): array
     {
-        return [
+        $data = [
             'id' => $dataset->id,
             'name' => $dataset->name,
             'description' => $dataset->description,
@@ -946,7 +947,18 @@ class DatasetController extends Controller
             'status' => $dataset->status->value,
             'created_at' => $dataset->created_at->toIso8601String(),
             'is_owner' => $dataset->isOwnedBy($requestUserId),
+            'data_source_id' => $dataset->data_source_id,
         ];
+
+        $dataSource = $dataset->dataSource;
+        if ($dataSource && $dataSource->source_kind === 'api' && $dataSource->isOwnedBy($requestUserId)) {
+            $data['source_kind'] = 'api';
+            $data['refresh_frequency'] = $dataSource->refresh_frequency->value;
+            $data['last_refreshed_at'] = $dataSource->last_refreshed_at?->toIso8601String();
+            $data['next_refresh_at'] = $dataSource->next_refresh_at?->toIso8601String();
+        }
+
+        return $data;
     }
 
     private function formatDatasetFull(Dataset $dataset, int $requestUserId): array
