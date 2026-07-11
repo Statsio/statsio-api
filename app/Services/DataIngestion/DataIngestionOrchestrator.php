@@ -2,10 +2,8 @@
 
 namespace App\Services\DataIngestion;
 
-use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
 use App\Models\DataIngestion\DataSource;
 use App\Models\DataIngestion\Dataset;
-use App\Models\DataIngestion\DatasetColumn;
 use App\Models\DataIngestion\DatasetVersion;
 use App\Services\DataIngestion\Contracts\ParquetWriterInterface;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +18,7 @@ class DataIngestionOrchestrator
         private readonly ParserFactory $parserFactory,
         private readonly SchemaInferenceService $schemaInferenceService,
         private readonly ParquetWriterInterface $parquetWriter,
+        private readonly DatasetColumnPersister $columnPersister,
     ) {
         $this->maxRows = (int) config('statsio.data_ingestion.max_rows', 500_000);
     }
@@ -77,20 +76,7 @@ class DataIngestionOrchestrator
                     'status'       => 'ready',
                 ])->save();
 
-                $columnRecords = [];
-                foreach ($schema as $columnName => $columnMeta) {
-                    $columnRecords[] = [
-                        'dataset_id'   => $dataset->id,
-                        'name'         => $columnName,
-                        'type'         => $columnMeta['type']->value,
-                        'nullable'     => $columnMeta['nullable'],
-                        'sample_values'=> json_encode($columnMeta['sample_values']),
-                        'column_order' => array_search($columnName, $parsed->headers),
-                        'created_at'   => now(),
-                        'updated_at'   => now(),
-                    ];
-                }
-                DatasetColumn::insert($columnRecords);
+                $this->columnPersister->persist($dataset, $schema, $parsed->headers);
 
                 DatasetVersion::create([
                     'dataset_id'           => $dataset->id,

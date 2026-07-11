@@ -23,6 +23,20 @@ return [
             'request_timeout_seconds' => (int) env('DATA_INGESTION_PAGINATION_REQUEST_TIMEOUT_SECONDS', 15),
             'max_response_bytes_per_page' => (int) env('DATA_INGESTION_PAGINATION_MAX_RESPONSE_BYTES', 20 * 1024 * 1024),
         ],
+
+        // Sources API "live" (materialization = live) : requêtées à la demande,
+        // jamais matérialisées en Parquet. Voir App\Services\DataIngestion\LiveQuery.
+        'live_query' => [
+            'request_timeout_seconds' => (int) env('LIVE_QUERY_REQUEST_TIMEOUT_SECONDS', 25),
+            'cache_ttl_seconds' => (int) env('LIVE_QUERY_CACHE_TTL_SECONDS', 60),
+            'max_limit' => (int) env('LIVE_QUERY_MAX_LIMIT', 5000),
+            // Par data_source_id — aucun header de rate-limit fourni par les API
+            // ciblées (ex. Hub'Eau), donc plafond auto-imposé pour rester un bon citoyen.
+            'rate_limit_per_minute' => (int) env('LIVE_QUERY_RATE_LIMIT_PER_MINUTE', 30),
+            // Bornes du sondage automatique de mapping de filtres (FilterCapabilityProbe)
+            'probe_max_columns' => (int) env('LIVE_QUERY_PROBE_MAX_COLUMNS', 20),
+            'probe_request_timeout_seconds' => (int) env('LIVE_QUERY_PROBE_REQUEST_TIMEOUT_SECONDS', 10),
+        ],
     ],
 
     'media' => [

@@ -73,6 +73,11 @@ class Dataset extends Model
         return $this->user_id === $userId;
     }
 
+    public function isLive(): bool
+    {
+        return $this->dataSource?->isLive() ?? false;
+    }
+
     /**
      * True if the user owns this dataset's source, or has attached its
      * (public) source via the data_source_user pivot.

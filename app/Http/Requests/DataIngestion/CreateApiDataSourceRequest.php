@@ -26,7 +26,33 @@ class CreateApiDataSourceRequest extends FormRequest
             'categories.*' => ['string', 'max:50'],
             'provenance_id' => ['sometimes', 'nullable', 'integer', 'exists:source_provenances,id'],
             'provenance_other_label' => ['sometimes', 'nullable', 'string', 'max:255'],
-        ], $this->paginationRules());
+
+            // materialization=live : requêtage direct sans matérialisation Parquet.
+            // query_mapping est optionnel — auto-détecté par sondage si absent (voir
+            // FilterCapabilityProbe) ; s'il est fourni, il corrige/complète la détection.
+            'materialization' => ['sometimes', 'in:snapshot,live'],
+        ], $this->paginationRules(), $this->queryMappingRules());
+    }
+
+    /**
+     * Règles de validation pour un `query_mapping` fourni manuellement (correction
+     * de la détection automatique) — partagées avec UpdateDataSourceRequest.
+     */
+    public static function queryMappingRules(): array
+    {
+        return [
+            'query_mapping' => ['sometimes', 'nullable', 'array'],
+            'query_mapping.count_path' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'query_mapping.max_page_size' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'query_mapping.filters' => ['sometimes', 'nullable', 'array'],
+            'query_mapping.filters.*.param' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'query_mapping.filters.*.operators' => ['sometimes', 'array'],
+            'query_mapping.filters.*.operators.*' => ['in:eq,in,gte,lte'],
+            'query_mapping.filters.*.range.gte_param' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'query_mapping.filters.*.range.lte_param' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'query_mapping.sortable_columns' => ['sometimes', 'array'],
+            'query_mapping.sortable_columns.*' => ['string', 'max:255'],
+        ];
     }
 
     /**

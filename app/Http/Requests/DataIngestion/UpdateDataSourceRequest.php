@@ -33,7 +33,7 @@ class UpdateDataSourceRequest extends FormRequest
             'headers' => ['sometimes', 'array'],
             'data_path' => ['sometimes', 'nullable', 'string', 'max:255'],
             'refresh_frequency' => ['sometimes', 'nullable', 'in:none,daily,weekly,monthly,yearly'],
-        ], CreateApiDataSourceRequest::paginationRules());
+        ], CreateApiDataSourceRequest::paginationRules(), CreateApiDataSourceRequest::queryMappingRules());
     }
 
     public function messages(): array

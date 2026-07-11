@@ -116,6 +116,31 @@ class PaginatedApiFetcher
     }
 
     /**
+     * Construit la query de la première page pour une config de pagination —
+     * exposée publiquement pour être réutilisée par la découverte de schéma/
+     * mapping des sources "live" (FilterCapabilityProbe, CreateLiveApiDataSourceAction),
+     * qui appellent HttpProbeService directement plutôt que fetchFirstPage/fetchAll.
+     *
+     * @param  array<string, mixed>  $pagination
+     * @return array<string, mixed>
+     */
+    public function buildFirstPageQuery(array $pagination): array
+    {
+        return $this->firstPageQuery($pagination);
+    }
+
+    /**
+     * Extrait le tableau d'enregistrements d'un corps de réponse déjà décodé —
+     * exposé publiquement pour le même besoin que buildFirstPageQuery() ci-dessus.
+     *
+     * @throws ApiSourceFetchException
+     */
+    public function extractRecordsFromBody(array $body, ?string $dataPath): array
+    {
+        return $this->extractRecords($body, $dataPath);
+    }
+
+    /**
      * @param  array<string, mixed>  $pagination
      * @return array<string, mixed>
      */

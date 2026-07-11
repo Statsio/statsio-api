@@ -2,6 +2,7 @@
 
 namespace App\Domain\DataIngestion\Actions;
 
+use App\Domain\DataIngestion\Enums\DataSourceMaterializationEnum;
 use App\Domain\DataIngestion\Enums\DataSourceRefreshFrequencyEnum;
 use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
@@ -53,6 +54,7 @@ class CreateApiDataSourceAction
             'name' => $name,
             'type' => DataSourceTypeEnum::JSON,
             'source_kind' => 'api',
+            'materialization' => DataSourceMaterializationEnum::SNAPSHOT,
             'api_config' => [
                 'url' => $url,
                 'method' => strtoupper($method),

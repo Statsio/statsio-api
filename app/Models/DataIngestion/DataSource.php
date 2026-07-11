@@ -2,6 +2,7 @@
 
 namespace App\Models\DataIngestion;
 
+use App\Domain\DataIngestion\Enums\DataSourceMaterializationEnum;
 use App\Domain\DataIngestion\Enums\DataSourceRefreshFrequencyEnum;
 use App\Domain\DataIngestion\Enums\DataSourceStatusEnum;
 use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
@@ -21,6 +22,7 @@ class DataSource extends Model
         'name',
         'type',
         'source_kind',
+        'materialization',
         'api_config',
         'refresh_frequency',
         'last_refreshed_at',
@@ -44,6 +46,7 @@ class DataSource extends Model
         return [
             'type' => DataSourceTypeEnum::class,
             'status' => DataSourceStatusEnum::class,
+            'materialization' => DataSourceMaterializationEnum::class,
             'refresh_frequency' => DataSourceRefreshFrequencyEnum::class,
             'last_refreshed_at' => 'datetime',
             'next_refresh_at' => 'datetime',
@@ -96,6 +99,11 @@ class DataSource extends Model
     public function isOwnedBy(int $userId): bool
     {
         return $this->user_id === $userId;
+    }
+
+    public function isLive(): bool
+    {
+        return $this->materialization === DataSourceMaterializationEnum::LIVE;
     }
 
     public function isAccessibleBy(int $userId): bool
