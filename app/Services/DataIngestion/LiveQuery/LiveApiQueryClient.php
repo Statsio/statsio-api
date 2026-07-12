@@ -56,6 +56,46 @@ class LiveApiQueryClient
         }
     }
 
+    /**
+     * Variante parallèle de fetch() : exécute une requête par entrée de $queriesByKey
+     * simultanément au lieu de les enchaîner l'une après l'autre — même contrat
+     * d'erreur que fetch() (une requête en échec fait échouer tout le lot).
+     *
+     * @param  array<string, string>  $headers
+     * @param  array<array-key, array<string, mixed>>  $queriesByKey
+     * @return array<array-key, array{body: array, headers: array<string, string>, status: int, raw_size: int}>
+     *
+     * @throws LiveApiQueryException
+     */
+    public function fetchMany(string $url, string $method, array $headers, array $queriesByKey): array
+    {
+        $timeout = (int) config('statsio.data_ingestion.live_query.request_timeout_seconds', 25);
+
+        try {
+            return $this->httpProbe->fetchPages($url, $method, $headers, $queriesByKey, $timeout);
+        } catch (ConnectionException $e) {
+            throw new LiveApiQueryException(
+                'La source externe met trop de temps à répondre ou est injoignable.',
+                504,
+                $e,
+            );
+        } catch (\RuntimeException $e) {
+            if ($this->extractHttpStatus($e->getMessage()) === 429) {
+                throw new LiveApiQueryException(
+                    'La source externe limite le nombre de requêtes pour le moment (429). Réessayez dans quelques instants.',
+                    429,
+                    $e,
+                );
+            }
+
+            throw new LiveApiQueryException(
+                "La source externe est indisponible ou a retourné une erreur : {$e->getMessage()}",
+                502,
+                $e,
+            );
+        }
+    }
+
     private function extractHttpStatus(string $message): ?int
     {
         return preg_match('/statut (\d{3})/', $message, $matches) === 1 ? (int) $matches[1] : null;

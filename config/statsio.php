@@ -19,9 +19,18 @@ return [
         'pagination' => [
             'default_max_pages' => (int) env('DATA_INGESTION_PAGINATION_MAX_PAGES', 100),
             'max_pages_hard_cap' => (int) env('DATA_INGESTION_PAGINATION_MAX_PAGES_HARD_CAP', 500),
-            'time_budget_seconds' => (int) env('DATA_INGESTION_PAGINATION_TIME_BUDGET_SECONDS', 90),
+            // 90s ne suffit qu'à quelques pages sur une grosse API publique (ex. Hub'Eau, pages de
+            // quelques secondes chacune) — 420s laisse la place à ~50-100 pages avant que
+            // DataIngestionOrchestrator (parse + écriture Parquet) prenne le relai, tout en restant
+            // sous ProcessDataSourceJob::$timeout (600s).
+            'time_budget_seconds' => (int) env('DATA_INGESTION_PAGINATION_TIME_BUDGET_SECONDS', 420),
             'request_timeout_seconds' => (int) env('DATA_INGESTION_PAGINATION_REQUEST_TIMEOUT_SECONDS', 15),
             'max_response_bytes_per_page' => (int) env('DATA_INGESTION_PAGINATION_MAX_RESPONSE_BYTES', 20 * 1024 * 1024),
+            // Un ralentissement ponctuel d'une seule page (ex. API publique gouvernementale
+            // sous charge) ne doit pas faire échouer tout un import qui a déjà récupéré
+            // plusieurs dizaines de pages avec succès.
+            'page_retry_times' => (int) env('DATA_INGESTION_PAGINATION_PAGE_RETRY_TIMES', 2),
+            'page_retry_delay_ms' => (int) env('DATA_INGESTION_PAGINATION_PAGE_RETRY_DELAY_MS', 500),
         ],
 
         // Sources API "live" (materialization = live) : requêtées à la demande,
@@ -36,6 +45,10 @@ return [
             // Bornes du sondage automatique de mapping de filtres (FilterCapabilityProbe)
             'probe_max_columns' => (int) env('LIVE_QUERY_PROBE_MAX_COLUMNS', 20),
             'probe_request_timeout_seconds' => (int) env('LIVE_QUERY_PROBE_REQUEST_TIMEOUT_SECONDS', 10),
+            // Cache plus long que cache_ttl_seconds : une agrégation en streaming (KPI) parcourt
+            // potentiellement de nombreuses pages upstream, bien plus coûteux qu'une simple page
+            // de lignes — voir LiveDatasetQueryService::computeAggregate().
+            'aggregate_cache_ttl_seconds' => (int) env('LIVE_QUERY_AGGREGATE_CACHE_TTL_SECONDS', 300),
         ],
     ],
 

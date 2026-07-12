@@ -343,6 +343,7 @@ class DataSourceController extends Controller
                 'name' => $dataSource->dataset->name,
                 'row_count' => $dataSource->dataset->row_count,
                 'status' => $dataSource->dataset->status->value,
+                'progress' => $dataSource->dataset->progress,
                 'columns' => $dataSource->dataset->columns->map(fn ($col) => [
                     'name' => $col->name,
                     'type' => $col->type->value,

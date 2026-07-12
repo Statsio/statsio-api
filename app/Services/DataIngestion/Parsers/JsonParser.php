@@ -68,17 +68,7 @@ class JsonParser implements FileParserInterface
 
         $rows = [];
         foreach ($records as $record) {
-            $row = [];
-            foreach ($headers as $key) {
-                $value = $record[$key] ?? null;
-                $row[$key] = match (true) {
-                    is_bool($value) => $value ? 'true' : 'false',
-                    is_array($value), is_object($value) => json_encode($value),
-                    $value === null => null,
-                    default => (string) $value,
-                };
-            }
-            $rows[] = $row;
+            $rows[] = self::coerceRow($record, $headers);
         }
 
         return new ParsedFileDTO(
@@ -86,5 +76,31 @@ class JsonParser implements FileParserInterface
             rows: $rows,
             rowCount: count($rows),
         );
+    }
+
+    /**
+     * Met en forme un enregistrement JSON décodé en ligne typée-chaîne (bool -> 'true'/'false',
+     * tableaux/objets imbriqués sérialisés en JSON, reste casté en chaîne) — partagé avec
+     * JsonLinesRowIterator pour que les lignes streamées depuis un fichier JSONL aient
+     * exactement le même typage que celles parsées depuis un fichier JSON complet.
+     *
+     * @param  array<string, mixed>  $record
+     * @param  string[]  $headers
+     * @return array<string, ?string>
+     */
+    public static function coerceRow(array $record, array $headers): array
+    {
+        $row = [];
+        foreach ($headers as $key) {
+            $value = $record[$key] ?? null;
+            $row[$key] = match (true) {
+                is_bool($value) => $value ? 'true' : 'false',
+                is_array($value), is_object($value) => json_encode($value),
+                $value === null => null,
+                default => (string) $value,
+            };
+        }
+
+        return $row;
     }
 }

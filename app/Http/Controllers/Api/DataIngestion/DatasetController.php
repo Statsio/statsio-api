@@ -990,6 +990,7 @@ class DatasetController extends Controller
             'description' => $dataset->description,
             'row_count' => $dataset->row_count,
             'status' => $dataset->status->value,
+            'progress' => $dataset->progress,
             'created_at' => $dataset->created_at->toIso8601String(),
             'is_owner' => $dataset->isOwnedBy($requestUserId),
             'data_source_id' => $dataset->data_source_id,

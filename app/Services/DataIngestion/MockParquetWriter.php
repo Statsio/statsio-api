@@ -28,7 +28,7 @@ class MockParquetWriter implements ParquetWriterInterface
             '__notice__' => 'Fichier de développement. Remplacer MockParquetWriter par un vrai writer Parquet en production.',
             'schema' => $data->headers,
             'row_count' => $data->rowCount,
-            'data' => $data->rows,
+            'data' => is_array($data->rows) ? $data->rows : iterator_to_array($data->rows),
         ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
 
         if (file_put_contents($destinationPath, $payload) === false) {

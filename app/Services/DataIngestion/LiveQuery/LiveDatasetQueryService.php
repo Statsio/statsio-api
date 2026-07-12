@@ -2,8 +2,10 @@
 
 namespace App\Services\DataIngestion\LiveQuery;
 
+use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Domain\DataIngestion\Exceptions\LiveApiQueryException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedLiveQueryOperationException;
+use App\Jobs\RefreshLiveAggregateJob;
 use App\Models\DataIngestion\Dataset;
 use App\Services\DataIngestion\PaginatedApiFetcher;
 use Illuminate\Support\Arr;
@@ -54,6 +56,15 @@ class LiveDatasetQueryService
         $dataSource = $dataset->dataSource;
         $config = $dataSource->api_config ?? [];
         $queryMapping = $config['query_mapping'] ?? [];
+
+        // Cas simple d'un KPI scalaire (une seule colonne agrégée, pas de group by/jointure/tri/
+        // distinct) : calculable en streaming sur les vraies données filtrées, sans snapshot — voir
+        // computeAggregate(). Toute combinaison plus riche (group by, jointure...) reste rejetée
+        // par assertSupportedOperation() ci-dessous, non supportée en v1.
+        if ($aggregate !== null && empty($joins) && empty($groupBy) && count($aggregateColumns) === 1
+            && $distinctColumn === null && $sortColumn === null) {
+            return $this->computeAggregate($dataset, $aggregate, $aggregateColumns[0], $filters);
+        }
 
         $this->resolver->assertSupportedOperation($queryMapping, $joins, $distinctColumn, $sortColumn, $aggregate);
 
@@ -111,6 +122,157 @@ class LiveDatasetQueryService
     }
 
     /**
+     * Calcule une vraie agrégation (sum/avg/count/min/max) sur une source live, en streaming
+     * à travers toutes les pages upstream correspondant aux filtres — sans jamais matérialiser
+     * les lignes ni faire de snapshot. Contrairement à resolveRows() sur le chemin ligne (une
+     * seule page bornée par $limit), ceci parcourt potentiellement de nombreuses pages via
+     * PaginatedApiFetcher::fetchAll() — mêmes garde-fous que l'ingestion snapshot (max_pages,
+     * time_budget, retry par page, arrêt gracieux si une page échoue en cours de route). Le
+     * résultat est donc exact sur ce qui a pu être scanné ; s'il a fallu s'arrêter avant d'avoir
+     * tout parcouru (dataset filtré trop volumineux pour le budget de temps), il est partiel —
+     * pas une approximation par échantillonnage, une vraie agrégation sur un préfixe réel des
+     * données.
+     *
+     * Stale-while-revalidate plutôt qu'un cache à expiration dure : une agrégation sans filtre
+     * sur un gros dataset peut prendre plusieurs minutes, bien plus qu'aucun timeout HTTP
+     * raisonnable côté frontend. Dès qu'une valeur a été calculée une première fois, elle est
+     * conservée indéfiniment (RefreshLiveAggregateJob::REFRESH_TTL) et servie instantanément ;
+     * une fois "périmée" (aggregate_cache_ttl_seconds), l'appel suivant déclenche un
+     * rafraîchissement en tâche de fond SANS attendre — la requête HTTP en cours reçoit
+     * immédiatement l'ancienne valeur. Seul le tout premier calcul (aucune valeur connue) est
+     * synchrone, faute d'avoir quoi que ce soit à afficher en attendant.
+     *
+     * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     * @return array{0: array<string>, 1: array<int, array<string, mixed>>, 2: int}
+     *
+     * @throws LiveApiQueryException
+     */
+    private function computeAggregate(Dataset $dataset, string $aggregate, string $column, array $filters): array
+    {
+        $dataSource = $dataset->dataSource;
+        $config = $dataSource->api_config ?? [];
+        $queryMapping = $config['query_mapping'] ?? [];
+        $resolvedFilters = $this->resolver->resolveFilters($filters, $queryMapping);
+
+        [$valueKey, $freshKey, $lockKey] = $this->aggregateCacheKeys($dataset, $aggregate, $column, $resolvedFilters);
+        $cached = Cache::get($valueKey);
+
+        if ($cached !== null) {
+            if (! Cache::has($freshKey) && ! Cache::has($lockKey)) {
+                // Verrou de courte durée : évite d'empiler un job par requête HTTP si plusieurs
+                // arrivent avant que le rafraîchissement précédent ne soit terminé.
+                Cache::put($lockKey, true, 120);
+                RefreshLiveAggregateJob::dispatch($dataset->id, $aggregate, $column, $filters);
+            }
+
+            return $cached;
+        }
+
+        // Aucune valeur connue pour ce filtre : premier calcul, forcément synchrone.
+        $this->assertRateLimitNotExceeded($dataSource->id);
+        $result = $this->streamAggregate($config, $resolvedFilters, $aggregate, $column);
+        $this->storeAggregateResult($valueKey, $freshKey, $result);
+
+        return $result;
+    }
+
+    /**
+     * Recalcule et remet à jour le cache d'une agrégation déjà connue — appelée uniquement
+     * par RefreshLiveAggregateJob, jamais depuis une requête HTTP synchrone.
+     *
+     * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     */
+    public function refreshAggregateCache(Dataset $dataset, string $aggregate, string $column, array $filters): void
+    {
+        $dataSource = $dataset->dataSource;
+        $config = $dataSource->api_config ?? [];
+        $queryMapping = $config['query_mapping'] ?? [];
+        $resolvedFilters = $this->resolver->resolveFilters($filters, $queryMapping);
+
+        [$valueKey, $freshKey, $lockKey] = $this->aggregateCacheKeys($dataset, $aggregate, $column, $resolvedFilters);
+
+        try {
+            $this->assertRateLimitNotExceeded($dataSource->id);
+            $result = $this->streamAggregate($config, $resolvedFilters, $aggregate, $column);
+            $this->storeAggregateResult($valueKey, $freshKey, $result);
+        } finally {
+            Cache::forget($lockKey);
+        }
+    }
+
+    /** @return array{0: string, 1: string, 2: string} [valueKey, freshKey, lockKey] */
+    private function aggregateCacheKeys(Dataset $dataset, string $aggregate, string $column, array $resolvedFilters): array
+    {
+        $valueKey = "datasets.query.live.aggregate.{$dataset->id}.".md5(json_encode([$aggregate, $column, $resolvedFilters]));
+
+        return [$valueKey, "{$valueKey}.fresh", "{$valueKey}.refreshing"];
+    }
+
+    /** @param  array{0: array<string>, 1: array<int, array<string, mixed>>, 2: int}  $result */
+    private function storeAggregateResult(string $valueKey, string $freshKey, array $result): void
+    {
+        $ttl = (int) config('statsio.data_ingestion.live_query.aggregate_cache_ttl_seconds', 300);
+        Cache::put($valueKey, $result, now()->addDay());
+        Cache::put($freshKey, true, $ttl);
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @param  array<string, mixed>  $resolvedFilters
+     * @return array{0: array<string>, 1: array<int, array<string, mixed>>, 2: int}
+     *
+     * @throws LiveApiQueryException
+     */
+    private function streamAggregate(array $config, array $resolvedFilters, string $aggregate, string $column): array
+    {
+        $url = $config['url'] ?? null;
+        $method = $config['method'] ?? 'GET';
+        $headers = $config['headers'] ?? [];
+        $dataPath = $config['data_path'] ?? null;
+        $pagination = $config['pagination'] ?? ['style' => 'none'];
+        $maxPageSize = $config['query_mapping']['max_page_size'] ?? null;
+        if ($maxPageSize) {
+            $pagination = array_merge($pagination, ['page_size' => $maxPageSize]);
+        }
+
+        $sum = 0.0;
+        $count = 0;
+        $min = null;
+        $max = null;
+
+        $onPage = function (array $records) use ($column, &$sum, &$count, &$min, &$max) {
+            foreach ($records as $record) {
+                $value = $record[$column] ?? null;
+                if (! is_numeric($value)) {
+                    continue;
+                }
+                $value = (float) $value;
+                $sum += $value;
+                $count++;
+                $min = $min === null ? $value : min($min, $value);
+                $max = $max === null ? $value : max($max, $value);
+            }
+        };
+
+        try {
+            $this->fetcher->fetchAll($url, $method, $headers, $dataPath, $pagination, $onPage, $resolvedFilters);
+        } catch (ApiSourceFetchException $e) {
+            throw new LiveApiQueryException("Impossible de calculer l'agrégation : {$e->getMessage()}", 502, $e);
+        }
+
+        $value = match ($aggregate) {
+            'count' => $count,
+            'sum' => $sum,
+            'avg' => $count > 0 ? $sum / $count : null,
+            'min' => $min,
+            'max' => $max,
+            default => null,
+        };
+
+        return [[$column], [[$column => $value]], 1];
+    }
+
+    /**
      * @param  array<string, mixed>  $config
      * @param  array<string, mixed>  $queryMapping
      * @param  array<string, mixed>  $resolvedFilters
@@ -136,10 +298,15 @@ class LiveDatasetQueryService
      * Recherche texte libre (search_q/search_columns) : une requête upstream par
      * colonne recherchée (fusionnée avec les filtres explicites déjà résolus),
      * les API REST classiques ne combinant pas un OR entre plusieurs paramètres
-     * différents en une seule requête. Résultats fusionnés et dédoublonnés
-     * (une même ligne peut matcher plusieurs colonnes) ; le total retourné est
-     * la taille de cet ensemble fusionné — les `count` upstream par colonne ne
-     * peuvent pas être combinés en un total OR exact sans tout parcourir.
+     * différents en une seule requête. Toutes ces requêtes sont exécutées EN
+     * PARALLÈLE via LiveApiQueryClient::fetchMany() (pool HTTP) plutôt qu'une
+     * par une : sur une API upstream lente (ex. Hub'Eau, ~20s/page), une
+     * recherche sur 3 colonnes enchaînées séquentiellement pouvait prendre
+     * jusqu'à une minute, contre le temps d'une seule page en parallèle.
+     * Résultats fusionnés et dédoublonnés (une même ligne peut matcher
+     * plusieurs colonnes) ; le total retourné est la taille de cet ensemble
+     * fusionné — les `count` upstream par colonne ne peuvent pas être combinés
+     * en un total OR exact sans tout parcourir.
      *
      * @param  array<string, mixed>  $config
      * @param  array<string, string>  $searchColumnParams  colonne => paramètre upstream
@@ -150,13 +317,31 @@ class LiveDatasetQueryService
      */
     private function fetchLiveSearchRows(Dataset $dataset, array $config, array $searchColumnParams, string $searchQ, array $resolvedFilters, int $limit, ?array $selectColumns): array
     {
+        $url = $config['url'] ?? null;
+        $method = $config['method'] ?? 'GET';
+        $headers = $config['headers'] ?? [];
+        $dataPath = $config['data_path'] ?? null;
+        $pagination = $config['pagination'] ?? ['style' => 'none'];
+        $maxPageSize = $config['query_mapping']['max_page_size'] ?? null;
+        $requestedSize = $maxPageSize ? min($limit, (int) $maxPageSize) : $limit;
+        $paginationForRequest = array_merge($pagination, ['page_size' => $requestedSize]);
+        $baseQuery = array_merge($resolvedFilters, $this->fetcher->buildFirstPageQuery($paginationForRequest));
+
+        $queriesByColumn = [];
+        foreach ($searchColumnParams as $column => $param) {
+            $queriesByColumn[$column] = array_merge($baseQuery, [$param => $searchQ]);
+        }
+
+        $pages = $this->client->fetchMany($url, $method, $headers, $queriesByColumn);
+
         $merged = [];
         $seen = [];
 
-        foreach ($searchColumnParams as $param) {
-            [$rows] = $this->fetchOnePage($config, array_merge($resolvedFilters, [$param => $searchQ]), $limit, null);
+        foreach ($searchColumnParams as $column => $param) {
+            $records = $this->fetcher->extractRecordsFromBody($pages[$column]['body'], $dataPath);
 
-            foreach ($rows as $row) {
+            foreach ($records as $record) {
+                $row = $this->shapeRow($record);
                 $key = md5(json_encode($row));
                 if (isset($seen[$key])) {
                     continue;

@@ -6,6 +6,7 @@ use App\Models\DataIngestion\DataSource;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetVersion;
 use App\Services\DataIngestion\Contracts\ParquetWriterInterface;
+use App\Services\DataIngestion\Parsers\JsonLinesParser;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -34,22 +35,31 @@ class DataIngestionOrchestrator
     public function process(DataSource $dataSource): Dataset
     {
         $dataSource->markAsProcessing();
+        $dataSource->dataset?->updateProgress(5);
         $localTempPath = null;
 
         try {
-            // 1. Parse raw file (local)
+            // 1. Parse raw file (local) — les sources API sont récupérées en JSONL streamé
+            // (FetchApiDataSourcePagesAction) et doivent être parsées par JsonLinesParser,
+            // qui ne matérialise jamais l'ensemble des lignes en mémoire, contrairement au
+            // JsonParser générique utilisé pour un upload de fichier .json classique.
             $absolutePath = Storage::path($dataSource->raw_storage_path);
-            $parser = $this->parserFactory->make($dataSource->type);
+            $parser = $dataSource->source_kind === 'api'
+                ? new JsonLinesParser()
+                : $this->parserFactory->make($dataSource->type);
             $parsed = $parser->parse($absolutePath, $this->maxRows);
+            $dataSource->dataset?->updateProgress(25);
 
             // 2. Infer schema
             $schema = $this->schemaInferenceService->infer($parsed);
+            $dataSource->dataset?->updateProgress(40);
 
             // 3. Write Parquet to local temp path
             $r2Path = $this->buildR2Path($dataSource);
             $localTempPath = storage_path('app/temp/' . $r2Path);
             $this->ensureDirectory(dirname($localTempPath));
             $this->parquetWriter->write($parsed, $localTempPath);
+            $dataSource->dataset?->updateProgress(60);
 
             // 4. Compute metadata from local file
             $fileSizeBytes = filesize($localTempPath) ?: null;
@@ -62,6 +72,7 @@ class DataIngestionOrchestrator
             if (is_resource($stream)) {
                 fclose($stream);
             }
+            $dataSource->dataset?->updateProgress(85);
 
             // 6. Persist to DB
             $dataset = DB::transaction(function () use ($dataSource, $parsed, $schema, $r2Path, $fileSizeBytes, $checksum) {
@@ -74,6 +85,7 @@ class DataIngestionOrchestrator
                     'parquet_path' => $r2Path,
                     'row_count'    => $parsed->rowCount,
                     'status'       => 'ready',
+                    'progress'     => 100,
                 ])->save();
 
                 $this->columnPersister->persist($dataset, $schema, $parsed->headers);

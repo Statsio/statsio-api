@@ -39,7 +39,15 @@ class FetchApiDataSourcePagesActionTest extends TestCase
         ]);
     }
 
-    public function test_execute_aggregates_all_pages_into_raw_json(): void
+    /** @return array<int, mixed> */
+    private function decodeJsonLines(string $content): array
+    {
+        $lines = array_filter(explode("\n", trim($content)), fn (string $line) => $line !== '');
+
+        return array_values(array_map(fn (string $line) => json_decode($line, true), $lines));
+    }
+
+    public function test_execute_streams_all_pages_into_raw_jsonl(): void
     {
         Storage::fake();
         Http::fake(['example.com/*' => Http::sequence()
@@ -56,8 +64,9 @@ class FetchApiDataSourcePagesActionTest extends TestCase
         $dataSource->refresh();
 
         $this->assertNotNull($dataSource->raw_storage_path);
+        $this->assertStringEndsWith('.jsonl', $dataSource->raw_storage_path);
         Storage::assertExists($dataSource->raw_storage_path);
-        $this->assertSame([1, 2, 3], json_decode(Storage::get($dataSource->raw_storage_path), true));
+        $this->assertSame([1, 2, 3], $this->decodeJsonLines(Storage::get($dataSource->raw_storage_path)));
         $this->assertFalse($dataSource->is_partial);
         $this->assertNull($dataSource->partial_reason);
         $this->assertGreaterThan(0, $dataSource->file_size_bytes);
@@ -79,7 +88,7 @@ class FetchApiDataSourcePagesActionTest extends TestCase
         app(FetchApiDataSourcePagesAction::class)->execute($dataSource);
         $dataSource->refresh();
 
-        $this->assertSame([1, 2], json_decode(Storage::get($dataSource->raw_storage_path), true));
+        $this->assertSame([1, 2], $this->decodeJsonLines(Storage::get($dataSource->raw_storage_path)));
         $this->assertTrue($dataSource->is_partial);
         $this->assertSame('max_pages', $dataSource->partial_reason);
     }

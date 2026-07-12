@@ -15,7 +15,7 @@ class ProcessDataSourceJob implements ShouldQueue
     use Queueable, InteractsWithQueue, SerializesModels;
 
     public int $tries = 3;
-    public int $timeout = 420; // 5 min parsing + jusqu'à 90s de budget pagination
+    public int $timeout = 600; // jusqu'à 420s de budget pagination + parse/écriture Parquet
 
     public function __construct(
         public readonly DataSource $dataSource,
