@@ -19,6 +19,7 @@ class Dataset extends Model
         'parquet_path',
         'row_count',
         'status',
+        'progress',
     ];
 
     protected function casts(): array
@@ -26,6 +27,7 @@ class Dataset extends Model
         return [
             'status' => DatasetStatusEnum::class,
             'row_count' => 'integer',
+            'progress' => 'integer',
         ];
     }
 
@@ -68,9 +70,28 @@ class Dataset extends Model
         $this->update(['status' => DatasetStatusEnum::FAILED]);
     }
 
+    /**
+     * Avance la progression du pipeline d'ingestion (0-100). Ne recule jamais :
+     * la récupération paginée d'une source API et l'orchestrator se relaient sur
+     * le même dataset, et un retour en arrière visuel du pourcentage se lirait
+     * comme un bug côté front.
+     */
+    public function updateProgress(int $percent): void
+    {
+        $percent = max(0, min(100, $percent));
+        if ($percent > $this->progress) {
+            $this->update(['progress' => $percent]);
+        }
+    }
+
     public function isOwnedBy(int $userId): bool
     {
         return $this->user_id === $userId;
+    }
+
+    public function isLive(): bool
+    {
+        return $this->dataSource?->isLive() ?? false;
     }
 
     /**

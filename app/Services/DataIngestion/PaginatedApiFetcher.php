@@ -29,7 +29,7 @@ class PaginatedApiFetcher
     public function fetchFirstPage(string $url, string $method, array $headers, ?string $dataPath, array $pagination): array
     {
         $timeout = (int) config('statsio.data_ingestion.pagination.request_timeout_seconds', 15);
-        $page = $this->httpProbe->fetchPage($url, $method, $headers, $this->firstPageQuery($pagination), $timeout);
+        $page = $this->fetchPageOrFail($url, $method, $headers, $this->firstPageQuery($pagination), $timeout);
         $this->assertResponseSize($page['raw_size']);
 
         return ['records' => $this->extractRecords($page['body'], $dataPath)];
@@ -38,11 +38,20 @@ class PaginatedApiFetcher
     /**
      * @param  array<string, string>  $headers
      * @param  array<string, mixed>  $pagination
-     * @return array{records: array, truncated: bool, stopped_reason: ?string, pages_fetched: int}
+     * @param  ?callable(array): void  $onPage  Si fourni, chaque page est passée à ce callback au lieu
+     *                                          d'être accumulée dans `records` — permet à l'appelant de
+     *                                          streamer les enregistrements (ex. vers un fichier) sans
+     *                                          jamais garder le dataset complet en mémoire PHP. `records`
+     *                                          reste alors vide dans la valeur de retour.
+     * @param  array<string, mixed>  $staticQuery  Paramètres fusionnés dans la query de CHAQUE page (première
+     *                                              et suivantes) — ex. des filtres résolus pour une agrégation
+     *                                              en streaming sur une source live, qui doivent rester
+     *                                              appliqués tout au long de la pagination.
+     * @return array{records: array, truncated: bool, stopped_reason: ?string, pages_fetched: int, row_count: int}
      *
      * @throws ApiSourceFetchException
      */
-    public function fetchAll(string $url, string $method, array $headers, ?string $dataPath, array $pagination): array
+    public function fetchAll(string $url, string $method, array $headers, ?string $dataPath, array $pagination, ?callable $onPage = null, array $staticQuery = []): array
     {
         $style = $pagination['style'] ?? 'none';
         $maxRows = (int) config('statsio.data_ingestion.max_rows', 500_000);
@@ -55,12 +64,13 @@ class PaginatedApiFetcher
         $deadline = microtime(true) + (int) config('statsio.data_ingestion.pagination.time_budget_seconds', 90);
 
         $allRecords = [];
+        $rowCount = 0;
         $pagesFetched = 0;
         $truncated = false;
         $stoppedReason = null;
 
         $currentUrl = $url;
-        $currentQuery = $this->firstPageQuery($pagination);
+        $currentQuery = array_merge($this->firstPageQuery($pagination), $staticQuery);
 
         while (true) {
             if ($pagesFetched >= $maxPages) {
@@ -75,18 +85,38 @@ class PaginatedApiFetcher
                 break;
             }
 
-            $page = $this->httpProbe->fetchPage($currentUrl, $method, $headers, $currentQuery, $requestTimeout);
+            try {
+                $page = $this->fetchPageOrFail($currentUrl, $method, $headers, $currentQuery, $requestTimeout);
+            } catch (ApiSourceFetchException $e) {
+                // Une page qui échoue après retry (ex. ralentissement ponctuel d'une API publique
+                // en plein import) ne doit pas faire perdre les pages déjà récupérées avec succès —
+                // traité comme une troncature normale (même mécanisme que max_pages/time_budget)
+                // plutôt qu'un échec total, sauf si c'est la toute première page (rien à sauver).
+                if ($pagesFetched === 0) {
+                    throw $e;
+                }
+
+                $truncated = true;
+                $stoppedReason = 'page_fetch_error';
+                break;
+            }
+
             $this->assertResponseSize($page['raw_size']);
             $records = $this->extractRecords($page['body'], $dataPath);
             $pagesFetched++;
-            array_push($allRecords, ...$records);
 
-            if (count($allRecords) >= $maxRows) {
-                $allRecords = array_slice($allRecords, 0, $maxRows);
+            $overshoot = ($rowCount + count($records)) - $maxRows;
+            if ($overshoot >= 0) {
+                $records = $overshoot > 0 ? array_slice($records, 0, count($records) - $overshoot) : $records;
+                $rowCount += count($records);
+                $this->emitPage($onPage, $allRecords, $records);
                 $truncated = true;
                 $stoppedReason = 'max_rows';
                 break;
             }
+
+            $rowCount += count($records);
+            $this->emitPage($onPage, $allRecords, $records);
 
             if ($style === 'none') {
                 break;
@@ -104,7 +134,7 @@ class PaginatedApiFetcher
             }
 
             $currentUrl = $next['url'];
-            $currentQuery = $next['query'];
+            $currentQuery = array_merge($next['query'], $staticQuery);
         }
 
         return [
@@ -112,7 +142,49 @@ class PaginatedApiFetcher
             'truncated' => $truncated,
             'stopped_reason' => $stoppedReason,
             'pages_fetched' => $pagesFetched,
+            'row_count' => $rowCount,
         ];
+    }
+
+    /**
+     * @param  ?callable(array): void  $onPage
+     * @param  array<int, mixed>  $allRecords
+     * @param  array<int, mixed>  $records
+     */
+    private function emitPage(?callable $onPage, array &$allRecords, array $records): void
+    {
+        if ($onPage) {
+            $onPage($records);
+
+            return;
+        }
+
+        array_push($allRecords, ...$records);
+    }
+
+    /**
+     * Construit la query de la première page pour une config de pagination —
+     * exposée publiquement pour être réutilisée par la découverte de schéma/
+     * mapping des sources "live" (FilterCapabilityProbe, CreateLiveApiDataSourceAction),
+     * qui appellent HttpProbeService directement plutôt que fetchFirstPage/fetchAll.
+     *
+     * @param  array<string, mixed>  $pagination
+     * @return array<string, mixed>
+     */
+    public function buildFirstPageQuery(array $pagination): array
+    {
+        return $this->firstPageQuery($pagination);
+    }
+
+    /**
+     * Extrait le tableau d'enregistrements d'un corps de réponse déjà décodé —
+     * exposé publiquement pour le même besoin que buildFirstPageQuery() ci-dessus.
+     *
+     * @throws ApiSourceFetchException
+     */
+    public function extractRecordsFromBody(array $body, ?string $dataPath): array
+    {
+        return $this->extractRecords($body, $dataPath);
     }
 
     /**
@@ -246,6 +318,29 @@ class PaginatedApiFetcher
             throw new ApiSourceFetchException(
                 'La réponse de l\'API dépasse la taille maximale autorisée par page ('.intdiv($max, 1024 * 1024).' Mo).'
             );
+        }
+    }
+
+    /**
+     * Convertit toute erreur de bas niveau (timeout, DNS, statut HTTP en échec, JSON
+     * invalide — voir HttpProbeService::fetchPage()) en ApiSourceFetchException, pour
+     * que l'appelant (contrôleur) puisse toujours répondre 422 avec un message clair
+     * plutôt que de laisser fuiter une exception réseau générique en 500 opaque.
+     *
+     * @param  array<string, string>  $headers
+     * @param  array<string, mixed>  $query
+     * @return array{body: array, headers: array<string, string>, status: int, raw_size: int}
+     *
+     * @throws ApiSourceFetchException
+     */
+    private function fetchPageOrFail(string $url, string $method, array $headers, array $query, int $timeoutSeconds): array
+    {
+        try {
+            return $this->httpProbe->fetchPage($url, $method, $headers, $query, $timeoutSeconds);
+        } catch (ApiSourceFetchException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            throw new ApiSourceFetchException("Impossible de contacter l'API : {$e->getMessage()}", 0, $e);
         }
     }
 }

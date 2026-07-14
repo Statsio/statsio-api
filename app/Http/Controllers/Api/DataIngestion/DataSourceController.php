@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\DataIngestion;
 
 use App\Domain\DataIngestion\Actions\AttachPublicDataSourceAction;
 use App\Domain\DataIngestion\Actions\CreateApiDataSourceAction;
+use App\Domain\DataIngestion\Actions\CreateLiveApiDataSourceAction;
 use App\Domain\DataIngestion\Actions\RefreshApiDataSourceAction;
 use App\Domain\DataIngestion\Actions\UpdateDataSourceAction;
 use App\Domain\DataIngestion\Actions\UploadDataSourceAction;
@@ -23,6 +24,7 @@ class DataSourceController extends Controller
     public function __construct(
         private readonly UploadDataSourceAction $uploadAction,
         private readonly CreateApiDataSourceAction $createApiAction,
+        private readonly CreateLiveApiDataSourceAction $createLiveApiAction,
         private readonly AttachPublicDataSourceAction $attachAction,
         private readonly UpdateDataSourceAction $updateAction,
         private readonly RefreshApiDataSourceAction $refreshApiAction,
@@ -62,7 +64,33 @@ class DataSourceController extends Controller
 
     public function createFromApi(CreateApiDataSourceRequest $request): JsonResponse
     {
+        $isLive = $request->input('materialization', 'snapshot') === 'live';
+
         try {
+            if ($isLive) {
+                $dataSource = $this->createLiveApiAction->execute(
+                    user: $request->user(),
+                    name: $request->input('name'),
+                    url: $request->input('url'),
+                    method: $request->input('method', 'GET'),
+                    headers: $request->input('headers', []),
+                    dataPath: $request->input('data_path'),
+                    authType: $request->input('auth_type', 'none'),
+                    visibility: $request->input('visibility', 'private'),
+                    categories: $request->input('categories', []),
+                    provenanceId: $request->input('provenance_id'),
+                    provenanceOtherLabel: $request->input('provenance_other_label'),
+                    pagination: $request->input('pagination', ['style' => 'none']),
+                    queryMappingOverrides: $request->input('query_mapping'),
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Source API en direct créée.',
+                    'data' => $this->formatDataSource($dataSource, $request->user()->id),
+                ], 201);
+            }
+
             $dataSource = $this->createApiAction->execute(
                 user: $request->user(),
                 name: $request->input('name'),
@@ -230,6 +258,10 @@ class DataSourceController extends Controller
             return response()->json(['success' => false, 'message' => 'Seules les sources API peuvent être actualisées.'], 422);
         }
 
+        if ($dataSource->isLive()) {
+            return response()->json(['success' => false, 'message' => 'Une source en direct est toujours à jour, aucune actualisation n\'est nécessaire.'], 422);
+        }
+
         try {
             $refreshed = $this->refreshApiAction->execute($dataSource);
 
@@ -280,6 +312,7 @@ class DataSourceController extends Controller
         // rattaché la source publique ne doit pas voir ces informations.
         if ($dataSource->source_kind === 'api' && $dataSource->isOwnedBy($requestUserId)) {
             $config = $dataSource->api_config ?? [];
+            $data['materialization'] = $dataSource->materialization->value;
             $data['api_config'] = [
                 'url' => $config['url'] ?? null,
                 'method' => $config['method'] ?? 'GET',
@@ -288,9 +321,13 @@ class DataSourceController extends Controller
                 'data_path' => $config['data_path'] ?? null,
                 'pagination' => $config['pagination'] ?? ['style' => 'none'],
             ];
-            $data['refresh_frequency'] = $dataSource->refresh_frequency->value;
-            $data['last_refreshed_at'] = $dataSource->last_refreshed_at?->toIso8601String();
-            $data['next_refresh_at'] = $dataSource->next_refresh_at?->toIso8601String();
+            if ($dataSource->isLive()) {
+                $data['query_mapping'] = $config['query_mapping'] ?? null;
+            } else {
+                $data['refresh_frequency'] = $dataSource->refresh_frequency->value;
+                $data['last_refreshed_at'] = $dataSource->last_refreshed_at?->toIso8601String();
+                $data['next_refresh_at'] = $dataSource->next_refresh_at?->toIso8601String();
+            }
         }
 
         return $data;
@@ -306,6 +343,7 @@ class DataSourceController extends Controller
                 'name' => $dataSource->dataset->name,
                 'row_count' => $dataSource->dataset->row_count,
                 'status' => $dataSource->dataset->status->value,
+                'progress' => $dataSource->dataset->progress,
                 'columns' => $dataSource->dataset->columns->map(fn ($col) => [
                     'name' => $col->name,
                     'type' => $col->type->value,

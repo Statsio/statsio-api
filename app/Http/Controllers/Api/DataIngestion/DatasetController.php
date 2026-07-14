@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers\Api\DataIngestion;
 
+use App\Domain\DataIngestion\Exceptions\LiveApiQueryException;
+use App\Domain\DataIngestion\Exceptions\UnsupportedLiveQueryOperationException;
 use App\Http\Controllers\Controller;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetVersion;
 use App\Models\StudioContent;
+use App\Services\DataIngestion\LiveQuery\LiveDatasetQueryService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -19,6 +22,10 @@ class DatasetController extends Controller
      * busts its cache automatically — the TTL only bounds worst-case staleness.
      */
     private const CACHE_TTL = 900; // 15 minutes
+
+    public function __construct(
+        private readonly LiveDatasetQueryService $liveQueryService,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -63,7 +70,14 @@ class DatasetController extends Controller
         }
 
         $limit = min((int) $request->query('limit', 5), 100);
-        [$columns, $rows, $total] = $this->resolveRows($dataset, null, [], $limit);
+
+        try {
+            [$columns, $rows, $total] = $this->resolveRows($dataset, null, [], $limit);
+        } catch (UnsupportedLiveQueryOperationException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
+        } catch (LiveApiQueryException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], $e->httpStatus());
+        }
 
         return response()->json([
             'success' => true,
@@ -81,26 +95,32 @@ class DatasetController extends Controller
 
         $p = $this->parseQueryParams($request);
 
-        if ($p['distinct'] && count($p['columns']) === 1) {
-            return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
-        }
+        try {
+            if ($p['distinct'] && count($p['columns']) === 1) {
+                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
+            }
 
-        [$allColumns, $rows, $total] = $this->resolveRows(
-            $dataset,
-            count($p['columns']) ? $p['columns'] : null,
-            $p['filters'],
-            $p['limit'],
-            $p['joins'],
-            $userId,
-            $p['searchQ'],
-            $p['searchCols'],
-            $p['distinctColumn'],
-            $p['sortColumn'],
-            $p['sortDirection'],
-            $p['aggregate'],
-            $p['aggregateColumns'],
-            $p['groupBy'],
-        );
+            [$allColumns, $rows, $total] = $this->resolveRows(
+                $dataset,
+                count($p['columns']) ? $p['columns'] : null,
+                $p['filters'],
+                $p['limit'],
+                $p['joins'],
+                $userId,
+                $p['searchQ'],
+                $p['searchCols'],
+                $p['distinctColumn'],
+                $p['sortColumn'],
+                $p['sortDirection'],
+                $p['aggregate'],
+                $p['aggregateColumns'],
+                $p['groupBy'],
+            );
+        } catch (UnsupportedLiveQueryOperationException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
+        } catch (LiveApiQueryException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], $e->httpStatus());
+        }
 
         $finalColumns = count($p['columns']) ? array_values(array_intersect($allColumns, $p['columns'])) : $allColumns;
 
@@ -152,26 +172,32 @@ class DatasetController extends Controller
 
         $p = $this->parseQueryParams($request);
 
-        if ($p['distinct'] && count($p['columns']) === 1) {
-            return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
-        }
+        try {
+            if ($p['distinct'] && count($p['columns']) === 1) {
+                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
+            }
 
-        [$allColumns, $rows, $total] = $this->resolveRows(
-            $dataset,
-            count($p['columns']) ? $p['columns'] : null,
-            $p['filters'],
-            $p['limit'],
-            $p['joins'],
-            $content->user_id,
-            $p['searchQ'],
-            $p['searchCols'],
-            $p['distinctColumn'],
-            $p['sortColumn'],
-            $p['sortDirection'],
-            $p['aggregate'],
-            $p['aggregateColumns'],
-            $p['groupBy'],
-        );
+            [$allColumns, $rows, $total] = $this->resolveRows(
+                $dataset,
+                count($p['columns']) ? $p['columns'] : null,
+                $p['filters'],
+                $p['limit'],
+                $p['joins'],
+                $content->user_id,
+                $p['searchQ'],
+                $p['searchCols'],
+                $p['distinctColumn'],
+                $p['sortColumn'],
+                $p['sortDirection'],
+                $p['aggregate'],
+                $p['aggregateColumns'],
+                $p['groupBy'],
+            );
+        } catch (UnsupportedLiveQueryOperationException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
+        } catch (LiveApiQueryException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], $e->httpStatus());
+        }
 
         $finalColumns = count($p['columns']) ? array_values(array_intersect($allColumns, $p['columns'])) : $allColumns;
 
@@ -251,14 +277,22 @@ class DatasetController extends Controller
     {
         $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search);
 
-        return response()->json([
+        $response = [
             'success' => true,
             'data' => [
                 'columns' => [$col],
                 'rows' => array_map(fn ($v) => [$col => $v], $rows),
                 'total_rows' => count($rows),
             ],
-        ]);
+        ];
+
+        if ($dataset->isLive()) {
+            // Une source live ne scanne jamais l'ensemble des valeurs — la liste vient
+            // de l'échantillon capturé à la création, donc nécessairement partielle.
+            $response['meta'] = ['partial' => true];
+        }
+
+        return response()->json($response);
     }
 
     /**
@@ -269,6 +303,13 @@ class DatasetController extends Controller
      */
     private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc', ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = []): array
     {
+        if ($dataset->isLive()) {
+            return $this->liveQueryService->resolveRows(
+                $dataset, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols,
+                $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy,
+            );
+        }
+
         $version = $dataset->latestVersion;
 
         if (! $version?->parquet_storage_path) {
@@ -681,6 +722,10 @@ class DatasetController extends Controller
 
     private function resolveDistinctValues(Dataset $dataset, string $column, int $limit, string $search = ''): array
     {
+        if ($dataset->isLive()) {
+            return $this->liveQueryService->resolveDistinctValues($dataset, $column, $limit, $search);
+        }
+
         $version = $dataset->latestVersion;
 
         if (! $version?->parquet_storage_path) {
@@ -945,6 +990,7 @@ class DatasetController extends Controller
             'description' => $dataset->description,
             'row_count' => $dataset->row_count,
             'status' => $dataset->status->value,
+            'progress' => $dataset->progress,
             'created_at' => $dataset->created_at->toIso8601String(),
             'is_owner' => $dataset->isOwnedBy($requestUserId),
             'data_source_id' => $dataset->data_source_id,
@@ -953,9 +999,14 @@ class DatasetController extends Controller
         $dataSource = $dataset->dataSource;
         if ($dataSource && $dataSource->source_kind === 'api' && $dataSource->isOwnedBy($requestUserId)) {
             $data['source_kind'] = 'api';
-            $data['refresh_frequency'] = $dataSource->refresh_frequency->value;
-            $data['last_refreshed_at'] = $dataSource->last_refreshed_at?->toIso8601String();
-            $data['next_refresh_at'] = $dataSource->next_refresh_at?->toIso8601String();
+            $data['materialization'] = $dataSource->materialization->value;
+            if ($dataSource->isLive()) {
+                $data['query_mapping'] = $dataSource->api_config['query_mapping'] ?? null;
+            } else {
+                $data['refresh_frequency'] = $dataSource->refresh_frequency->value;
+                $data['last_refreshed_at'] = $dataSource->last_refreshed_at?->toIso8601String();
+                $data['next_refresh_at'] = $dataSource->next_refresh_at?->toIso8601String();
+            }
         }
 
         return $data;

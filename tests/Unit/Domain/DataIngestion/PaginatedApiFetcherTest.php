@@ -141,4 +141,100 @@ class PaginatedApiFetcherTest extends TestCase
 
         $this->fetcher()->fetchFirstPage('https://example.com/items', 'GET', [], 'data', ['style' => 'none']);
     }
+
+    public function test_fetch_all_with_on_page_streams_records_instead_of_accumulating(): void
+    {
+        Http::fake(['example.com/*' => Http::sequence()
+            ->push(['data' => [1, 2, 3]])
+            ->push(['data' => [4]]),
+        ]);
+
+        $pagination = ['style' => 'offset', 'param_name' => 'offset', 'param_start' => 0, 'size_param' => 'limit', 'page_size' => 3];
+
+        $streamed = [];
+        $result = $this->fetcher()->fetchAll(
+            'https://example.com/items', 'GET', [], 'data', $pagination,
+            onPage: function (array $records) use (&$streamed) {
+                array_push($streamed, ...$records);
+            },
+        );
+
+        $this->assertSame([1, 2, 3, 4], $streamed);
+        $this->assertSame([], $result['records']);
+        $this->assertSame(4, $result['row_count']);
+        $this->assertFalse($result['truncated']);
+    }
+
+    public function test_fetch_first_page_wraps_connection_errors_into_api_source_fetch_exception(): void
+    {
+        Http::fake(['example.com/*' => fn () => throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out')]);
+
+        $this->expectException(ApiSourceFetchException::class);
+        $this->expectExceptionMessage("Impossible de contacter l'API : cURL error 28: Operation timed out");
+
+        $this->fetcher()->fetchFirstPage('https://example.com/items', 'GET', [], 'data', ['style' => 'none']);
+    }
+
+    public function test_fetch_all_wraps_connection_errors_into_api_source_fetch_exception(): void
+    {
+        Http::fake(['example.com/*' => fn () => throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out')]);
+
+        $this->expectException(ApiSourceFetchException::class);
+
+        $this->fetcher()->fetchAll('https://example.com/items', 'GET', [], 'data', ['style' => 'none']);
+    }
+
+    public function test_fetch_all_keeps_already_fetched_pages_when_a_later_page_fails(): void
+    {
+        $attempt = 0;
+        Http::fake(['example.com/*' => function () use (&$attempt) {
+            $attempt++;
+
+            return $attempt === 1
+                ? Http::response(['data' => [1, 2], 'next' => 'https://example.com/page2'])
+                : throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out');
+        }]);
+
+        $pagination = ['style' => 'next_link', 'next_link_source' => 'body', 'next_link_path' => 'next'];
+        $result = $this->fetcher()->fetchAll('https://example.com/page1', 'GET', [], 'data', $pagination);
+
+        $this->assertSame([1, 2], $result['records']);
+        $this->assertSame(1, $result['pages_fetched']);
+        $this->assertTrue($result['truncated']);
+        $this->assertSame('page_fetch_error', $result['stopped_reason']);
+    }
+
+    public function test_fetch_all_still_throws_when_the_very_first_page_fails(): void
+    {
+        Http::fake(['example.com/*' => fn () => throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Operation timed out')]);
+
+        $this->expectException(ApiSourceFetchException::class);
+
+        $this->fetcher()->fetchAll('https://example.com/items', 'GET', [], 'data', ['style' => 'none']);
+    }
+
+    public function test_fetch_all_with_on_page_truncates_last_page_at_max_rows(): void
+    {
+        config(['statsio.data_ingestion.max_rows' => 3]);
+
+        Http::fake(['example.com/*' => Http::sequence()
+            ->push(['data' => [1, 2]])
+            ->push(['data' => [3, 4]]),
+        ]);
+
+        $pagination = ['style' => 'offset', 'param_name' => 'offset', 'page_size' => 2];
+
+        $streamed = [];
+        $result = $this->fetcher()->fetchAll(
+            'https://example.com/items', 'GET', [], 'data', $pagination,
+            onPage: function (array $records) use (&$streamed) {
+                array_push($streamed, ...$records);
+            },
+        );
+
+        $this->assertSame([1, 2, 3], $streamed);
+        $this->assertSame(3, $result['row_count']);
+        $this->assertTrue($result['truncated']);
+        $this->assertSame('max_rows', $result['stopped_reason']);
+    }
 }

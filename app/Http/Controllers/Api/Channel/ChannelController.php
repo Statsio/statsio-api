@@ -135,12 +135,14 @@ class ChannelController extends Controller
     }
 
     /**
-     * Liste tous les channels (admin)
+     * Liste publique des channels actifs (annuaire /chaines).
+     * Filtres: search, category (slug), sort (popular|views|name|recent).
      */
     public function index(Request $request)
     {
-        $perPage = $request->get('per_page', 15);
-        $channels = $this->channelAction->getAllChannels($perPage);
+        $perPage = (int) $request->get('per_page', 15);
+        $filters = $request->only(['search', 'category', 'sort']);
+        $channels = $this->channelAction->getAllChannels($perPage, $filters);
 
         return response()->json([
             'success' => true,

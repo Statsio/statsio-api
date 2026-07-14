@@ -20,6 +20,7 @@ class UpdateDataSourceAction
 
     public function __construct(
         private readonly RefreshApiDataSourceAction $refreshApiAction,
+        private readonly CreateLiveApiDataSourceAction $createLiveApiAction,
     ) {}
 
     /**
@@ -46,13 +47,18 @@ class UpdateDataSourceAction
             }
         }
 
-        if (array_key_exists('refresh_frequency', $attributes) && $dataSource->source_kind === 'api') {
+        if (array_key_exists('refresh_frequency', $attributes) && $dataSource->source_kind === 'api' && ! $dataSource->isLive()) {
             $dataSource->update(['refresh_frequency' => $attributes['refresh_frequency']]);
             $dataSource->scheduleNextRefresh($dataSource->last_refreshed_at ? CarbonImmutable::instance($dataSource->last_refreshed_at) : null);
         }
 
         if ($dataSource->source_kind === 'upload' && $file) {
             $this->replaceFile($dataSource, $file);
+        } elseif ($dataSource->source_kind === 'api' && $dataSource->isLive()
+            && (! empty(Arr::only($attributes, self::API_FIELDS)) || array_key_exists('query_mapping', $attributes))) {
+            // Source "live" : re-sonde et redétecte le mapping de filtres, synchrone —
+            // pas de RefreshApiDataSourceAction/ProcessDataSourceJob (pas de fetch complet à relancer).
+            $this->createLiveApiAction->reconfigure($dataSource, Arr::only($attributes, self::API_FIELDS), $attributes['query_mapping'] ?? null);
         } elseif ($dataSource->source_kind === 'api' && ! empty(Arr::only($attributes, self::API_FIELDS))) {
             $this->refreshApiAction->execute($dataSource, Arr::only($attributes, self::API_FIELDS));
         }

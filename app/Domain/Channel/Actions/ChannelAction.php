@@ -68,9 +68,47 @@ class ChannelAction
         return $this->profileAction->getProfileById($id);
     }
 
-    public function getAllChannels(int $perPage = 15)
+    /**
+     * Liste publique des channels actifs, avec recherche/filtre/tri.
+     *
+     * @param array{search?: ?string, category?: ?string, sort?: ?string} $filters
+     */
+    public function getAllChannels(int $perPage = 15, array $filters = [])
     {
-        return Channel::with('profile.channelCategories')->paginate($perPage);
+        $query = Channel::query()
+            ->where('status', ChannelStatusEnum::ACTIVE->value)
+            ->whereHas('profile')
+            ->with('profile.channelCategories')
+            ->withCount('subscribers');
+
+        $search = trim((string) ($filters['search'] ?? ''));
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $query->whereHas('profile', function ($q) use ($like) {
+                $q->whereRaw('name ilike ?', [$like])
+                    ->orWhereRaw('handle ilike ?', [$like])
+                    ->orWhereRaw('description ilike ?', [$like]);
+            });
+        }
+
+        if (!empty($filters['category'])) {
+            $category = $filters['category'];
+            $query->whereHas('profile.channelCategories', fn ($q) => $q->where('slug', $category));
+        }
+
+        // Note : withCount() ci-dessus a déjà fixé une liste de colonnes explicite
+        // (channels.* + sous-requête subscribers_count) ; les jointures ci-dessous ne
+        // doivent donc pas rappeler select(), au risque d'écraser cette sous-requête.
+        match ($filters['sort'] ?? 'popular') {
+            'name' => $query->join('channel_profiles', 'channel_profiles.channel_id', '=', 'channels.id')
+                ->orderBy('channel_profiles.name'),
+            'views' => $query->join('channel_profiles', 'channel_profiles.channel_id', '=', 'channels.id')
+                ->orderByDesc('channel_profiles.view_count'),
+            'recent' => $query->orderByDesc('channels.created_at'),
+            default => $query->orderByDesc('subscribers_count'),
+        };
+
+        return $query->paginate($perPage)->withQueryString();
     }
 
     public function getChannelsForUser(int $userId, int $perPage = 15)
