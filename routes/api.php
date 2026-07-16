@@ -12,5 +12,6 @@ require __DIR__.'/api/tv.php';
 require __DIR__.'/api/medicaments.php';
 require __DIR__.'/api/maladies.php';
 require __DIR__.'/api/pays.php';
+require __DIR__.'/api/soins.php';
 require __DIR__.'/api/admin.php';
 require __DIR__.'/api/content.php';
