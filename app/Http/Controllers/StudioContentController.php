@@ -18,9 +18,27 @@ class StudioContentController extends Controller
     public function index(Request $request): JsonResponse
     {
         $type = $request->query('type');
+        $channelId = $request->query('channel_id');
 
-        $contents = StudioContent::with('channel.profile')
-            ->where('user_id', $request->user()->id)
+        if ($channelId) {
+            $isTeamMember = ChannelUser::where('channel_id', $channelId)
+                ->where('user_id', $request->user()->id)
+                ->whereIn('role', ['owner', 'admin', 'moderator'])
+                ->exists();
+
+            if (! $isTeamMember) {
+                return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
+            }
+
+            $query = StudioContent::with('channel.profile')
+                ->where('channel_id', $channelId)
+                ->where('published_as', 'channel');
+        } else {
+            $query = StudioContent::with('channel.profile')
+                ->where('user_id', $request->user()->id);
+        }
+
+        $contents = $query
             ->when($type, fn ($q) => $q->where('type', $type))
             ->orderBy('updated_at', 'desc')
             ->get();
@@ -114,6 +132,11 @@ class StudioContentController extends Controller
                 })
                 ->firstOrFail();
         });
+
+        // Increment outside the cache closure so every real visitor request counts,
+        // not just cache misses. Called on the instance (not a static query) so the
+        // in-memory attribute used by format() below reflects this visit too.
+        $content->increment('views_count');
 
         $data = $this->format($content);
         $data['can_edit'] = $this->canEditContent($request->user('sanctum'), $content);
@@ -233,8 +256,13 @@ class StudioContentController extends Controller
 
     private function format(StudioContent $content): array
     {
-        $profile = $content->user?->profile;
-        $authorName = trim(($profile?->first_name ?? '').' '.($profile?->last_name ?? ''));
+        if ($content->published_as === 'channel' && $content->channel) {
+            $authorName = $content->channel->profile?->name ?: 'Anonyme';
+        } else {
+            $profile = $content->user?->profile;
+            $authorName = trim(($profile?->first_name ?? '').' '.($profile?->last_name ?? ''));
+            $authorName = $authorName ?: 'Anonyme';
+        }
 
         $blocks = $content->blocks ?? [];
         $datasetIds = array_values(array_unique(array_filter(
@@ -256,6 +284,7 @@ class StudioContentController extends Controller
             'type' => $content->type ?? 'statsdata',
             'description' => $content->description,
             'status' => $content->status ?? 'draft',
+            'views_count' => $content->views_count ?? 0,
             'visibility' => $content->visibility ?? 'private',
             'thumbnail_url' => $content->getFirstMediaUrl('thumbnail'),
             'slug' => $content->slug,
@@ -269,11 +298,12 @@ class StudioContentController extends Controller
                 ? [
                     'id' => $content->channel->id,
                     'name' => $content->channel->profile?->name,
+                    'logo_url' => $content->channel->profile?->logo_url,
                     'custom_color_primary' => $content->channel->profile?->custom_color_primary,
                     'custom_color_secondary' => $content->channel->profile?->custom_color_secondary,
                 ]
                 : null,
-            'author' => ['name' => $authorName ?: 'Anonyme'],
+            'author' => ['name' => $authorName],
             'datasets' => $datasets,
             'pages' => $content->pages ?? [],
             'sections' => $content->sections ?? [],

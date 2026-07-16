@@ -22,8 +22,8 @@ class CreateChannelRequest extends FormRequest
             'category' => ['sometimes', Rule::in(ChannelCategoryEnum::values())],
             'categories' => 'sometimes|array',
             'categories.*' => ['string', Rule::in(ChannelCategoryEnum::values())],
-            'logo' => 'sometimes|file|image|max:5120', // max 5MB
-            'banner' => 'sometimes|file|image|max:10240', // max 10MB
+            'logo' => 'sometimes|file|image:allow_svg|max:5120', // max 5MB
+            'banner' => 'sometimes|file|image:allow_svg|max:10240', // max 10MB
             'status' => 'sometimes|in:active,suspended,banned,anonymized',
             'suspended_until' => 'sometimes|date|after:now',
             'anonymized_at' => 'sometimes|date'

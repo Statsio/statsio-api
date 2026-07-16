@@ -43,4 +43,25 @@ return [
         'path' => env('DUCKDB_PATH', '/usr/local/bin/duckdb'),
     ],
 
+    'medicaments_api' => [
+        'base_url' => env('MEDICAMENTS_API_BASE_URL', 'https://medicaments-api.giygas.dev'),
+    ],
+
+    'who_gho_api' => [
+        'base_url' => env('WHO_GHO_API_BASE_URL', 'https://ghoapi.azureedge.net/api'),
+    ],
+
+    'icd11_api' => [
+        'base_url' => env('ICD11_API_BASE_URL', 'https://id.who.int'),
+        'token_url' => env('ICD11_TOKEN_URL', 'https://icdaccessmanagement.who.int/connect/token'),
+        'client_id' => env('ICD11_CLIENT_ID'),
+        'client_secret' => env('ICD11_CLIENT_SECRET'),
+        'release_id' => env('ICD11_RELEASE_ID', 'latest'),
+    ],
+
+    'umls_api' => [
+        'base_url' => env('UMLS_API_BASE_URL', 'https://uts-ws.nlm.nih.gov/rest'),
+        'key' => env('UMLS_API_KEY'),
+    ],
+
 ];

@@ -11,7 +11,8 @@ use Illuminate\Support\Arr;
  *
  * `fetchFirstPage()` (une seule requête) est utilisée pour la validation rapide
  * à la création/reconfiguration d'une source. `fetchAll()` (boucle complète) est
- * réservée au job asynchrone — voir FetchApiDataSourcePagesAction.
+ * utilisée par le requêtage en streaming des sources "live" (agrégations —
+ * voir LiveDatasetQueryService).
  */
 class PaginatedApiFetcher
 {
@@ -70,7 +71,7 @@ class PaginatedApiFetcher
         $stoppedReason = null;
 
         $currentUrl = $url;
-        $currentQuery = array_merge($this->firstPageQuery($pagination), $staticQuery);
+        $currentQuery = empty($staticQuery) ? array_merge($this->firstPageQuery($pagination), $staticQuery) : $staticQuery;
 
         while (true) {
             if ($pagesFetched >= $maxPages) {
@@ -298,13 +299,20 @@ class PaginatedApiFetcher
     {
         $records = $dataPath ? Arr::get($body, $dataPath) : $body;
 
-        if (! is_array($records) || ! array_is_list($records)) {
-            throw new ApiSourceFetchException(
-                "La réponse de l'API ne contient pas de tableau d'enregistrements".($dataPath ? " au chemin '{$dataPath}'." : '.')
-            );
+        if (is_array($records) && array_is_list($records)) {
+            return array_values($records);
         }
 
-        return array_values($records);
+        // Une même API peut envelopper ses réponses paginées (`{"data": [...]}`) mais renvoyer
+        // un tableau JSON brut sur un endpoint différent (ex. recherche, cf. medicaments-api) —
+        // on accepte ce cas plutôt que d'échouer dès que le data_path habituel ne s'applique pas.
+        if (array_is_list($body)) {
+            return array_values($body);
+        }
+
+        throw new ApiSourceFetchException(
+            "La réponse de l'API ne contient pas de tableau d'enregistrements".($dataPath ? " au chemin '{$dataPath}'." : '.')
+        );
     }
 
     /**

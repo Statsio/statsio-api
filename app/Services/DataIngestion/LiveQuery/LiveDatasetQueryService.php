@@ -7,9 +7,11 @@ use App\Domain\DataIngestion\Exceptions\LiveApiQueryException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedLiveQueryOperationException;
 use App\Jobs\RefreshLiveAggregateJob;
 use App\Models\DataIngestion\Dataset;
+use App\Services\DataIngestion\NumericValueParser;
 use App\Services\DataIngestion\PaginatedApiFetcher;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 
 /**
  * Point d'entrée appelé par DatasetController pour un dataset "live" — résout
@@ -242,11 +244,10 @@ class LiveDatasetQueryService
 
         $onPage = function (array $records) use ($column, &$sum, &$count, &$min, &$max) {
             foreach ($records as $record) {
-                $value = $record[$column] ?? null;
-                if (! is_numeric($value)) {
+                $value = NumericValueParser::parse($record[$column] ?? null);
+                if ($value === null) {
                     continue;
                 }
-                $value = (float) $value;
                 $sum += $value;
                 $count++;
                 $min = $min === null ? $value : min($min, $value);
@@ -321,36 +322,42 @@ class LiveDatasetQueryService
         $method = $config['method'] ?? 'GET';
         $headers = $config['headers'] ?? [];
         $dataPath = $config['data_path'] ?? null;
-        $pagination = $config['pagination'] ?? ['style' => 'none'];
-        $maxPageSize = $config['query_mapping']['max_page_size'] ?? null;
-        $requestedSize = $maxPageSize ? min($limit, (int) $maxPageSize) : $limit;
-        $paginationForRequest = array_merge($pagination, ['page_size' => $requestedSize]);
-        $baseQuery = array_merge($resolvedFilters, $this->fetcher->buildFirstPageQuery($paginationForRequest));
+        $searchQ = $this->sanitizeSearchTerm($searchQ);
 
-        $queriesByColumn = [];
-        foreach ($searchColumnParams as $column => $param) {
-            $queriesByColumn[$column] = array_merge($baseQuery, [$param => $searchQ]);
+        if ($searchQ === '') {
+            return [$this->collectColumns([], $dataset), [], 0];
         }
 
-        $pages = $this->client->fetchMany($url, $method, $headers, $queriesByColumn);
+        if (isset($searchColumnParams['*'])) {
+            // Use the global search param
+            $globalSearchParam = $searchColumnParams['*'];
+            $query = array_merge($resolvedFilters, [$globalSearchParam => $searchQ]);
+            $page = $this->client->fetch($url, $method, $headers, $query);
+            $records = $this->fetcher->extractRecordsFromBody($page['body'], $dataPath);
+            $merged = array_map(fn ($r) => $this->shapeRow($r), $records);
+        } else {
+            // Use per-column search params
+            $queriesByColumn = [];
+            foreach ($searchColumnParams as $column => $param) {
+                $queriesByColumn[$column] = array_merge($resolvedFilters, [$param => $searchQ]);
+            }
+            $pages = $this->client->fetchMany($url, $method, $headers, $queriesByColumn);
 
-        $merged = [];
-        $seen = [];
-
-        foreach ($searchColumnParams as $column => $param) {
-            $records = $this->fetcher->extractRecordsFromBody($pages[$column]['body'], $dataPath);
-
-            foreach ($records as $record) {
-                $row = $this->shapeRow($record);
-                $key = md5(json_encode($row));
-                if (isset($seen[$key])) {
-                    continue;
-                }
-                $seen[$key] = true;
-                $merged[] = $row;
-
-                if (count($merged) >= $limit) {
-                    break 2;
+            $merged = [];
+            $seen = [];
+            foreach ($searchColumnParams as $column => $param) {
+                $records = $this->fetcher->extractRecordsFromBody($pages[$column]['body'], $dataPath);
+                foreach ($records as $record) {
+                    $row = $this->shapeRow($record);
+                    $key = md5(json_encode($row));
+                    if (isset($seen[$key])) {
+                        continue;
+                    }
+                    $seen[$key] = true;
+                    $merged[] = $row;
+                    if (count($merged) >= $limit) {
+                        break 2;
+                    }
                 }
             }
         }
@@ -362,6 +369,22 @@ class LiveDatasetQueryService
         }
 
         return [$columns, $merged, count($merged)];
+    }
+
+    /**
+     * Beaucoup d'API de ce type valident strictement le terme de recherche saisi par
+     * l'utilisateur (accents refusés, jeu de caractères limité — cf. medicaments-api.giygas.dev
+     * qui rejette tout sauf lettres/chiffres/espaces/tirets/points/slash/apostrophe/plus) : on
+     * translittère en ASCII et on retire le reste plutôt que de laisser échouer une recherche
+     * française toute simple ("énergisant" -> "energisant"). Ne réduit jamais la pertinence pour
+     * une API plus permissive, seulement pour celles qui auraient de toute façon rejeté l'original.
+     */
+    private function sanitizeSearchTerm(string $term): string
+    {
+        $ascii = Str::ascii($term);
+        $stripped = preg_replace("/[^A-Za-z0-9 .\/'+-]+/", ' ', $ascii) ?? '';
+
+        return trim(preg_replace('/\s+/', ' ', $stripped) ?? '');
     }
 
     /**
@@ -391,7 +414,8 @@ class LiveDatasetQueryService
         // lignes que `limit` (comme le ferait un simple LIMIT SQL non atteint), sans boucler.
         $requestedSize = $maxPageSize ? min($limit, (int) $maxPageSize) : $limit;
         $paginationForRequest = array_merge($pagination, ['page_size' => $requestedSize]);
-        $fullQuery = array_merge($query, $this->fetcher->buildFirstPageQuery($paginationForRequest));
+        // If there are filter parameters, don't add pagination parameters (for APIs that only allow one query param at a time)
+        $fullQuery = empty($query) ? array_merge($query, $this->fetcher->buildFirstPageQuery($paginationForRequest)) : $query;
 
         $page = $this->client->fetch($url, $method, $headers, $fullQuery);
         $records = $this->fetcher->extractRecordsFromBody($page['body'], $dataPath);

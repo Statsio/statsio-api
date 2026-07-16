@@ -45,6 +45,14 @@ return [
             // Bornes du sondage automatique de mapping de filtres (FilterCapabilityProbe)
             'probe_max_columns' => (int) env('LIVE_QUERY_PROBE_MAX_COLUMNS', 20),
             'probe_request_timeout_seconds' => (int) env('LIVE_QUERY_PROBE_REQUEST_TIMEOUT_SECONDS', 10),
+
+            // Détection auto pré-création (ApiStructureDetector + LiveApiSourceProber
+            // appelés depuis POST /source-api/detect-structure) : budget volontairement
+            // plus serré que le sondage post-création ci-dessus, pour qu'un clic de
+            // wizard reste réactif (voir §1.4 du plan de refonte des sources API).
+            'detect_time_budget_seconds' => (int) env('LIVE_QUERY_DETECT_TIME_BUDGET_SECONDS', 10),
+            'detect_probe_max_columns' => (int) env('LIVE_QUERY_DETECT_PROBE_MAX_COLUMNS', 8),
+            'detect_probe_request_timeout_seconds' => (int) env('LIVE_QUERY_DETECT_PROBE_REQUEST_TIMEOUT_SECONDS', 4),
             // Cache plus long que cache_ttl_seconds : une agrégation en streaming (KPI) parcourt
             // potentiellement de nombreuses pages upstream, bien plus coûteux qu'une simple page
             // de lignes — voir LiveDatasetQueryService::computeAggregate().

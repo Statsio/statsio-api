@@ -32,7 +32,6 @@ class UpdateDataSourceRequest extends FormRequest
             'auth_type' => ['sometimes', 'in:none,api_key,bearer'],
             'headers' => ['sometimes', 'array'],
             'data_path' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'refresh_frequency' => ['sometimes', 'nullable', 'in:none,daily,weekly,monthly,yearly'],
         ], CreateApiDataSourceRequest::paginationRules(), CreateApiDataSourceRequest::queryMappingRules());
     }
 

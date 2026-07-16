@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TvChannel extends Model
 {
-    protected $fillable = ['slug', 'number', 'display_name', 'epg_channel_id', 'logo_url', 'is_active'];
+    protected $fillable = ['slug', 'number', 'display_name', 'description', 'epg_channel_id', 'logo_url', 'is_active'];
 
     protected $casts = [
         'number'    => 'integer',
@@ -17,5 +17,10 @@ class TvChannel extends Model
     public function broadcasts(): HasMany
     {
         return $this->hasMany(TvBroadcast::class, 'tv_channel_id', 'slug');
+    }
+
+    public function follows(): HasMany
+    {
+        return $this->hasMany(TvChannelFollow::class, 'channel_id', 'slug');
     }
 }

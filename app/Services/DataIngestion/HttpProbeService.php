@@ -3,6 +3,7 @@
 namespace App\Services\DataIngestion;
 
 use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 
 class HttpProbeService
@@ -137,6 +138,15 @@ class HttpProbeService
 
         $results = [];
         foreach ($responses as $key => $response) {
+            if ($response instanceof RequestException && in_array($response->response->status(), [400, 404], true)) {
+                // Convention REST courante pour une recherche/un filtre sans résultat (404) ou
+                // une valeur rejetée par l'upstream (400, ex. accents/caractères non supportés) :
+                // traité comme une page vide pour cette clé, pas une erreur qui ferait échouer le lot.
+                $results[$key] = ['body' => [], 'headers' => [], 'status' => $response->response->status(), 'raw_size' => 0];
+
+                continue;
+            }
+
             if ($response instanceof \Throwable) {
                 throw new \RuntimeException("La requête a échoué : {$response->getMessage()}", 0, $response);
             }

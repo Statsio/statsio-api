@@ -20,17 +20,15 @@ class CreateApiDataSourceRequest extends FormRequest
             'auth_type' => ['sometimes', 'string', 'in:none,api_key,bearer'],
             'headers' => ['sometimes', 'array'],
             'data_path' => ['sometimes', 'nullable', 'string', 'max:255'],
-            'refresh_frequency' => ['sometimes', 'nullable', 'in:none,daily,weekly,monthly,yearly'],
             'visibility' => ['sometimes', 'nullable', 'in:private,public'],
             'categories' => ['sometimes', 'nullable', 'array'],
             'categories.*' => ['string', 'max:50'],
             'provenance_id' => ['sometimes', 'nullable', 'integer', 'exists:source_provenances,id'],
             'provenance_other_label' => ['sometimes', 'nullable', 'string', 'max:255'],
 
-            // materialization=live : requêtage direct sans matérialisation Parquet.
-            // query_mapping est optionnel — auto-détecté par sondage si absent (voir
+            // Toute source API est désormais "live" : requêtage direct sans matérialisation
+            // Parquet. query_mapping est optionnel — auto-détecté par sondage si absent (voir
             // FilterCapabilityProbe) ; s'il est fourni, il corrige/complète la détection.
-            'materialization' => ['sometimes', 'in:snapshot,live'],
         ], $this->paginationRules(), $this->queryMappingRules());
     }
 

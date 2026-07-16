@@ -5,6 +5,7 @@ namespace App\Services\DataIngestion\LiveQuery;
 use App\Domain\DataIngestion\Exceptions\LiveApiQueryException;
 use App\Services\DataIngestion\HttpProbeService;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 
 /**
  * Enveloppe fine autour de HttpProbeService::fetchPage() pour le chemin de
@@ -32,6 +33,12 @@ class LiveApiQueryClient
 
         try {
             return $this->httpProbe->fetchPage($url, $method, $headers, $query, $timeout);
+        } catch (RequestException $e) {
+            if ($this->isEmptyResultStatus($e->response->status())) {
+                return ['body' => [], 'headers' => [], 'status' => $e->response->status(), 'raw_size' => 0];
+            }
+
+            throw $this->translateFailure($e->response->status(), $e);
         } catch (ConnectionException $e) {
             throw new LiveApiQueryException(
                 'La source externe met trop de temps à répondre ou est injoignable.',
@@ -39,21 +46,40 @@ class LiveApiQueryClient
                 $e,
             );
         } catch (\RuntimeException $e) {
-            // HttpProbeService::fetchPage lève un \RuntimeException générique sur statut non-2xx ou JSON invalide.
-            if ($this->extractHttpStatus($e->getMessage()) === 429) {
-                throw new LiveApiQueryException(
-                    'La source externe limite le nombre de requêtes pour le moment (429). Réessayez dans quelques instants.',
-                    429,
-                    $e,
-                );
-            }
+            // HttpProbeService::fetchPage lève un \RuntimeException générique sur JSON invalide
+            // (le cas statut non-2xx est intercepté plus haut par RequestException — Http::retry()
+            // lève cette exception avant même d'atteindre la vérification manuelle du statut).
+            throw $this->translateFailure($this->extractHttpStatus($e->getMessage()), $e);
+        }
+    }
 
-            throw new LiveApiQueryException(
-                "La source externe est indisponible ou a retourné une erreur : {$e->getMessage()}",
-                502,
+    /**
+     * 404 ("aucun résultat") et 400 sont traités comme une page vide plutôt qu'une erreur : une
+     * requête upstream mal formée du point de vue de l'API (valeur de filtre ou terme de
+     * recherche que l'utilisateur a saisi et qu'elle rejette — accents, caractères non
+     * supportés, terme trop court/trop large...) ne devrait pas afficher une erreur serveur
+     * effrayante, juste "aucun résultat" — dégradation silencieuse, pas un crash.
+     */
+    private function isEmptyResultStatus(?int $status): bool
+    {
+        return $status === 404 || $status === 400;
+    }
+
+    private function translateFailure(?int $status, \Throwable $e): LiveApiQueryException
+    {
+        if ($status === 429) {
+            return new LiveApiQueryException(
+                'La source externe limite le nombre de requêtes pour le moment (429). Réessayez dans quelques instants.',
+                429,
                 $e,
             );
         }
+
+        return new LiveApiQueryException(
+            "La source externe est indisponible ou a retourné une erreur : {$e->getMessage()}",
+            502,
+            $e,
+        );
     }
 
     /**
@@ -80,19 +106,7 @@ class LiveApiQueryClient
                 $e,
             );
         } catch (\RuntimeException $e) {
-            if ($this->extractHttpStatus($e->getMessage()) === 429) {
-                throw new LiveApiQueryException(
-                    'La source externe limite le nombre de requêtes pour le moment (429). Réessayez dans quelques instants.',
-                    429,
-                    $e,
-                );
-            }
-
-            throw new LiveApiQueryException(
-                "La source externe est indisponible ou a retourné une erreur : {$e->getMessage()}",
-                502,
-                $e,
-            );
+            throw $this->translateFailure($this->extractHttpStatus($e->getMessage()), $e);
         }
     }
 
