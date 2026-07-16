@@ -38,6 +38,7 @@ class StudioContent extends Model
         'sections' => 'array',
         'categories' => 'array',
         'coverage_data' => 'array',
+        'views_count' => 'integer',
     ];
 
     /**

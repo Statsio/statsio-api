@@ -4,6 +4,7 @@ namespace App\Domain\Tv\Actions;
 
 use App\Models\Tv\TvBroadcast;
 use App\Models\Tv\TvChannel;
+use App\Models\Tv\TvUserView;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -55,10 +56,16 @@ class GetChannelSchedulesAction
 
         $now = new DateTimeImmutable('now', $tz);
 
-        $broadcasts = TvBroadcast::with('program')
+        $broadcasts = TvBroadcast::with(['program', 'audience'])
             ->whereBetween('start_at', [$dayStart, $dayEnd])
             ->orderBy('start_at')
             ->get();
+
+        $wantCounts = TvUserView::whereIn('broadcast_id', $broadcasts->pluck('id'))
+            ->where('type', 'will_watch')
+            ->selectRaw('broadcast_id, count(*) as aggregate')
+            ->groupBy('broadcast_id')
+            ->pluck('aggregate', 'broadcast_id');
 
         $schedules = [];
 
@@ -77,7 +84,12 @@ class GetChannelSchedulesAction
                 ($broadcast->end_at->timestamp - $broadcast->start_at->timestamp) / 60
             ));
 
-            $isLive = $now >= $broadcast->start_at && $now < $broadcast->end_at;
+            $isLive  = $now >= $broadcast->start_at && $now < $broadcast->end_at;
+            $isAired = $now >= $broadcast->start_at;
+
+            $score = $isAired
+                ? ['type' => 'viewers', 'value' => $broadcast->audience?->viewers ?? 0]
+                : ['type' => 'want', 'value' => (int) ($wantCounts[$broadcast->id] ?? 0)];
 
             $schedules[$channelId][] = [
                 'broadcastId'     => $broadcast->id,
@@ -89,6 +101,8 @@ class GetChannelSchedulesAction
                 'genres'          => $broadcast->program->type ? [$broadcast->program->type] : [],
                 'summary'         => $broadcast->program->description,
                 'isLive'          => $isLive,
+                'mention'         => $broadcast->broadcast_type,
+                'score'           => $score,
             ];
         }
 

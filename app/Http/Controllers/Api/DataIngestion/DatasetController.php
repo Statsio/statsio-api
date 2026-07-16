@@ -9,6 +9,7 @@ use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetVersion;
 use App\Models\StudioContent;
 use App\Services\DataIngestion\LiveQuery\LiveDatasetQueryService;
+use App\Services\DataIngestion\NumericValueParser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -584,7 +585,10 @@ class DatasetController extends Controller
         $selectParts = array_map($quote, $groupBy);
         foreach ($aggregateColumns as $col) {
             $escaped = $quote($col);
-            $expr = $fn === 'COUNT' ? 'COUNT(*)' : "{$fn}(TRY_CAST({$escaped} AS DOUBLE))";
+            // Les colonnes texte type "10,000+" (compteurs scrapés) ne sont pas castables
+            // telles quelles : on retire virgules et "+" final avant le TRY_CAST.
+            $cleaned = "REGEXP_REPLACE(REGEXP_REPLACE(CAST({$escaped} AS VARCHAR), ',', '', 'g'), '\\+\$', '')";
+            $expr = $fn === 'COUNT' ? 'COUNT(*)' : "{$fn}(TRY_CAST({$cleaned} AS DOUBLE))";
             $selectParts[] = "{$expr} AS {$escaped}";
         }
 
@@ -633,7 +637,10 @@ class DatasetController extends Controller
 
                     continue;
                 }
-                $vals = array_values(array_filter($group['values'][$col] ?? [], fn ($v) => is_numeric($v)));
+                $vals = array_values(array_filter(
+                    array_map(fn ($v) => NumericValueParser::parse($v), $group['values'][$col] ?? []),
+                    fn ($v) => $v !== null,
+                ));
                 $out[$col] = match ($aggregate) {
                     'sum' => array_sum($vals),
                     'avg' => count($vals) ? array_sum($vals) / count($vals) : 0,

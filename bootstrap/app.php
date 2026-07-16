@@ -20,7 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withSchedule(function (Schedule $schedule): void {
-        $schedule->command('data-sources:refresh-due')->hourly();
+        //
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->use([

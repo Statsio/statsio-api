@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Domain\Channel\Actions\ChannelAction;
+use App\Domain\Channel\Actions\ChannelStatsAction;
 use App\Models\Channel\ChannelProfile;
 use App\Models\Channel\ChannelCategory;
 use App\Http\Requests\Channel\CreateChannelRequest;
@@ -14,7 +15,8 @@ use App\Http\Requests\Channel\UpdateChannelRequest;
 class ChannelController extends Controller
 {
     public function __construct(
-        private ChannelAction $channelAction
+        private ChannelAction $channelAction,
+        private ChannelStatsAction $channelStatsAction
     ) {}
 
     /**
@@ -68,8 +70,8 @@ class ChannelController extends Controller
     public function updateMedia(Request $request, int $id)
     {
         $request->validate([
-            'logo'   => 'sometimes|file|image|max:5120',
-            'banner' => 'sometimes|file|image|max:10240',
+            'logo'   => 'sometimes|file|image:allow_svg|max:5120',
+            'banner' => 'sometimes|file|image:allow_svg|max:10240',
         ]);
 
         $channel = $this->channelAction->getChannelById($id);
@@ -194,6 +196,36 @@ class ChannelController extends Controller
             ]);
 
         return response()->json(['success' => true, 'data' => $members]);
+    }
+
+    /**
+     * Statistiques du dashboard (vues 30j, croissance abonnés, taille de l'équipe)
+     */
+    public function stats(int $id)
+    {
+        $channel = $this->channelAction->getChannelById($id);
+
+        if (!$channel) {
+            return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $this->channelStatsAction->getStats($channel)]);
+    }
+
+    /**
+     * Enregistre une vue publique de la chaîne (appelé depuis la page publique)
+     */
+    public function recordView(int $id)
+    {
+        $channel = $this->channelAction->getChannelById($id);
+
+        if (!$channel) {
+            return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
+        }
+
+        $this->channelStatsAction->recordView($channel);
+
+        return response()->json(['success' => true]);
     }
 
     /**

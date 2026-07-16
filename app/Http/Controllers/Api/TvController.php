@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Domain\Tv\Actions\GetChannelDetailAction;
+use App\Domain\Tv\Actions\GetChannelPopularProgramsAction;
 use App\Domain\Tv\Actions\GetChannelSchedulesAction;
 use App\Domain\Tv\Actions\ToggleBroadcastViewAction;
+use App\Domain\Tv\Actions\ToggleChannelFollowAction;
 use App\Domain\Tv\Data\CncAudiencesData;
 use App\Models\Tv\TvBroadcast;
 use App\Models\Tv\TvBroadcastReview;
@@ -286,5 +289,23 @@ class TvController extends Controller
             'viewers'      => $viewers,
             'willWatch'    => $willWatch,
         ]);
+    }
+
+    /** GET /tv/channels/{slug} — channel banner: stats + follow state. */
+    public function channelDetail(Request $request, string $slug, GetChannelDetailAction $action): JsonResponse
+    {
+        return response()->json($action->execute($slug, $request->user()?->id));
+    }
+
+    /** GET /tv/channels/{slug}/popular — programmes ranked by average audience score. */
+    public function channelPopularProgrammes(string $slug, GetChannelPopularProgramsAction $action): JsonResponse
+    {
+        return response()->json($action->execute($slug));
+    }
+
+    /** POST /tv/channels/{slug}/follow — toggle follow for the authenticated user. */
+    public function toggleChannelFollow(Request $request, string $slug, ToggleChannelFollowAction $action): JsonResponse
+    {
+        return response()->json($action->execute($slug, $request->user()->id));
     }
 }

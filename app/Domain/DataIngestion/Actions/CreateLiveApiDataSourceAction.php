@@ -10,30 +10,20 @@ use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DataSource;
 use App\Models\User\User;
 use App\Services\DataIngestion\DatasetColumnPersister;
-use App\Services\DataIngestion\HttpProbeService;
-use App\Services\DataIngestion\LiveQuery\FilterCapabilityProbe;
-use App\Services\DataIngestion\PaginatedApiFetcher;
-use App\Services\DataIngestion\Parsers\JsonParser;
-use App\Services\DataIngestion\SchemaInferenceService;
-use Illuminate\Support\Arr;
+use App\Services\DataIngestion\LiveApiSourceProber;
 
 /**
- * Crée une source API "live" de façon synchrone : contrairement à
- * CreateApiDataSourceAction (source snapshot), il n'y a ni job d'ingestion ni
- * matérialisation Parquet — un seul appel HTTP sert à la fois de validation
- * de connexion, d'échantillon pour l'inférence de schéma, et de base pour la
- * détection automatique du mapping de filtres (FilterCapabilityProbe).
+ * Crée une source API "live" de façon synchrone : il n'y a ni job d'ingestion
+ * ni matérialisation Parquet — le sondage complet (validation de connexion,
+ * inférence de schéma, détection du mapping de filtres et des capacités) est
+ * délégué à LiveApiSourceProber, partagé avec le endpoint de détection
+ * pré-création (StatsDataSourceController::detectStructure).
  */
 class CreateLiveApiDataSourceAction
 {
-    private const SAMPLE_ROWS = 200;
-
     public function __construct(
-        private readonly HttpProbeService $httpProbe,
-        private readonly PaginatedApiFetcher $fetcher,
-        private readonly SchemaInferenceService $schemaInferenceService,
+        private readonly LiveApiSourceProber $prober,
         private readonly DatasetColumnPersister $columnPersister,
-        private readonly FilterCapabilityProbe $filterProbe,
     ) {}
 
     /**
@@ -58,7 +48,7 @@ class CreateLiveApiDataSourceAction
         array $pagination = ['style' => 'none'],
         ?array $queryMappingOverrides = null,
     ): DataSource {
-        [$schema, $parsed, $queryMapping, $rowCountHint] = $this->probe($name, $url, $method, $headers, $dataPath, $pagination, $queryMappingOverrides);
+        $probed = $this->prober->probe($name, $url, $method, $headers, $dataPath, $pagination, $queryMappingOverrides);
 
         $dataSource = DataSource::create([
             'user_id' => $user->id,
@@ -73,7 +63,8 @@ class CreateLiveApiDataSourceAction
                 'headers' => $headers,
                 'data_path' => $dataPath,
                 'pagination' => $pagination,
-                'query_mapping' => $queryMapping,
+                'query_mapping' => $probed['query_mapping'],
+                'capabilities' => $probed['capabilities'],
             ],
             'refresh_frequency' => DataSourceRefreshFrequencyEnum::NONE,
             'original_filename' => "{$name}.json",
@@ -92,10 +83,10 @@ class CreateLiveApiDataSourceAction
             'name' => $dataSource->name,
             'status' => 'ready',
             'parquet_path' => null,
-            'row_count' => is_numeric($rowCountHint) ? (int) $rowCountHint : 0,
+            'row_count' => is_numeric($probed['row_count_hint']) ? (int) $probed['row_count_hint'] : 0,
         ]);
 
-        $this->columnPersister->persist($dataset, $schema, $parsed->headers);
+        $this->columnPersister->persist($dataset, $probed['schema'], $probed['parsed']->headers);
 
         return $dataSource;
     }
@@ -120,7 +111,7 @@ class CreateLiveApiDataSourceAction
             throw new ApiSourceFetchException("L'URL de la source est requise.");
         }
 
-        [$schema, $parsed, $queryMapping, $rowCountHint] = $this->probe(
+        $probed = $this->prober->probe(
             $dataSource->name,
             $url,
             $config['method'] ?? 'GET',
@@ -130,53 +121,17 @@ class CreateLiveApiDataSourceAction
             $queryMappingOverrides,
         );
 
-        $config['query_mapping'] = $queryMapping;
+        $config['query_mapping'] = $probed['query_mapping'];
+        $config['capabilities'] = $probed['capabilities'];
         $dataSource->update(['api_config' => $config, 'error_message' => null]);
 
         $dataset = $dataSource->dataset;
         if ($dataset) {
             $dataset->columns()->delete();
-            $dataset->update(['row_count' => is_numeric($rowCountHint) ? (int) $rowCountHint : 0]);
-            $this->columnPersister->persist($dataset, $schema, $parsed->headers);
+            $dataset->update(['row_count' => is_numeric($probed['row_count_hint']) ? (int) $probed['row_count_hint'] : 0]);
+            $this->columnPersister->persist($dataset, $probed['schema'], $probed['parsed']->headers);
         }
 
         return $dataSource->fresh();
-    }
-
-    /**
-     * Un seul appel HTTP sert à la fois de validation de connexion, d'échantillon
-     * pour l'inférence de schéma, et de base pour la détection automatique du
-     * mapping de filtres — partagé entre execute() (création) et reconfigure().
-     *
-     * @param  array<string, string>  $headers
-     * @param  array<string, mixed>  $pagination
-     * @param  array<string, mixed>|null  $queryMappingOverrides
-     * @return array{0: array, 1: \App\Domain\DataIngestion\DTOs\ParsedFileDTO, 2: array, 3: mixed}
-     *
-     * @throws ApiSourceFetchException
-     */
-    private function probe(string $name, string $url, string $method, array $headers, ?string $dataPath, array $pagination, ?array $queryMappingOverrides): array
-    {
-        $query = $this->fetcher->buildFirstPageQuery($pagination);
-        $timeout = (int) config('statsio.data_ingestion.pagination.request_timeout_seconds', 15);
-
-        try {
-            $page = $this->httpProbe->fetchPage($url, $method, $headers, $query, $timeout);
-        } catch (\Throwable $e) {
-            throw new ApiSourceFetchException("Impossible de se connecter à l'API : {$e->getMessage()}", 0, $e);
-        }
-
-        $records = $this->fetcher->extractRecordsFromBody($page['body'], $dataPath);
-        $parsed = JsonParser::fromRecords($records, self::SAMPLE_ROWS, $name);
-        $schema = $this->schemaInferenceService->infer($parsed);
-
-        $detectedMapping = $this->filterProbe->detect($url, $method, $headers, $dataPath, $pagination, $page['body'], $schema, $parsed->rows);
-        $queryMapping = $queryMappingOverrides
-            ? array_replace_recursive($detectedMapping, $queryMappingOverrides)
-            : $detectedMapping;
-
-        $rowCountHint = $queryMapping['count_path'] ? Arr::get($page['body'], $queryMapping['count_path']) : null;
-
-        return [$schema, $parsed, $queryMapping, $rowCountHint];
     }
 }

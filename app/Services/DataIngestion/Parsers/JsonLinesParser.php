@@ -7,14 +7,17 @@ use App\Domain\DataIngestion\Exceptions\FileParsingException;
 use App\Services\DataIngestion\Contracts\FileParserInterface;
 
 /**
- * Parse un fichier JSONL (une ligne = un enregistrement JSON) produit par
- * FetchApiDataSourcePagesAction pour les sources API en mode snapshot.
+ * Parse un fichier JSONL (une ligne = un enregistrement JSON).
  *
  * Contrairement à JsonParser, ne charge jamais l'ensemble du fichier en
  * mémoire : une première passe légère ne décode chaque ligne que pour
  * collecter l'union des clés (headers) et compter les lignes, sans rien
  * garder ; ParsedFileDTO->rows est ensuite un JsonLinesRowIterator qui
  * relit le fichier à chaque parcours (sample() puis écriture Parquet).
+ *
+ * Non câblée actuellement (les sources API sont désormais toujours "live",
+ * jamais matérialisées via un fichier JSONL) — conservée car générique et
+ * testée indépendamment, réutilisable pour un futur besoin de streaming JSONL.
  */
 class JsonLinesParser implements FileParserInterface
 {

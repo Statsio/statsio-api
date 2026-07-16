@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Domain\DataIngestion\Actions\FetchApiDataSourcePagesAction;
 use App\Models\DataIngestion\DataSource;
 use App\Services\DataIngestion\DataIngestionOrchestrator;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -23,17 +22,13 @@ class ProcessDataSourceJob implements ShouldQueue
         $this->onQueue('ingestion');
     }
 
-    public function handle(DataIngestionOrchestrator $orchestrator, FetchApiDataSourcePagesAction $fetchApiPages): void
+    public function handle(DataIngestionOrchestrator $orchestrator): void
     {
         // Le pipeline agrège jusqu'à max_rows enregistrements en mémoire (PHP array,
         // puis CSV) avant l'écriture Parquet — le memory_limit CLI par défaut (souvent
         // 256M) est insuffisant et provoque un crash silencieux du worker (fatal error
         // non catchable), sans passer par failed().
         ini_set('memory_limit', '1024M');
-
-        if ($this->dataSource->source_kind === 'api') {
-            $fetchApiPages->execute($this->dataSource);
-        }
 
         $orchestrator->process($this->dataSource);
     }

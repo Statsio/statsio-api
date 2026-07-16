@@ -3,12 +3,9 @@
 namespace App\Http\Controllers\Api\DataIngestion;
 
 use App\Domain\DataIngestion\Actions\AttachPublicDataSourceAction;
-use App\Domain\DataIngestion\Actions\CreateApiDataSourceAction;
 use App\Domain\DataIngestion\Actions\CreateLiveApiDataSourceAction;
-use App\Domain\DataIngestion\Actions\RefreshApiDataSourceAction;
 use App\Domain\DataIngestion\Actions\UpdateDataSourceAction;
 use App\Domain\DataIngestion\Actions\UploadDataSourceAction;
-use App\Domain\DataIngestion\Enums\DataSourceRefreshFrequencyEnum;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
 use App\Http\Controllers\Controller;
@@ -23,11 +20,9 @@ class DataSourceController extends Controller
 {
     public function __construct(
         private readonly UploadDataSourceAction $uploadAction,
-        private readonly CreateApiDataSourceAction $createApiAction,
         private readonly CreateLiveApiDataSourceAction $createLiveApiAction,
         private readonly AttachPublicDataSourceAction $attachAction,
         private readonly UpdateDataSourceAction $updateAction,
-        private readonly RefreshApiDataSourceAction $refreshApiAction,
     ) {}
 
     public function upload(UploadDataSourceRequest $request): JsonResponse
@@ -64,34 +59,8 @@ class DataSourceController extends Controller
 
     public function createFromApi(CreateApiDataSourceRequest $request): JsonResponse
     {
-        $isLive = $request->input('materialization', 'snapshot') === 'live';
-
         try {
-            if ($isLive) {
-                $dataSource = $this->createLiveApiAction->execute(
-                    user: $request->user(),
-                    name: $request->input('name'),
-                    url: $request->input('url'),
-                    method: $request->input('method', 'GET'),
-                    headers: $request->input('headers', []),
-                    dataPath: $request->input('data_path'),
-                    authType: $request->input('auth_type', 'none'),
-                    visibility: $request->input('visibility', 'private'),
-                    categories: $request->input('categories', []),
-                    provenanceId: $request->input('provenance_id'),
-                    provenanceOtherLabel: $request->input('provenance_other_label'),
-                    pagination: $request->input('pagination', ['style' => 'none']),
-                    queryMappingOverrides: $request->input('query_mapping'),
-                );
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Source API en direct créée.',
-                    'data' => $this->formatDataSource($dataSource, $request->user()->id),
-                ], 201);
-            }
-
-            $dataSource = $this->createApiAction->execute(
+            $dataSource = $this->createLiveApiAction->execute(
                 user: $request->user(),
                 name: $request->input('name'),
                 url: $request->input('url'),
@@ -103,15 +72,15 @@ class DataSourceController extends Controller
                 categories: $request->input('categories', []),
                 provenanceId: $request->input('provenance_id'),
                 provenanceOtherLabel: $request->input('provenance_other_label'),
-                refreshFrequency: DataSourceRefreshFrequencyEnum::from($request->input('refresh_frequency', 'none')),
                 pagination: $request->input('pagination', ['style' => 'none']),
+                queryMappingOverrides: $request->input('query_mapping'),
             );
 
             return response()->json([
                 'success' => true,
-                'message' => 'Source API créée. Le traitement est en cours.',
+                'message' => 'Source API en direct créée.',
                 'data' => $this->formatDataSource($dataSource, $request->user()->id),
-            ], 202);
+            ], 201);
         } catch (ApiSourceFetchException $e) {
             return response()->json([
                 'success' => false,
@@ -244,43 +213,6 @@ class DataSourceController extends Controller
         }
     }
 
-    /**
-     * Relance immédiatement le fetch d'une source "api" (bouton "Actualiser maintenant"),
-     * sans changer sa configuration ni sa fréquence de planification.
-     */
-    public function refresh(Request $request, DataSource $dataSource): JsonResponse
-    {
-        if (! $dataSource->isOwnedBy($request->user()->id)) {
-            return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
-        }
-
-        if ($dataSource->source_kind !== 'api') {
-            return response()->json(['success' => false, 'message' => 'Seules les sources API peuvent être actualisées.'], 422);
-        }
-
-        if ($dataSource->isLive()) {
-            return response()->json(['success' => false, 'message' => 'Une source en direct est toujours à jour, aucune actualisation n\'est nécessaire.'], 422);
-        }
-
-        try {
-            $refreshed = $this->refreshApiAction->execute($dataSource);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Actualisation lancée. Le traitement est en cours.',
-                'data' => $this->formatDataSourceWithDataset($refreshed, $request->user()->id),
-            ], 202);
-        } catch (ApiSourceFetchException $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => "Erreur lors de l'actualisation de la source.",
-                'error' => $e->getMessage(),
-            ], 500);
-        }
-    }
-
     private function formatDataSource(DataSource $dataSource, int $requestUserId): array
     {
         $data = [
@@ -323,6 +255,7 @@ class DataSourceController extends Controller
             ];
             if ($dataSource->isLive()) {
                 $data['query_mapping'] = $config['query_mapping'] ?? null;
+                $data['capabilities'] = $config['capabilities'] ?? null;
             } else {
                 $data['refresh_frequency'] = $dataSource->refresh_frequency->value;
                 $data['last_refreshed_at'] = $dataSource->last_refreshed_at?->toIso8601String();

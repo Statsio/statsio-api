@@ -126,6 +126,12 @@ class LiveQueryMappingResolver
      */
     public function resolveSearchColumnParams(array $searchCols, array $queryMapping): array
     {
+        // Check if there's a global search_param
+        if (isset($queryMapping['search_param'])) {
+            // If global search is available, use it for all columns
+            return ['*' => $queryMapping['search_param']];
+        }
+
         $mappingFilters = $queryMapping['filters'] ?? [];
         $resolved = [];
 

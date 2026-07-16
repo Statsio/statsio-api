@@ -8,7 +8,6 @@ use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
 use App\Jobs\ProcessDataSourceJob;
 use App\Jobs\ProcessParquetJob;
 use App\Models\DataIngestion\DataSource;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Storage;
@@ -19,7 +18,6 @@ class UpdateDataSourceAction
     private const API_FIELDS = ['url', 'method', 'auth_type', 'headers', 'data_path', 'pagination'];
 
     public function __construct(
-        private readonly RefreshApiDataSourceAction $refreshApiAction,
         private readonly CreateLiveApiDataSourceAction $createLiveApiAction,
     ) {}
 
@@ -47,20 +45,13 @@ class UpdateDataSourceAction
             }
         }
 
-        if (array_key_exists('refresh_frequency', $attributes) && $dataSource->source_kind === 'api' && ! $dataSource->isLive()) {
-            $dataSource->update(['refresh_frequency' => $attributes['refresh_frequency']]);
-            $dataSource->scheduleNextRefresh($dataSource->last_refreshed_at ? CarbonImmutable::instance($dataSource->last_refreshed_at) : null);
-        }
-
         if ($dataSource->source_kind === 'upload' && $file) {
             $this->replaceFile($dataSource, $file);
-        } elseif ($dataSource->source_kind === 'api' && $dataSource->isLive()
+        } elseif ($dataSource->source_kind === 'api'
             && (! empty(Arr::only($attributes, self::API_FIELDS)) || array_key_exists('query_mapping', $attributes))) {
-            // Source "live" : re-sonde et redétecte le mapping de filtres, synchrone —
-            // pas de RefreshApiDataSourceAction/ProcessDataSourceJob (pas de fetch complet à relancer).
+            // Toute source API est "live" : re-sonde et redétecte le mapping de filtres et
+            // les capacités, synchrone — pas de job d'ingestion à relancer.
             $this->createLiveApiAction->reconfigure($dataSource, Arr::only($attributes, self::API_FIELDS), $attributes['query_mapping'] ?? null);
-        } elseif ($dataSource->source_kind === 'api' && ! empty(Arr::only($attributes, self::API_FIELDS))) {
-            $this->refreshApiAction->execute($dataSource, Arr::only($attributes, self::API_FIELDS));
         }
 
         return $dataSource->fresh();

@@ -10,4 +10,6 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:api')->prefix('source-api')->name('source-api.')->group(function () {
     Route::post('/probe-connection', [StatsDataSourceController::class, 'probeConnection'])
         ->name('probe-connection');
+    Route::post('/detect-structure', [StatsDataSourceController::class, 'detectStructure'])
+        ->name('detect-structure');
 });
