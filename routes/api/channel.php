@@ -19,11 +19,17 @@ Route::prefix('channels')->name('channels.')->group(function () {
         Route::delete('{id}', [ChannelController::class, 'destroy'])->name('destroy');
         Route::get('{id}/members', [ChannelController::class, 'members'])->name('members');
         Route::get('{id}/subscribers', [ChannelController::class, 'subscribers'])->name('subscribers');
+        Route::get('{id}/stats', [ChannelController::class, 'stats'])->name('stats');
         Route::post('{id}/suspend', [ChannelController::class, 'suspend'])->name('suspend');
         Route::post('{id}/ban', [ChannelController::class, 'ban'])->name('ban');
         Route::post('{id}/activate', [ChannelController::class, 'activate'])->name('activate');
         Route::post('{id}/anonymize', [ChannelController::class, 'anonymize'])->name('anonymize');
     });
+
+    // Enregistrement d'une vue publique (public, throttlé)
+    Route::post('{id}/view', [ChannelController::class, 'recordView'])
+        ->name('record-view')
+        ->middleware('throttle:30,1');
 
     // Route paramétrique en dernier
     Route::get('{id}', [ChannelController::class, 'show'])->name('show');

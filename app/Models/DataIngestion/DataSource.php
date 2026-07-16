@@ -2,9 +2,12 @@
 
 namespace App\Models\DataIngestion;
 
+use App\Domain\DataIngestion\Enums\DataSourceMaterializationEnum;
+use App\Domain\DataIngestion\Enums\DataSourceRefreshFrequencyEnum;
 use App\Domain\DataIngestion\Enums\DataSourceStatusEnum;
 use App\Domain\DataIngestion\Enums\DataSourceTypeEnum;
 use App\Models\User\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -19,12 +22,18 @@ class DataSource extends Model
         'name',
         'type',
         'source_kind',
+        'materialization',
         'api_config',
+        'refresh_frequency',
+        'last_refreshed_at',
+        'next_refresh_at',
         'original_filename',
         'raw_storage_path',
         'file_size_bytes',
         'status',
         'error_message',
+        'is_partial',
+        'partial_reason',
         'processed_at',
         'visibility',
         'categories',
@@ -37,10 +46,30 @@ class DataSource extends Model
         return [
             'type' => DataSourceTypeEnum::class,
             'status' => DataSourceStatusEnum::class,
+            'materialization' => DataSourceMaterializationEnum::class,
+            'refresh_frequency' => DataSourceRefreshFrequencyEnum::class,
+            'last_refreshed_at' => 'datetime',
+            'next_refresh_at' => 'datetime',
             'processed_at' => 'datetime',
             'api_config' => 'array',
             'categories' => 'array',
+            'is_partial' => 'boolean',
         ];
+    }
+
+    /**
+     * Recalcule `next_refresh_at` à partir de `refresh_frequency`, à appeler
+     * après chaque fetch (manuel ou planifié) ou changement de fréquence.
+     */
+    public function scheduleNextRefresh(?CarbonImmutable $from = null): void
+    {
+        $from ??= CarbonImmutable::now();
+        $next = $this->refresh_frequency->nextOccurrenceFrom($from);
+
+        $this->update([
+            'last_refreshed_at' => $from,
+            'next_refresh_at' => $next,
+        ]);
     }
 
     public function user(): BelongsTo
@@ -70,6 +99,11 @@ class DataSource extends Model
     public function isOwnedBy(int $userId): bool
     {
         return $this->user_id === $userId;
+    }
+
+    public function isLive(): bool
+    {
+        return $this->materialization === DataSourceMaterializationEnum::LIVE;
     }
 
     public function isAccessibleBy(int $userId): bool

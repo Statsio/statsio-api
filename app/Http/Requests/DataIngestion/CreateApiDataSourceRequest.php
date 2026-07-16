@@ -13,7 +13,7 @@ class CreateApiDataSourceRequest extends FormRequest
 
     public function rules(): array
     {
-        return [
+        return array_merge([
             'name' => ['required', 'string', 'max:255'],
             'url' => ['required', 'url'],
             'method' => ['sometimes', 'string', 'in:GET,POST'],
@@ -25,6 +25,56 @@ class CreateApiDataSourceRequest extends FormRequest
             'categories.*' => ['string', 'max:50'],
             'provenance_id' => ['sometimes', 'nullable', 'integer', 'exists:source_provenances,id'],
             'provenance_other_label' => ['sometimes', 'nullable', 'string', 'max:255'],
+
+            // Toute source API est désormais "live" : requêtage direct sans matérialisation
+            // Parquet. query_mapping est optionnel — auto-détecté par sondage si absent (voir
+            // FilterCapabilityProbe) ; s'il est fourni, il corrige/complète la détection.
+        ], $this->paginationRules(), $this->queryMappingRules());
+    }
+
+    /**
+     * Règles de validation pour un `query_mapping` fourni manuellement (correction
+     * de la détection automatique) — partagées avec UpdateDataSourceRequest.
+     */
+    public static function queryMappingRules(): array
+    {
+        return [
+            'query_mapping' => ['sometimes', 'nullable', 'array'],
+            'query_mapping.count_path' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'query_mapping.max_page_size' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'query_mapping.filters' => ['sometimes', 'nullable', 'array'],
+            'query_mapping.filters.*.param' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'query_mapping.filters.*.operators' => ['sometimes', 'array'],
+            'query_mapping.filters.*.operators.*' => ['in:eq,in,gte,lte'],
+            'query_mapping.filters.*.range.gte_param' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'query_mapping.filters.*.range.lte_param' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'query_mapping.sortable_columns' => ['sometimes', 'array'],
+            'query_mapping.sortable_columns.*' => ['string', 'max:255'],
+        ];
+    }
+
+    /**
+     * Règles de validation pour la pagination d'une source API, partagées avec
+     * UpdateDataSourceRequest — bornées par la config `data_ingestion.pagination`.
+     */
+    public static function paginationRules(): array
+    {
+        $maxPagesHardCap = (int) config('statsio.data_ingestion.pagination.max_pages_hard_cap', 500);
+
+        return [
+            'pagination' => ['sometimes', 'nullable', 'array'],
+            'pagination.style' => ['required_with:pagination', 'in:none,offset,page,cursor,next_link'],
+            'pagination.param_name' => ['required_if:pagination.style,offset,page', 'nullable', 'string', 'max:100'],
+            'pagination.param_start' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'pagination.size_param' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'pagination.page_size' => ['required_if:pagination.style,offset,page,cursor', 'nullable', 'integer', 'min:1', 'max:1000'],
+            'pagination.total_path' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'pagination.total_mode' => ['sometimes', 'nullable', 'in:items,pages'],
+            'pagination.cursor_param' => ['required_if:pagination.style,cursor', 'nullable', 'string', 'max:100'],
+            'pagination.cursor_path' => ['required_if:pagination.style,cursor', 'nullable', 'string', 'max:255'],
+            'pagination.next_link_source' => ['required_if:pagination.style,next_link', 'nullable', 'in:body,header'],
+            'pagination.next_link_path' => ['required_if:pagination.next_link_source,body', 'nullable', 'string', 'max:255'],
+            'pagination.max_pages' => ['sometimes', 'nullable', 'integer', 'min:1', "max:{$maxPagesHardCap}"],
         ];
     }
 

@@ -39,7 +39,13 @@ class ChannelProfile extends Model
 
     public function getSubscriberCountAttribute(): int
     {
-        return $this->channel?->subscribers()->count() ?? 0;
+        $channel = $this->relationLoaded('channel') ? $this->getRelation('channel') : $this->channel;
+
+        if ($channel && array_key_exists('subscribers_count', $channel->getAttributes())) {
+            return (int) $channel->subscribers_count;
+        }
+
+        return $channel?->subscribers()->count() ?? 0;
     }
 
     public function getCategoriesAttribute(): array

@@ -23,7 +23,7 @@ class SchemaInferenceService
     private const BOOLEAN_VALUES = ['true', 'false', 'yes', 'no', 'oui', 'non', '1', '0'];
 
     /**
-     * @return array<string, array{type: ColumnTypeEnum, nullable: bool, sample_values: array}>
+     * @return array<string, array{type: ColumnTypeEnum, nullable: bool, sample_values: array, distinct_count: int, sampled_count: int}>
      */
     public function infer(ParsedFileDTO $parsed): array
     {
@@ -39,6 +39,11 @@ class SchemaInferenceService
                 'type' => $this->inferType(array_values($nonNullValues)),
                 'nullable' => $nullable,
                 'sample_values' => $this->collectSamples($nonNullValues),
+                // Non plafonné (contrairement à sample_values) — utilisé par
+                // ColumnSemanticClassifier pour distinguer identifiant/dimension/texte
+                // à partir de la cardinalité réelle observée sur l'échantillon.
+                'distinct_count' => count(array_unique($nonNullValues)),
+                'sampled_count' => count($nonNullValues),
             ];
         }
 

@@ -7,6 +7,7 @@ use Database\Factories\ChannelFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Models\User\User;
 
@@ -50,6 +51,14 @@ class Channel extends Model
                 'description' => null,
             ], $data)
         );
+    }
+
+    /**
+     * Get the daily view-count rollups for this channel
+     */
+    public function dailyViews(): HasMany
+    {
+        return $this->hasMany(ChannelDailyView::class);
     }
 
     /**

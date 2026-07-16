@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api\DataIngestion;
 
 use App\Domain\DataIngestion\Actions\AttachPublicDataSourceAction;
-use App\Domain\DataIngestion\Actions\CreateApiDataSourceAction;
+use App\Domain\DataIngestion\Actions\CreateLiveApiDataSourceAction;
+use App\Domain\DataIngestion\Actions\UpdateDataSourceAction;
 use App\Domain\DataIngestion\Actions\UploadDataSourceAction;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DataIngestion\CreateApiDataSourceRequest;
+use App\Http\Requests\DataIngestion\UpdateDataSourceRequest;
 use App\Http\Requests\DataIngestion\UploadDataSourceRequest;
 use App\Models\DataIngestion\DataSource;
 use Illuminate\Http\JsonResponse;
@@ -18,8 +20,9 @@ class DataSourceController extends Controller
 {
     public function __construct(
         private readonly UploadDataSourceAction $uploadAction,
-        private readonly CreateApiDataSourceAction $createApiAction,
+        private readonly CreateLiveApiDataSourceAction $createLiveApiAction,
         private readonly AttachPublicDataSourceAction $attachAction,
+        private readonly UpdateDataSourceAction $updateAction,
     ) {}
 
     public function upload(UploadDataSourceRequest $request): JsonResponse
@@ -57,7 +60,7 @@ class DataSourceController extends Controller
     public function createFromApi(CreateApiDataSourceRequest $request): JsonResponse
     {
         try {
-            $dataSource = $this->createApiAction->execute(
+            $dataSource = $this->createLiveApiAction->execute(
                 user: $request->user(),
                 name: $request->input('name'),
                 url: $request->input('url'),
@@ -69,13 +72,15 @@ class DataSourceController extends Controller
                 categories: $request->input('categories', []),
                 provenanceId: $request->input('provenance_id'),
                 provenanceOtherLabel: $request->input('provenance_other_label'),
+                pagination: $request->input('pagination', ['style' => 'none']),
+                queryMappingOverrides: $request->input('query_mapping'),
             );
 
             return response()->json([
                 'success' => true,
-                'message' => 'Source API créée. Le traitement est en cours.',
+                'message' => 'Source API en direct créée.',
                 'data' => $this->formatDataSource($dataSource, $request->user()->id),
-            ], 202);
+            ], 201);
         } catch (ApiSourceFetchException $e) {
             return response()->json([
                 'success' => false,
@@ -172,9 +177,45 @@ class DataSourceController extends Controller
         ]);
     }
 
+    /**
+     * Rattache la source ou en met à jour les métadonnées / la configuration
+     * (fichier remplacé pour une source "upload", URL et connexion reconfigurées
+     * pour une source "api") — voir UpdateDataSourceAction pour la logique de
+     * relance du pipeline d'ingestion.
+     */
+    public function update(UpdateDataSourceRequest $request, DataSource $dataSource): JsonResponse
+    {
+        if (! $dataSource->isOwnedBy($request->user()->id)) {
+            return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
+        }
+
+        try {
+            $updated = $this->updateAction->execute(
+                $dataSource,
+                $request->validated(),
+                $request->file('file'),
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => $this->formatDataSourceWithDataset($updated, $request->user()->id),
+            ]);
+        } catch (ApiSourceFetchException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (UnsupportedFileTypeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la mise à jour de la source.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     private function formatDataSource(DataSource $dataSource, int $requestUserId): array
     {
-        return [
+        $data = [
             'id' => $dataSource->id,
             'name' => $dataSource->name,
             'type' => $dataSource->type->value,
@@ -183,6 +224,8 @@ class DataSourceController extends Controller
             'file_size_bytes' => $dataSource->file_size_bytes,
             'status' => $dataSource->status->value,
             'error_message' => $dataSource->error_message,
+            'is_partial' => $dataSource->is_partial,
+            'partial_reason' => $dataSource->partial_reason,
             'processed_at' => $dataSource->processed_at?->toIso8601String(),
             'created_at' => $dataSource->created_at->toIso8601String(),
             'visibility' => $dataSource->visibility,
@@ -195,6 +238,32 @@ class DataSourceController extends Controller
             'provenance_other_label' => $dataSource->provenance_other_label,
             'is_owner' => $dataSource->isOwnedBy($requestUserId),
         ];
+
+        // La config API (URL, headers, éventuels secrets d'authentification)
+        // n'est renvoyée qu'au propriétaire — un utilisateur qui a seulement
+        // rattaché la source publique ne doit pas voir ces informations.
+        if ($dataSource->source_kind === 'api' && $dataSource->isOwnedBy($requestUserId)) {
+            $config = $dataSource->api_config ?? [];
+            $data['materialization'] = $dataSource->materialization->value;
+            $data['api_config'] = [
+                'url' => $config['url'] ?? null,
+                'method' => $config['method'] ?? 'GET',
+                'auth_type' => $config['auth_type'] ?? 'none',
+                'headers' => $config['headers'] ?? [],
+                'data_path' => $config['data_path'] ?? null,
+                'pagination' => $config['pagination'] ?? ['style' => 'none'],
+            ];
+            if ($dataSource->isLive()) {
+                $data['query_mapping'] = $config['query_mapping'] ?? null;
+                $data['capabilities'] = $config['capabilities'] ?? null;
+            } else {
+                $data['refresh_frequency'] = $dataSource->refresh_frequency->value;
+                $data['last_refreshed_at'] = $dataSource->last_refreshed_at?->toIso8601String();
+                $data['next_refresh_at'] = $dataSource->next_refresh_at?->toIso8601String();
+            }
+        }
+
+        return $data;
     }
 
     private function formatDataSourceWithDataset(DataSource $dataSource, int $requestUserId): array
@@ -207,6 +276,7 @@ class DataSourceController extends Controller
                 'name' => $dataSource->dataset->name,
                 'row_count' => $dataSource->dataset->row_count,
                 'status' => $dataSource->dataset->status->value,
+                'progress' => $dataSource->dataset->progress,
                 'columns' => $dataSource->dataset->columns->map(fn ($col) => [
                     'name' => $col->name,
                     'type' => $col->type->value,
