@@ -125,17 +125,18 @@ jobs:
             MAIL_PASSWORD=${MAIL_PASSWORD}
             MAIL_FROM_ADDRESS=noreply@statsio.fr
             MAIL_FROM_NAME=Statsio
-
-            MEDICAMENTS_API_BASE_URL=${MEDICAMENTS_API_BASE_URL}
-            WHO_GHO_API_BASE_URL=${WHO_GHO_API_BASE_URL}
-            ICD11_API_BASE_URL=${ICD11_API_BASE_URL}
-            ICD11_TOKEN_URL=${ICD11_TOKEN_URL}
-            ICD11_CLIENT_ID=${ICD11_CLIENT_ID}
-            ICD11_CLIENT_SECRET=${ICD11_CLIENT_SECRET}
-            ICD11_RELEASE_ID=${ICD11_RELEASE_ID}
-            UMLS_API_BASE_URL=${UMLS_API_BASE_URL}
-            UMLS_API_KEY=${UMLS_API_KEY}
             ENVEOF
+
+            # Services externes — écrits seulement si définis (sinon fallback sur config/*.php)
+            [ -n "${MEDICAMENTS_API_BASE_URL}" ] && echo "MEDICAMENTS_API_BASE_URL=${MEDICAMENTS_API_BASE_URL}" >> .env.prod
+            [ -n "${WHO_GHO_API_BASE_URL}" ] && echo "WHO_GHO_API_BASE_URL=${WHO_GHO_API_BASE_URL}" >> .env.prod
+            [ -n "${ICD11_API_BASE_URL}" ] && echo "ICD11_API_BASE_URL=${ICD11_API_BASE_URL}" >> .env.prod
+            [ -n "${ICD11_TOKEN_URL}" ] && echo "ICD11_TOKEN_URL=${ICD11_TOKEN_URL}" >> .env.prod
+            [ -n "${ICD11_CLIENT_ID}" ] && echo "ICD11_CLIENT_ID=${ICD11_CLIENT_ID}" >> .env.prod
+            [ -n "${ICD11_CLIENT_SECRET}" ] && echo "ICD11_CLIENT_SECRET=${ICD11_CLIENT_SECRET}" >> .env.prod
+            [ -n "${ICD11_RELEASE_ID}" ] && echo "ICD11_RELEASE_ID=${ICD11_RELEASE_ID}" >> .env.prod
+            [ -n "${UMLS_API_BASE_URL}" ] && echo "UMLS_API_BASE_URL=${UMLS_API_BASE_URL}" >> .env.prod
+            [ -n "${UMLS_API_KEY}" ] && echo "UMLS_API_KEY=${UMLS_API_KEY}" >> .env.prod
 
             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
 
