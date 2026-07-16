@@ -53,7 +53,9 @@ class StudioContentController extends Controller
     {
         $data = $request->validate([
             'title' => 'required|string|max:255',
-            'type' => 'required|string|in:statsdata,article,survey',
+            'type' => 'nullable|string|in:statsdata,article,survey',
+            'description' => 'nullable|string|max:2000',
+            'status' => 'nullable|string|in:draft,published',
             'sections' => 'nullable|array',
             'blocks' => 'nullable|array',
             'categories' => 'nullable|array',
@@ -69,7 +71,9 @@ class StudioContentController extends Controller
         $content = StudioContent::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
-            'type' => $data['type'],
+            'type' => $data['type'] ?? 'statsdata',
+            'description' => $data['description'] ?? null,
+            'status' => $data['status'] ?? 'draft',
             'slug' => $this->generateUniqueSlug($data['title']),
             'sections' => $data['sections'] ?? [],
             'blocks' => $data['blocks'] ?? [],
