@@ -36,6 +36,8 @@ RUN { \
 COPY docker/php/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+USER www-data
+
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["php-fpm"]
 

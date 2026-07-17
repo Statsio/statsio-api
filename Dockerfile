@@ -54,4 +54,6 @@ RUN mkdir -p storage/framework/{sessions,views,cache} \
 
 EXPOSE 8080
 
+USER www-data
+
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8080"]
