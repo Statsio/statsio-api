@@ -105,12 +105,19 @@ class StudioContentController extends Controller
     public function indexPublic(Request $request): JsonResponse
     {
         $type = $request->query('type');
-        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '');
+        $categories = $this->sanitizePublicCategories($request->query('categories'));
 
-        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type) {
+        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($categories ? '.'.implode(',', $categories) : '');
+
+        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $categories) {
             $contents = StudioContent::with(['user.profile', 'channel.profile'])
                 ->where('status', 'published')
                 ->when($type, fn ($q) => $q->where('type', $type))
+                ->when($categories, fn ($q) => $q->where(function ($sub) use ($categories) {
+                    foreach ($categories as $category) {
+                        $sub->orWhereJsonContains('categories', $category);
+                    }
+                }))
                 ->orderBy('updated_at', 'desc')
                 ->get();
 
@@ -118,6 +125,27 @@ class StudioContentController extends Controller
         });
 
         return response()->json(['success' => true, 'data' => $data]);
+    }
+
+    /**
+     * Public, unauthenticated filter input — cap size and restrict charset so it can't be used
+     * to spray the cache with arbitrary keys.
+     */
+    private function sanitizePublicCategories(mixed $raw): array
+    {
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $categories = collect($raw)
+            ->filter(fn ($c) => is_string($c) && preg_match('/^[a-z0-9_-]{1,50}$/', $c))
+            ->unique()
+            ->sort()
+            ->values()
+            ->take(5)
+            ->all();
+
+        return $categories;
     }
 
     public function showPublic(Request $request, string $slug): JsonResponse
