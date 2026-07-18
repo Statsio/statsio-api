@@ -110,9 +110,6 @@ class ChannelProfileAction
     {
         $statsData = [];
 
-        if (isset($stats['subscriber_count'])) {
-            $statsData['subscriber_count'] = $stats['subscriber_count'];
-        }
         if (isset($stats['view_count'])) {
             $statsData['view_count'] = $stats['view_count'];
         }
@@ -137,22 +134,6 @@ class ChannelProfileAction
     public function incrementViews(ChannelProfile $profile): ChannelProfile
     {
         $profile->increment('view_count');
-
-        return $profile->fresh(['channel']);
-    }
-
-    public function incrementSubscribers(ChannelProfile $profile): ChannelProfile
-    {
-        $profile->increment('subscriber_count');
-
-        return $profile->fresh(['channel']);
-    }
-
-    public function decrementSubscribers(ChannelProfile $profile): ChannelProfile
-    {
-        if ($profile->subscriber_count > 0) {
-            $profile->decrement('subscriber_count');
-        }
 
         return $profile->fresh(['channel']);
     }

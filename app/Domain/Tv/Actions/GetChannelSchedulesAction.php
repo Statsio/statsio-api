@@ -56,7 +56,7 @@ class GetChannelSchedulesAction
 
         $now = new DateTimeImmutable('now', $tz);
 
-        $broadcasts = TvBroadcast::with(['program', 'audience'])
+        $broadcasts = TvBroadcast::with(['program.categories', 'audience'])
             ->whereBetween('start_at', [$dayStart, $dayEnd])
             ->orderBy('start_at')
             ->get();
@@ -98,7 +98,9 @@ class GetChannelSchedulesAction
                 'endTime'         => $endParis->format('H:i'),
                 'startMinutes'    => $startMinutes,
                 'durationMinutes' => $durationMins,
-                'genres'          => $broadcast->program->type ? [$broadcast->program->type] : [],
+                'genres'          => $broadcast->program->type
+                    ? [$broadcast->program->type]
+                    : $broadcast->program->categories->pluck('name')->all(),
                 'summary'         => $broadcast->program->description,
                 'isLive'          => $isLive,
                 'mention'         => $broadcast->broadcast_type,

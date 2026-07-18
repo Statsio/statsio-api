@@ -35,7 +35,7 @@ class AdminBroadcastController extends Controller
         }
 
         if ($request->filled('search')) {
-            $query->whereHas('program', fn($q) => $q->whereRaw('title ilike ?', ['%' . $request->search . '%']));
+            $query->whereHas('program', fn($q) => $q->whereRaw('LOWER(title) LIKE ?', ['%' . mb_strtolower($request->search) . '%']));
         }
 
         return response()->json($query->paginate(25));

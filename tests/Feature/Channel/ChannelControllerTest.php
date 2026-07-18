@@ -34,6 +34,18 @@ class ChannelControllerTest extends TestCase
                  ->assertJsonStructure(['data']);
     }
 
+    public function test_can_list_channels_filtered_by_search(): void
+    {
+        Channel::factory()->has(\Database\Factories\ChannelProfileFactory::new()->state(['name' => 'Zorglub Channel']), 'profile')->create();
+        Channel::factory()->has(\Database\Factories\ChannelProfileFactory::new()->state(['name' => 'Autre Chaine']), 'profile')->create();
+
+        $response = $this->getJson('/api/channels?search=ZORGLUB');
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+        $names = collect($response->json('data.data'))->pluck('profile.name')->all();
+        $this->assertSame(['Zorglub Channel'], $names);
+    }
+
     public function test_can_list_channel_categories(): void
     {
         $response = $this->getJson('/api/channels/categories');
@@ -127,5 +139,103 @@ class ChannelControllerTest extends TestCase
         $response = $this->getJson('/api/channels/check-handle/my-unique-handle');
 
         $response->assertStatus(200);
+    }
+
+    public function test_can_update_channel_profile_fields(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+
+        $response = $this->withToken($this->token)->putJson("/api/channels/{$channel->id}", [
+            'name' => 'Nom mis à jour',
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.name', 'Nom mis à jour');
+    }
+
+    public function test_update_returns_404_when_channel_has_no_profile(): void
+    {
+        $channel = Channel::factory()->create();
+
+        $this->withToken($this->token)->putJson("/api/channels/{$channel->id}", [
+            'name' => 'Peu importe',
+        ])->assertStatus(404);
+    }
+
+    public function test_can_update_media(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake(config('statsio.media.disk'));
+        $channel = Channel::factory()->withProfile()->create();
+
+        $response = $this->withToken($this->token)->post("/api/channels/{$channel->id}/media", [
+            'logo' => \Illuminate\Http\UploadedFile::fake()->create('logo.png', 10, 'image/png'),
+        ]);
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+    }
+
+    public function test_can_list_subscribers(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+        $channel->users()->attach($this->user->id, ['role' => 'subscriber', 'subscribed_at' => now()]);
+
+        $response = $this->withToken($this->token)->getJson("/api/channels/{$channel->id}/subscribers");
+
+        $response->assertStatus(200)->assertJsonPath('success', true);
+        $this->assertCount(1, $response->json('data.data'));
+    }
+
+    public function test_stats_returns_views_subscribers_and_team_size(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+        $channel->users()->attach($this->user->id, ['role' => 'owner', 'subscribed_at' => now()]);
+
+        $response = $this->withToken($this->token)->getJson("/api/channels/{$channel->id}/stats");
+
+        $response->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.team_member_count', 1)
+            ->assertJsonPath('data.subscribers.total', 1)
+            ->assertJsonStructure(['data' => ['views', 'subscribers', 'team_member_count', 'lifetime_views']]);
+    }
+
+    public function test_record_view_increments_lifetime_and_daily_counts(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+
+        $this->postJson("/api/channels/{$channel->id}/view")
+            ->assertStatus(200)
+            ->assertJsonPath('success', true);
+
+        $this->assertSame(1, $channel->profile->fresh()->view_count);
+        $this->assertDatabaseHas('channel_daily_views', [
+            'channel_id' => $channel->id,
+            'views_count' => 1,
+        ]);
+    }
+
+    public function test_record_view_returns_404_for_unknown_channel(): void
+    {
+        $this->postJson('/api/channels/99999/view')->assertStatus(404);
+    }
+
+    public function test_owner_can_suspend_ban_activate_and_anonymize_channel(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+
+        $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/suspend")
+            ->assertStatus(200)->assertJsonPath('data.status', 'suspended');
+        $this->assertNotNull($channel->fresh()->suspended_until);
+
+        $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/ban")
+            ->assertStatus(200)->assertJsonPath('data.status', 'banned');
+
+        $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/activate")
+            ->assertStatus(200)->assertJsonPath('data.status', 'active');
+
+        $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/anonymize")
+            ->assertStatus(200)->assertJsonPath('data.status', 'anonymized');
+        $this->assertNotNull($channel->fresh()->anonymized_at);
     }
 }
