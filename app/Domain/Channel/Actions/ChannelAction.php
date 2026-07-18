@@ -83,11 +83,14 @@ class ChannelAction
 
         $search = trim((string) ($filters['search'] ?? ''));
         if ($search !== '') {
-            $like = '%' . $search . '%';
+            // LOWER(...) LIKE plutôt que ILIKE (spécifique Postgres) : fonctionne aussi sur
+            // le SQLite en mémoire utilisé par les tests (voir phpunit.xml), tout en restant
+            // insensible à la casse sur Postgres en production.
+            $like = '%' . mb_strtolower($search) . '%';
             $query->whereHas('profile', function ($q) use ($like) {
-                $q->whereRaw('name ilike ?', [$like])
-                    ->orWhereRaw('handle ilike ?', [$like])
-                    ->orWhereRaw('description ilike ?', [$like]);
+                $q->whereRaw('LOWER(name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(handle) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(description) LIKE ?', [$like]);
             });
         }
 

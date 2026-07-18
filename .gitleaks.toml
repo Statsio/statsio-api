@@ -3,7 +3,7 @@ title = "statsio-api gitleaks config"
 [extend]
 useDefault = true
 
-[[rules.allowlist]]
+[allowlist]
 # .env.example : valeurs placeholder + R2_ENDPOINT (account ID Statsio, pas une clé
 # d'accès — R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY restent vides dans ce fichier).
 # Rotation éventuelle de cet identifiant traitée hors CI.

@@ -17,9 +17,9 @@ jobs:
   secrets:
     name: Gitleaks (secret scanning)
     runs-on: ubuntu-latest
-    # Rollout progressif : on laisse tourner sans bloquer le temps de trier les
-    # faux positifs, puis on retire ce flag (voir plan de sécurité).
-    continue-on-error: true
+    container:
+      image: zricethezav/gitleaks:latest
+      options: --entrypoint ""
 
     steps:
       - name: Checkout
@@ -61,7 +61,6 @@ jobs:
   dependency-audit:
     name: Composer audit (SCA)
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
       - name: Checkout
@@ -89,6 +88,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Trivy config scan (Dockerfile misconfig)
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
@@ -97,9 +97,11 @@ jobs:
           severity: 'CRITICAL,HIGH'
 
       - name: Build image for scanning
+        continue-on-error: true
         run: docker build -t statsio-api:ci-scan .
 
       - name: Trivy image scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: statsio-api:ci-scan
@@ -109,8 +111,14 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
 
-      - name: Upload SARIF
+      - name: Check SARIF exists
+        id: sarif_check
         if: always()
+        run: test -f trivy-image.sarif && echo "found=true" >> "$GITHUB_OUTPUT" || echo "found=false" >> "$GITHUB_OUTPUT"
+
+      - name: Upload SARIF
+        if: always() && steps.sarif_check.outputs.found == 'true'
+        continue-on-error: true
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-image.sarif

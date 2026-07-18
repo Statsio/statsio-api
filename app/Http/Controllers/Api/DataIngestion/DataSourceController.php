@@ -138,7 +138,7 @@ class DataSourceController extends Controller
         $query = DataSource::where('visibility', 'public')->with('provenance');
 
         if ($q = $request->query('q')) {
-            $query->where('name', 'ilike', "%{$q}%");
+            $query->whereRaw('LOWER(name) LIKE ?', ['%' . mb_strtolower($q) . '%']);
         }
 
         if ($category = $request->query('category')) {

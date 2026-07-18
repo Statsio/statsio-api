@@ -22,3 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Local manual security-scan output (not CI artifacts)
+semgrep-*.txt

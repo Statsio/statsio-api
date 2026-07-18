@@ -1,7 +1,7 @@
 FROM php:8.3-cli
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install --no-install-recommends -y \
     git \
     curl \
     libpq-dev \
