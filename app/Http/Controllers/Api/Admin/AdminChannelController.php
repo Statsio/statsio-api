@@ -17,10 +17,10 @@ class AdminChannelController extends Controller
         $query = TvChannel::query()->orderBy('number');
 
         if ($request->filled('search')) {
-            $search = '%' . $request->search . '%';
+            $search = '%' . mb_strtolower($request->search) . '%';
             $query->where(function ($q) use ($search) {
-                $q->whereRaw('display_name ilike ?', [$search])
-                  ->orWhereRaw('slug ilike ?', [$search]);
+                $q->whereRaw('LOWER(display_name) LIKE ?', [$search])
+                  ->orWhereRaw('LOWER(slug) LIKE ?', [$search]);
             });
         }
 

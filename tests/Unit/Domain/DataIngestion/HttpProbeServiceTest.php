@@ -32,4 +32,90 @@ class HttpProbeServiceTest extends TestCase
 
         Http::assertSent(fn ($request) => $request->url() === 'https://example.com/items?page=2&limit=10');
     }
+
+    public function test_fetch_returns_decoded_json_body(): void
+    {
+        Http::fake(['example.com/*' => Http::response(['ok' => true, 'items' => [1, 2, 3]])]);
+
+        $result = (new HttpProbeService())->fetch('https://example.com/items', 'GET');
+
+        $this->assertSame(['ok' => true, 'items' => [1, 2, 3]], $result);
+    }
+
+    public function test_fetch_throws_when_response_failed(): void
+    {
+        Http::fake(['example.com/*' => Http::response([], 500)]);
+
+        $this->expectException(\RuntimeException::class);
+
+        (new HttpProbeService())->fetch('https://example.com/items', 'GET');
+    }
+
+    public function test_fetch_throws_when_body_is_not_json_array(): void
+    {
+        Http::fake(['example.com/*' => Http::response('not json', 200, ['Content-Type' => 'text/plain'])]);
+
+        $this->expectException(\RuntimeException::class);
+
+        (new HttpProbeService())->fetch('https://example.com/items', 'GET');
+    }
+
+    public function test_probe_throws_when_response_failed(): void
+    {
+        Http::fake(['example.com/*' => Http::response([], 503)]);
+
+        $this->expectException(\RuntimeException::class);
+
+        (new HttpProbeService())->probe('https://example.com/items', 'GET');
+    }
+
+    public function test_probe_does_not_throw_on_success(): void
+    {
+        Http::fake(['example.com/*' => Http::response(['ok' => true])]);
+
+        (new HttpProbeService())->probe('https://example.com/items', 'GET');
+
+        Http::assertSentCount(1);
+    }
+
+    public function test_fetch_pages_runs_one_request_per_key_in_parallel(): void
+    {
+        Http::fake(function ($request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return Http::response(['data' => [$query['q'] ?? null]]);
+        });
+
+        $results = (new HttpProbeService())->fetchPages(
+            'https://example.com/items',
+            'GET',
+            [],
+            ['first' => ['q' => 'alpha'], 'second' => ['q' => 'beta']],
+            15,
+        );
+
+        $this->assertSame(['alpha'], $results['first']['body']['data']);
+        $this->assertSame(['beta'], $results['second']['body']['data']);
+    }
+
+    public function test_fetch_pages_treats_404_as_an_empty_page(): void
+    {
+        Http::fake(['example.com/*' => Http::response([], 404)]);
+
+        $results = (new HttpProbeService())->fetchPages(
+            'https://example.com/items', 'GET', [], ['only' => []], 15,
+        );
+
+        $this->assertSame([], $results['only']['body']);
+        $this->assertSame(404, $results['only']['status']);
+    }
+
+    public function test_fetch_pages_throws_on_server_error(): void
+    {
+        Http::fake(['example.com/*' => Http::response([], 500)]);
+
+        $this->expectException(\RuntimeException::class);
+
+        (new HttpProbeService())->fetchPages('https://example.com/items', 'GET', [], ['only' => []], 15);
+    }
 }

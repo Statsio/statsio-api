@@ -1,7 +1,7 @@
 FROM php:8.3-fpm
 
 # Dépendances
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install --no-install-recommends -y \
     libonig-dev libzip-dev libpq-dev \
     libpng-dev libjpeg-dev libfreetype6-dev \
     postgresql-client \
@@ -35,6 +35,8 @@ RUN { \
 # Entrypoint
 COPY docker/php/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER www-data
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["php-fpm"]

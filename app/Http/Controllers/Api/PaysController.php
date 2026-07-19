@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Maladies\Icd11ApiClient;
 use App\Services\Maladies\TrackedDiseases;
 use App\Services\Pays\CountryReference;
+use App\Services\Soins\CountrySoinsService;
 use App\Services\Who\WhoGhoApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -122,7 +123,7 @@ class PaysController extends Controller
         ];
     }
 
-    public function show(string $iso3, WhoGhoApiClient $who, Icd11ApiClient $icd11): JsonResponse
+    public function show(string $iso3, WhoGhoApiClient $who, Icd11ApiClient $icd11, CountrySoinsService $soins): JsonResponse
     {
         $country = CountryReference::find($iso3);
 
@@ -176,11 +177,13 @@ class PaysController extends Controller
 
         return response()->json([
             'iso3' => $country['iso3'],
+            'iso2' => $country['iso2'],
             'name' => $country['name'],
             'region' => $country['region'],
             'tiles' => $tiles,
             'lifeExpectancyTrend' => $lifeExpTrend,
             'topDiseases' => $topDiseases,
+            'soins' => $soins->buildCountryData($iso3),
         ]);
     }
 }

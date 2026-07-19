@@ -14,11 +14,12 @@ class AdminUserController extends Controller
         $query = User::with('profile')->withTrashed();
 
         if ($search = $request->input('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('email', 'ilike', "%{$search}%")
-                  ->orWhereHas('profile', function ($pq) use ($search) {
-                      $pq->where('first_name', 'ilike', "%{$search}%")
-                         ->orWhere('last_name', 'ilike', "%{$search}%");
+            $like = '%' . mb_strtolower($search) . '%';
+            $query->where(function ($q) use ($like) {
+                $q->whereRaw('LOWER(email) LIKE ?', [$like])
+                  ->orWhereHas('profile', function ($pq) use ($like) {
+                      $pq->whereRaw('LOWER(first_name) LIKE ?', [$like])
+                         ->orWhereRaw('LOWER(last_name) LIKE ?', [$like]);
                   });
             });
         }

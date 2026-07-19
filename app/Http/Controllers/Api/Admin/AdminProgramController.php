@@ -17,7 +17,7 @@ class AdminProgramController extends Controller
             ->orderBy('title');
 
         if ($request->filled('search')) {
-            $query->whereRaw('title ilike ?', ['%' . $request->search . '%']);
+            $query->whereRaw('LOWER(title) LIKE ?', ['%' . mb_strtolower($request->search) . '%']);
         }
 
         if ($request->filled('channel')) {
@@ -25,7 +25,7 @@ class AdminProgramController extends Controller
         }
 
         if ($request->filled('type')) {
-            $query->whereRaw('type ilike ?', ['%' . $request->type . '%']);
+            $query->whereRaw('LOWER(type) LIKE ?', ['%' . mb_strtolower($request->type) . '%']);
         }
 
         if ($request->filled('pick')) {

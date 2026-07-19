@@ -73,7 +73,7 @@ class ChannelAction
      *
      * @param array{search?: ?string, category?: ?string, sort?: ?string} $filters
      */
-    public function getAllChannels(int $perPage = 15, array $filters = [])
+    public function getAllChannels(int $perPage = 15, array $filters = [], ?int $userId = null)
     {
         $query = Channel::query()
             ->where('status', ChannelStatusEnum::ACTIVE->value)
@@ -81,13 +81,20 @@ class ChannelAction
             ->with('profile.channelCategories')
             ->withCount('subscribers');
 
+        if ($userId) {
+            $query->withExists(['subscribers as is_following' => fn ($q) => $q->where('users.id', $userId)]);
+        }
+
         $search = trim((string) ($filters['search'] ?? ''));
         if ($search !== '') {
-            $like = '%' . $search . '%';
+            // LOWER(...) LIKE plutôt que ILIKE (spécifique Postgres) : fonctionne aussi sur
+            // le SQLite en mémoire utilisé par les tests (voir phpunit.xml), tout en restant
+            // insensible à la casse sur Postgres en production.
+            $like = '%' . mb_strtolower($search) . '%';
             $query->whereHas('profile', function ($q) use ($like) {
-                $q->whereRaw('name ilike ?', [$like])
-                    ->orWhereRaw('handle ilike ?', [$like])
-                    ->orWhereRaw('description ilike ?', [$like]);
+                $q->whereRaw('LOWER(name) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(handle) LIKE ?', [$like])
+                    ->orWhereRaw('LOWER(description) LIKE ?', [$like]);
             });
         }
 

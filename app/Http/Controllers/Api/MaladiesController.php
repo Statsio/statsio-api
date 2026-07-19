@@ -72,6 +72,7 @@ class MaladiesController extends Controller
 
                     return $country === null ? null : [
                         'iso3' => $row['iso3'],
+                        'iso2' => $country['iso2'],
                         'name' => $country['name'],
                         'lat' => $country['lat'],
                         'lon' => $country['lon'],

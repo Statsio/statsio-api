@@ -201,6 +201,11 @@ return [
         'birthday' => 'birthday',
         'email' => 'email address',
         'password' => 'password',
+        'password_confirmation' => 'password confirmation',
+        'code' => 'code',
+        'token' => 'reset link',
+        'refresh_token' => 'refresh token',
+        'id_token' => 'Google token',
     ],
 
 ];
