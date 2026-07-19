@@ -20,7 +20,7 @@ class RefreshTokenController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Token refreshed successfully',
+                'message' => __('auth.token_refresh_success'),
                 'data' => $tokens->toArray(),
             ]);
         } catch (InvalidRefreshTokenException $e) {

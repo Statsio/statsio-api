@@ -93,6 +93,20 @@ services:
     volumes:
       - openobserve_data:/data
 
+  vector:
+    image: timberio/vector:latest-alpine
+    container_name: statsio-vector
+    environment:
+      - ZO_ROOT_USER_EMAIL=${ZO_ROOT_USER_EMAIL:-admin@statsio.local}
+      - ZO_ROOT_USER_PASSWORD=${ZO_ROOT_USER_PASSWORD:-password}
+      - VECTOR_DANGEROUSLY_ALLOW_ENV_VAR_INTERPOLATION=true
+    volumes:
+      - ./docker/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      - openobserve
+
 volumes:
   postgres_data:
   vendor:

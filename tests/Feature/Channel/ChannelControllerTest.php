@@ -186,6 +186,53 @@ class ChannelControllerTest extends TestCase
         $this->assertCount(1, $response->json('data.data'));
     }
 
+    public function test_authenticated_user_can_follow_and_unfollow_channel(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+
+        $follow = $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/follow");
+        $follow->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.isFollowing', true)
+            ->assertJsonPath('data.followersCount', 1);
+
+        $this->assertDatabaseHas('channel_users', [
+            'channel_id' => $channel->id,
+            'user_id' => $this->user->id,
+        ]);
+
+        $unfollow = $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/follow");
+        $unfollow->assertStatus(200)
+            ->assertJsonPath('data.isFollowing', false)
+            ->assertJsonPath('data.followersCount', 0);
+    }
+
+    public function test_unauthenticated_user_cannot_follow_channel(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+
+        $this->postJson("/api/channels/{$channel->id}/follow")->assertStatus(401);
+    }
+
+    public function test_follow_returns_404_for_unknown_channel(): void
+    {
+        $this->withToken($this->token)->postJson('/api/channels/99999/follow')->assertStatus(404);
+    }
+
+    public function test_list_channels_reports_is_following_for_authenticated_user(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+        $channel->users()->attach($this->user->id, ['role' => 'subscriber', 'subscribed_at' => now()]);
+        Channel::factory()->withProfile()->create();
+
+        $response = $this->withToken($this->token)->getJson('/api/channels');
+
+        $response->assertStatus(200);
+        $following = collect($response->json('data.data'))
+            ->firstWhere('id', $channel->id)['profile']['is_following'];
+        $this->assertTrue($following);
+    }
+
     public function test_stats_returns_views_subscribers_and_team_size(): void
     {
         $channel = Channel::factory()->withProfile()->create();
