@@ -29,7 +29,7 @@ jobs:
           rm: false
 
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           APP_KEY: ${{ secrets.APP_KEY }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
