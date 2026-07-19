@@ -176,4 +176,17 @@ return [
     | convention
     | convention \
     */
+
+    'attributes' => [
+        'first_name' => 'prénom',
+        'last_name' => 'nom',
+        'birthday' => 'date de naissance',
+        'email' => 'adresse e-mail',
+        'password' => 'mot de passe',
+        'password_confirmation' => 'confirmation du mot de passe',
+        'code' => 'code',
+        'token' => 'lien de réinitialisation',
+        'refresh_token' => 'jeton de rafraîchissement',
+        'id_token' => 'jeton Google',
+    ],
 ];

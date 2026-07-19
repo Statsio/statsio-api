@@ -14,6 +14,8 @@ return [
     */
 
     'failed' => 'Ces identifiants ne correspondent pas à nos enregistrements.',
+    'login_success' => 'Connexion réussie.',
+    'token_refresh_success' => 'Le jeton a été renouvelé avec succès.',
     'password' => 'Le mot de passe fourni est incorrect.',
     'throttle' => 'Trop de tentatives de connexion. Veuillez réessayer dans :seconds secondes.',
     'register_success' => 'Inscription réussie.',
@@ -27,5 +29,8 @@ return [
     'google_token_invalid' => 'Le token Google est invalide.',
     'google_email_unverified' => "L'adresse email Google n'est pas vérifiée.",
     'google_client_id_missing' => "L'authentification Google n'est pas configurée.",
+    'password_reset_email_sent_if_exists' => 'Si un compte existe avec cette adresse, un e-mail de réinitialisation a été envoyé.',
+    'password_reset_success' => 'Votre mot de passe a été réinitialisé avec succès.',
+    'reset_token_invalid' => 'Le lien de réinitialisation est invalide ou expiré.',
 
 ];
