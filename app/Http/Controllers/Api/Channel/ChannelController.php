@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Domain\Channel\Actions\ChannelAction;
 use App\Domain\Channel\Actions\ChannelStatsAction;
+use App\Domain\Channel\Actions\ToggleChannelFollowAction;
 use App\Models\Channel\ChannelProfile;
 use App\Models\Channel\ChannelCategory;
 use App\Http\Requests\Channel\CreateChannelRequest;
@@ -16,7 +17,8 @@ class ChannelController extends Controller
 {
     public function __construct(
         private ChannelAction $channelAction,
-        private ChannelStatsAction $channelStatsAction
+        private ChannelStatsAction $channelStatsAction,
+        private ToggleChannelFollowAction $toggleChannelFollowAction
     ) {}
 
     /**
@@ -144,7 +146,7 @@ class ChannelController extends Controller
     {
         $perPage = (int) $request->get('per_page', 15);
         $filters = $request->only(['search', 'category', 'sort']);
-        $channels = $this->channelAction->getAllChannels($perPage, $filters);
+        $channels = $this->channelAction->getAllChannels($perPage, $filters, $request->user('api')?->id);
 
         return response()->json([
             'success' => true,
@@ -253,6 +255,22 @@ class ChannelController extends Controller
             ]);
 
         return response()->json(['success' => true, 'data' => $subscribers]);
+    }
+
+    /**
+     * Bascule l'abonnement (follow/unfollow) de l'utilisateur connecté à la chaîne
+     */
+    public function toggleFollow(Request $request, int $id)
+    {
+        $channel = $this->channelAction->getChannelById($id);
+
+        if (!$channel) {
+            return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
+        }
+
+        $result = $this->toggleChannelFollowAction->execute($channel, $request->user()->id);
+
+        return response()->json(['success' => true, 'data' => $result]);
     }
 
     /**
