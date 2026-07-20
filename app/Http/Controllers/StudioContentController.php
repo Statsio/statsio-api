@@ -66,6 +66,7 @@ class StudioContentController extends Controller
             'visibility' => 'nullable|string|in:public,protege,private',
             'published_as' => 'nullable|string|in:user,channel',
             'channel_id' => 'nullable|integer|exists:channels,id',
+            'response_deadline' => 'nullable|date',
         ]);
 
         $content = StudioContent::create([
@@ -84,6 +85,7 @@ class StudioContentController extends Controller
             'visibility' => $data['visibility'] ?? 'private',
             'published_as' => $data['published_as'] ?? null,
             'channel_id' => $data['channel_id'] ?? null,
+            'response_deadline' => $data['response_deadline'] ?? null,
         ]);
 
         return response()->json([
@@ -105,14 +107,16 @@ class StudioContentController extends Controller
     public function indexPublic(Request $request): JsonResponse
     {
         $type = $request->query('type');
+        $channelId = $request->query('channel_id') ? (int) $request->query('channel_id') : null;
         $categories = $this->sanitizePublicCategories($request->query('categories'));
 
-        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($categories ? '.'.implode(',', $categories) : '');
+        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($channelId ? ".ch{$channelId}" : '').($categories ? '.'.implode(',', $categories) : '');
 
-        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $categories) {
+        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories) {
             $contents = StudioContent::with(['user.profile', 'channel.profile'])
                 ->where('status', 'published')
                 ->when($type, fn ($q) => $q->where('type', $type))
+                ->when($channelId, fn ($q) => $q->where('channel_id', $channelId)->where('published_as', 'channel'))
                 ->when($categories, fn ($q) => $q->where(function ($sub) use ($categories) {
                     foreach ($categories as $category) {
                         $sub->orWhereJsonContains('categories', $category);
@@ -195,6 +199,7 @@ class StudioContentController extends Controller
             'visibility' => 'sometimes|string|in:public,protege,private',
             'published_as' => 'sometimes|nullable|string|in:user,channel',
             'channel_id' => 'sometimes|nullable|integer|exists:channels,id',
+            'response_deadline' => 'sometimes|nullable|date',
             'thumbnail' => 'sometimes|file|image|max:5120',
             'remove_thumbnail' => 'sometimes|boolean',
         ]);
@@ -286,7 +291,7 @@ class StudioContentController extends Controller
         return $slug;
     }
 
-    private function format(StudioContent $content): array
+    public static function format(StudioContent $content): array
     {
         if ($content->published_as === 'channel' && $content->channel) {
             $authorName = $content->channel->profile?->name ?: 'Anonyme';
@@ -324,6 +329,7 @@ class StudioContentController extends Controller
             'emoji' => $content->emoji,
             'coverage_type' => $content->coverage_type,
             'coverage_data' => $content->coverage_data ?? [],
+            'response_deadline' => $content->response_deadline?->toIso8601String(),
             'published_as' => $content->published_as,
             'channel_id' => $content->channel_id,
             'channel' => $content->published_as === 'channel' && $content->channel

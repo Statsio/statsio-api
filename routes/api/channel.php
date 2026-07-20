@@ -21,6 +21,7 @@ Route::prefix('channels')->name('channels.')->group(function () {
         Route::get('{id}/subscribers', [ChannelController::class, 'subscribers'])->name('subscribers');
         Route::post('{id}/follow', [ChannelController::class, 'toggleFollow'])->name('follow');
         Route::get('{id}/stats', [ChannelController::class, 'stats'])->name('stats');
+        Route::put('{id}/featured', [ChannelController::class, 'updateFeaturedContent'])->name('featured.update');
         Route::post('{id}/suspend', [ChannelController::class, 'suspend'])->name('suspend');
         Route::post('{id}/ban', [ChannelController::class, 'ban'])->name('ban');
         Route::post('{id}/activate', [ChannelController::class, 'activate'])->name('activate');
@@ -31,6 +32,9 @@ Route::prefix('channels')->name('channels.')->group(function () {
     Route::post('{id}/view', [ChannelController::class, 'recordView'])
         ->name('record-view')
         ->middleware('throttle:30,1');
+
+    // Lecture publique du contenu mis en avant (déjà inclus dans show(), exposé aussi seul)
+    Route::get('{id}/featured', [ChannelController::class, 'getFeaturedContent'])->name('featured.show');
 
     // Route paramétrique en dernier
     Route::get('{id}', [ChannelController::class, 'show'])->name('show');

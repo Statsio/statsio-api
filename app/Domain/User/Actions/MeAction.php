@@ -14,6 +14,13 @@ class MeAction
      */
     public function execute(User $user): User
     {
-        return $user->load('profile');
+        return $user->load([
+            'profile.gender',
+            'profile.ageRange',
+            'profile.socioProfessionalCategory',
+            'profile.educationLevel',
+            'profile.employmentStatus',
+            'profile.maritalStatus',
+        ]);
     }
 }
