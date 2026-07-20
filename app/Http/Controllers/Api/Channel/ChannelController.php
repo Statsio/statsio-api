@@ -20,7 +20,7 @@ class ChannelController extends Controller
     public function __construct(
         private ChannelAction $channelAction,
         private ChannelStatsAction $channelStatsAction,
-        private ChannelFeaturedContentAction $channelFeaturedContentAction
+        private ChannelFeaturedContentAction $channelFeaturedContentAction,
         private ToggleChannelFollowAction $toggleChannelFollowAction
     ) {}
 
