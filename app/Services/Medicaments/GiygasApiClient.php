@@ -21,7 +21,18 @@ class GiygasApiClient
         return Cache::remember(
             "medicaments-api:search:{$term}",
             now()->addMinutes(15),
-            fn () => $this->client()->get('/v1/medicaments', ['search' => $term])->throw()->json(),
+            function () use ($term) {
+                $response = $this->client()->get('/v1/medicaments', ['search' => $term]);
+
+                // L'API giygas renvoie 404 "No medicaments found" plutôt qu'un tableau vide
+                // quand aucune recherche ne matche — à traiter comme un résultat vide, pas
+                // une erreur (sinon toute recherche sans résultat casse la page de recherche).
+                if ($response->status() === 404) {
+                    return [];
+                }
+
+                return $response->throw()->json();
+            },
         );
     }
 
@@ -32,7 +43,15 @@ class GiygasApiClient
         return Cache::remember(
             "medicaments-api:generiques:{$term}",
             now()->addMinutes(15),
-            fn () => $this->client()->get('/v1/generiques', ['libelle' => $term])->throw()->json(),
+            function () use ($term) {
+                $response = $this->client()->get('/v1/generiques', ['libelle' => $term]);
+
+                if ($response->status() === 404) {
+                    return [];
+                }
+
+                return $response->throw()->json();
+            },
         );
     }
 
@@ -43,6 +62,24 @@ class GiygasApiClient
             now()->addMinutes(15),
             function () use ($cis) {
                 $response = $this->client()->get("/v1/medicaments/{$cis}");
+
+                if ($response->status() === 404) {
+                    return null;
+                }
+
+                return $response->throw()->json();
+            },
+        );
+    }
+
+    /** Résout un code CIP13 vers sa présentation (et le CIS du médicament associé) — utilisé pour lier un classement de ventes Open Medic (basé sur CIP13) aux fiches médicament de l'app (basées sur CIS). */
+    public function getByCip(string $cip13): ?array
+    {
+        return Cache::remember(
+            "medicaments-api:cip:{$cip13}",
+            now()->addMinutes(15),
+            function () use ($cip13) {
+                $response = $this->client()->get("/v1/presentations/{$cip13}");
 
                 if ($response->status() === 404) {
                     return null;

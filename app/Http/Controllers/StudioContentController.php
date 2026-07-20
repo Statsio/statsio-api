@@ -105,14 +105,16 @@ class StudioContentController extends Controller
     public function indexPublic(Request $request): JsonResponse
     {
         $type = $request->query('type');
+        $channelId = $request->query('channel_id') ? (int) $request->query('channel_id') : null;
         $categories = $this->sanitizePublicCategories($request->query('categories'));
 
-        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($categories ? '.'.implode(',', $categories) : '');
+        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($channelId ? ".ch{$channelId}" : '').($categories ? '.'.implode(',', $categories) : '');
 
-        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $categories) {
+        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories) {
             $contents = StudioContent::with(['user.profile', 'channel.profile'])
                 ->where('status', 'published')
                 ->when($type, fn ($q) => $q->where('type', $type))
+                ->when($channelId, fn ($q) => $q->where('channel_id', $channelId)->where('published_as', 'channel'))
                 ->when($categories, fn ($q) => $q->where(function ($sub) use ($categories) {
                     foreach ($categories as $category) {
                         $sub->orWhereJsonContains('categories', $category);
@@ -286,7 +288,7 @@ class StudioContentController extends Controller
         return $slug;
     }
 
-    private function format(StudioContent $content): array
+    public static function format(StudioContent $content): array
     {
         if ($content->published_as === 'channel' && $content->channel) {
             $authorName = $content->channel->profile?->name ?: 'Anonyme';

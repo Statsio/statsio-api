@@ -5,8 +5,10 @@ namespace App\Models\Channel;
 use App\Traits\HasMedia;
 use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
 use App\Models\Channel\ChannelCategory;
+use App\Models\StudioContent;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ChannelProfile extends Model
 {
@@ -26,6 +28,9 @@ class ChannelProfile extends Model
         'custom_color_primary',
         'custom_color_secondary',
         'age_restriction',
+        'featured_article_id',
+        'featured_statsdata_id',
+        'featured_survey_id',
     ];
 
     protected $casts = [
@@ -92,6 +97,21 @@ class ChannelProfile extends Model
     public function channelProfileLinks()
     {
         return $this->hasMany(ChannelProfileLink::class);
+    }
+
+    public function featuredArticle(): BelongsTo
+    {
+        return $this->belongsTo(StudioContent::class, 'featured_article_id');
+    }
+
+    public function featuredStatsdata(): BelongsTo
+    {
+        return $this->belongsTo(StudioContent::class, 'featured_statsdata_id');
+    }
+
+    public function featuredSurvey(): BelongsTo
+    {
+        return $this->belongsTo(StudioContent::class, 'featured_survey_id');
     }
 
     public function addMediaById(int $mediaId, string $collection): void

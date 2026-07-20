@@ -60,7 +60,12 @@ class ChannelAction
 
     public function getChannelById(int $id): ?Channel
     {
-        return Channel::with('profile.channelCategories')->find($id);
+        return Channel::with([
+            'profile.channelCategories',
+            'profile.featuredArticle',
+            'profile.featuredStatsdata',
+            'profile.featuredSurvey',
+        ])->find($id);
     }
 
     public function getChannelProfileById(int $id): ?ChannelProfile
