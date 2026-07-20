@@ -30,6 +30,7 @@ class StudioContent extends Model
         'coverage_data',
         'published_as',
         'channel_id',
+        'response_deadline',
     ];
 
     protected $casts = [
@@ -39,6 +40,7 @@ class StudioContent extends Model
         'categories' => 'array',
         'coverage_data' => 'array',
         'views_count' => 'integer',
+        'response_deadline' => 'datetime',
     ];
 
     /**

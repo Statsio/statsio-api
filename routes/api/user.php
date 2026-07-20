@@ -2,6 +2,9 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\User\UserController;
+use App\Http\Controllers\Api\User\ProfileReferenceDataController;
+
+Route::get('/reference-data/profile', [ProfileReferenceDataController::class, 'index']);
 
 /*
 |--------------------------------------------------------------------------

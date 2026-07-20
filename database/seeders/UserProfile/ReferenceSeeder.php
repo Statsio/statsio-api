@@ -14,6 +14,7 @@ class ReferenceSeeder extends Seeder
             SocioProfessionalCategorySeeder::class,
             EducationLevelSeeder::class,
             EmploymentStatusSeeder::class,
+            MaritalStatusSeeder::class,
         ]);
     }
 }
