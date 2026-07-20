@@ -25,11 +25,24 @@ class UserController extends Controller
         ]);
     }
 
-    public function update(Request $request)
+    public function update(Request $request, MeAction $action)
     {
         $data = $request->validate([
             'first_name' => 'sometimes|nullable|string|max:100',
-            'last_name'  => 'sometimes|nullable|string|max:100',
+            'last_name' => 'sometimes|nullable|string|max:100',
+            'phone' => 'sometimes|nullable|string|max:30',
+            'birthday' => 'sometimes|nullable|date',
+            'birth_year' => 'sometimes|nullable|integer|min:1900|max:' . date('Y'),
+            'country' => 'sometimes|nullable|string|max:2',
+            'region' => 'sometimes|nullable|string|max:150',
+            'city' => 'sometimes|nullable|string|max:150',
+            'zip_code' => 'sometimes|nullable|string|max:20',
+            'gender_id' => 'sometimes|nullable|exists:genders,id',
+            'age_range_id' => 'sometimes|nullable|exists:age_ranges,id',
+            'socio_professional_category_id' => 'sometimes|nullable|exists:socio_professional_categories,id',
+            'education_level_id' => 'sometimes|nullable|exists:education_levels,id',
+            'employment_status_id' => 'sometimes|nullable|exists:employment_statuses,id',
+            'marital_status_id' => 'sometimes|nullable|exists:marital_statuses,id',
         ]);
 
         $user = $request->user();
@@ -39,7 +52,7 @@ class UserController extends Controller
             $user->profile()->create($data);
         }
 
-        $user->load('profile');
+        $user = $action->execute($user);
 
         return response()->json([
             'success' => true,
