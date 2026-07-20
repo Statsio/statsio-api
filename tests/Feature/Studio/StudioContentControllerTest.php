@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Studio;
 
+use App\Models\Channel\Channel;
 use App\Models\StudioContent;
 use App\Models\User\User;
 use Database\Factories\StudioContentFactory;
@@ -47,6 +48,29 @@ class StudioContentControllerTest extends TestCase
         $response = $this->getJson('/api/studio/content/public/unknown-slug');
 
         $response->assertStatus(404);
+    }
+
+    public function test_can_list_public_content_filtered_by_channel_id(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+        $otherChannel = Channel::factory()->withProfile()->create();
+
+        $ownContent = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'channel_id' => $channel->id,
+            'published_as' => 'channel',
+        ]);
+        StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'channel_id' => $otherChannel->id,
+            'published_as' => 'channel',
+        ]);
+
+        $response = $this->getJson("/api/studio/content/public?channel_id={$channel->id}");
+
+        $response->assertStatus(200);
+        $ids = collect($response->json('data'))->pluck('id')->all();
+        $this->assertSame([(string) $ownContent->id], $ids);
     }
 
     public function test_authenticated_user_can_list_their_content(): void
