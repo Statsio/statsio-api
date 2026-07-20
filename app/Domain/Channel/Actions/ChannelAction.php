@@ -78,13 +78,17 @@ class ChannelAction
      *
      * @param array{search?: ?string, category?: ?string, sort?: ?string} $filters
      */
-    public function getAllChannels(int $perPage = 15, array $filters = [])
+    public function getAllChannels(int $perPage = 15, array $filters = [], ?int $userId = null)
     {
         $query = Channel::query()
             ->where('status', ChannelStatusEnum::ACTIVE->value)
             ->whereHas('profile')
             ->with('profile.channelCategories')
             ->withCount('subscribers');
+
+        if ($userId) {
+            $query->withExists(['subscribers as is_following' => fn ($q) => $q->where('users.id', $userId)]);
+        }
 
         $search = trim((string) ($filters['search'] ?? ''));
         if ($search !== '') {

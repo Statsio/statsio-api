@@ -8,6 +8,6 @@ class InvalidRefreshTokenException extends Exception
 {
     public function __construct(?string $message = null)
     {
-        parent::__construct($message ?: __('auth.unauthenticated'));
+        parent::__construct($message ?: __('errors.unauthenticated'));
     }
 }

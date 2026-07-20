@@ -49,6 +49,15 @@ class User extends Authenticatable
     ];
 
     /**
+     * Attributs calculés toujours inclus dans la sérialisation JSON.
+     *
+     * @var array<int, string>
+     */
+    protected $appends = [
+        'profile_complete',
+    ];
+
+    /**
      * The attributes that should be cast.
      *
      * @return array<string, string>
@@ -70,6 +79,16 @@ class User extends Authenticatable
     public function profile(): HasOne
     {
         return $this->hasOne(UserProfile::class);
+    }
+
+    /**
+     * Accesseur "profile_complete" — true si le profil renseigne tous les champs
+     * requis pour débloquer les statistiques démographiques des sondages
+     * (voir UserProfile::REQUIRED_FOR_COMPLETION).
+     */
+    public function getProfileCompleteAttribute(): bool
+    {
+        return $this->profile?->isComplete() ?? false;
     }
 
     /**

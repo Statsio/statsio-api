@@ -19,6 +19,7 @@ Route::prefix('channels')->name('channels.')->group(function () {
         Route::delete('{id}', [ChannelController::class, 'destroy'])->name('destroy');
         Route::get('{id}/members', [ChannelController::class, 'members'])->name('members');
         Route::get('{id}/subscribers', [ChannelController::class, 'subscribers'])->name('subscribers');
+        Route::post('{id}/follow', [ChannelController::class, 'toggleFollow'])->name('follow');
         Route::get('{id}/stats', [ChannelController::class, 'stats'])->name('stats');
         Route::put('{id}/featured', [ChannelController::class, 'updateFeaturedContent'])->name('featured.update');
         Route::post('{id}/suspend', [ChannelController::class, 'suspend'])->name('suspend');

@@ -11,10 +11,20 @@ use App\Models\User\AgeRange;
 use App\Models\User\SocioProfessionalCategory;
 use App\Models\User\EducationLevel;
 use App\Models\User\EmploymentStatus;
+use App\Models\User\MaritalStatus;
 
 class UserProfile extends Model
 {
     use HasFactory, SoftDeletes;
+
+    /** Champs requis pour considérer le profil "complet" (voir isComplete()). */
+    public const REQUIRED_FOR_COMPLETION = [
+        'gender_id',
+        'age_range_id',
+        'socio_professional_category_id',
+        'region',
+        'marital_status_id',
+    ];
 
     /** @var array<string> */
     protected $fillable = [
@@ -34,6 +44,7 @@ class UserProfile extends Model
         'socio_professional_category_id',
         'education_level_id',
         'employment_status_id',
+        'marital_status_id',
     ];
 
     /** @var array<string,string> */
@@ -70,5 +81,22 @@ class UserProfile extends Model
     public function employmentStatus(): BelongsTo
     {
         return $this->belongsTo(EmploymentStatus::class, 'employment_status_id');
+    }
+
+    public function maritalStatus(): BelongsTo
+    {
+        return $this->belongsTo(MaritalStatus::class, 'marital_status_id');
+    }
+
+    /** Profil "complet" = tous les champs utilisés pour la segmentation démographique des sondages sont renseignés. */
+    public function isComplete(): bool
+    {
+        foreach (self::REQUIRED_FOR_COMPLETION as $field) {
+            if (empty($this->{$field})) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

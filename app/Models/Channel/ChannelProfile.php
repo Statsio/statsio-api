@@ -9,6 +9,7 @@ use App\Models\StudioContent;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Auth;
 
 class ChannelProfile extends Model
 {
@@ -40,7 +41,7 @@ class ChannelProfile extends Model
         'tags' => 'array',
     ];
 
-    protected $appends = ['subscriber_count', 'logo_url', 'banner_url', 'categories'];
+    protected $appends = ['subscriber_count', 'is_following', 'logo_url', 'banner_url', 'categories'];
 
     public function getSubscriberCountAttribute(): int
     {
@@ -51,6 +52,19 @@ class ChannelProfile extends Model
         }
 
         return $channel?->subscribers()->count() ?? 0;
+    }
+
+    public function getIsFollowingAttribute(): bool
+    {
+        $channel = $this->relationLoaded('channel') ? $this->getRelation('channel') : $this->channel;
+
+        if ($channel && array_key_exists('is_following', $channel->getAttributes())) {
+            return (bool) $channel->is_following;
+        }
+
+        $user = Auth::guard('api')->user();
+
+        return $user ? ($channel?->isUserSubscribed($user) ?? false) : false;
     }
 
     public function getCategoriesAttribute(): array

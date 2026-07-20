@@ -28,7 +28,7 @@ class StudioBlockResponseController extends Controller
             'data' => [
                 'answered' => $mine !== null,
                 'my_answer' => $mine?->answer['value'] ?? null,
-                'aggregate' => $this->aggregate($content, $blockId, $block['type']),
+                'aggregate' => $this->aggregateWithDemographics($request, $content, $blockId, $block['type']),
             ],
         ]);
     }
@@ -37,6 +37,10 @@ class StudioBlockResponseController extends Controller
     {
         $content = $this->findPublished($slug);
         $block = $this->findBlock($content, $blockId);
+
+        if ($content->response_deadline && now()->greaterThan($content->response_deadline)) {
+            throw ValidationException::withMessages(['block_id' => ["Ce sondage n'accepte plus de réponses."]]);
+        }
 
         $data = $request->validate([
             'respondent_token' => ['required', 'string', 'max:100'],
@@ -59,12 +63,86 @@ class StudioBlockResponseController extends Controller
             'data' => [
                 'answered' => true,
                 'my_answer' => $response->answer['value'],
-                'aggregate' => $this->aggregate($content, $blockId, $block['type']),
+                'aggregate' => $this->aggregateWithDemographics($request, $content, $blockId, $block['type']),
             ],
         ]);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Ajoute la répartition démographique des répondants (âge/sexe/profession/région) à
+     * l'agrégat — verrou côté serveur, pas seulement un flou cosmétique côté front. Chaque
+     * dimension se débloque indépendamment dès que le visiteur a renseigné le champ
+     * correspondant sur son propre profil (pas besoin d'un profil 100% complet) : un
+     * visiteur qui n'a renseigné que son sexe voit uniquement "Répartition par sexe".
+     */
+    private function aggregateWithDemographics(Request $request, StudioContent $content, string $blockId, string $type): array
+    {
+        $aggregate = $this->aggregate($content, $blockId, $type);
+
+        $viewerProfile = $request->user('sanctum')?->profile;
+        $unlockedDimensions = array_keys(array_filter([
+            'age' => (bool) $viewerProfile?->age_range_id,
+            'gender' => (bool) $viewerProfile?->gender_id,
+            'profession' => (bool) $viewerProfile?->socio_professional_category_id,
+            'region' => (bool) $viewerProfile?->region,
+        ]));
+
+        if ($unlockedDimensions !== []) {
+            $aggregate['demographics'] = array_intersect_key(
+                $this->demographics($content, $blockId),
+                array_flip($unlockedDimensions),
+            );
+        }
+
+        return $aggregate;
+    }
+
+    /** @return array<string, array<int, array{label: string, count: int, percent: float}>> */
+    private function demographics(StudioContent $content, string $blockId): array
+    {
+        $profiles = StudioBlockResponse::where('studio_content_id', $content->id)
+            ->where('block_id', $blockId)
+            ->whereNotNull('user_id')
+            ->with(['user.profile.gender', 'user.profile.ageRange', 'user.profile.socioProfessionalCategory'])
+            ->get()
+            ->map(fn (StudioBlockResponse $r) => $r->user?->profile)
+            ->filter();
+
+        return [
+            // key + label : le front traduit en français par clé (app/lib/profile-labels.ts) plutôt que
+            // de dépendre du label anglais générique seedé côté back (voir database/seeders/UserProfile/*Seeder.php).
+            'age' => $this->bucketBy($profiles, fn ($p) => $p->ageRange ? [$p->ageRange->key, $p->ageRange->label] : null),
+            'gender' => $this->bucketBy($profiles, fn ($p) => $p->gender ? [$p->gender->key, $p->gender->label] : null),
+            'profession' => $this->bucketBy($profiles, fn ($p) => $p->socioProfessionalCategory ? [$p->socioProfessionalCategory->key, $p->socioProfessionalCategory->label] : null),
+            // La région est un champ libre non traduit : key === label.
+            'region' => $this->bucketBy($profiles, fn ($p) => $p->region ? [$p->region, $p->region] : null),
+        ];
+    }
+
+    /** @return array<int, array{key: string, label: string, count: int, percent: float}> */
+    private function bucketBy(\Illuminate\Support\Collection $profiles, \Closure $resolver): array
+    {
+        /** @var \Illuminate\Support\Collection<int, array{0: string, 1: string}> $pairs */
+        $pairs = $profiles->map($resolver)->filter(fn ($v) => $v !== null);
+        $total = $pairs->count();
+
+        if ($total === 0) {
+            return [];
+        }
+
+        return $pairs->groupBy(fn (array $pair) => $pair[0])
+            ->map(fn (\Illuminate\Support\Collection $group, string $key) => [
+                'key' => $key,
+                'label' => (string) $group->first()[1],
+                'count' => $group->count(),
+                'percent' => round(($group->count() / $total) * 100, 1),
+            ])
+            ->sortByDesc('count')
+            ->values()
+            ->all();
+    }
 
     private function findPublished(string $slug): StudioContent
     {
