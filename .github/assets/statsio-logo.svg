@@ -1,0 +1,38 @@
+<svg width="200" height="200" viewBox="13 13 94 94" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs>
+    <style>
+      .blue-dark     { fill: #3B82F6; }
+      .purple-medium { fill: #8B5CF6; }
+      .purple-light  { fill: #dccaf8; }
+      .diag-line     { stroke: #955ae0; stroke-width: 2.8; stroke-linecap: round; }
+    </style>
+
+    <clipPath id="clip-right" clipPathUnits="userSpaceOnUse">
+      <path d="M104 14 L121 14 L121 121 L14 121 L14 106 Z"/>
+    </clipPath>
+
+    <clipPath id="clip-left" clipPathUnits="userSpaceOnUse">
+      <path d="M14 106 L14 -1 L121 -1 L106 14 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Camembert -->
+  <g clip-path="url(#clip-left)">
+    <circle class="purple-medium" cx="60" cy="60" r="40"/>
+    <path class="purple-medium" d="M60 60 L20 60 A40 40 0 0 1 60 20 Z"/>
+    <path class="purple-light" d="M60 60 L20 60 A40 40 0 0 0 60 100 Z"/>
+    <path class="blue-dark" d="M60 60 L60 20 A40 40 0 0 1 93.5 35.5 Z"/>
+  </g>
+
+  <!-- Barres alignées et espacées uniformément -->
+  <g clip-path="url(#clip-right)">
+    <!-- On définit un espacement de 12 entre les barres pour l'exemple -->
+    <rect class="blue-dark"     x="30" y="69" width="12" height="24" transform="rotate(-45 38 81)"/>
+    <rect class="purple-medium" x="46" y="43" width="12" height="48" transform="rotate(-45 54 67)"/>
+    <rect class="blue-dark"     x="62" y="9"  width="12" height="88" transform="rotate(-45 70 53)"/>
+    <rect class="purple-medium" x="80" y="25" width="12" height="24" transform="rotate(-45 86 39)"/>
+  </g>
+
+  <!-- Ligne diagonale -->
+  <line class="diag-line" x1="15" y1="105" x2="105" y2="15"/>
+</svg>
