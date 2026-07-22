@@ -28,6 +28,9 @@ class UploadDataSourceAction
         array $categories = [],
         ?int $provenanceId = null,
         ?string $provenanceOtherLabel = null,
+        ?string $sheetName = null,
+        ?int $headerRow = null,
+        ?array $excludedRows = null,
     ): DataSource {
         $extension = strtolower($file->getClientOriginalExtension());
 
@@ -46,6 +49,9 @@ class UploadDataSourceAction
             'type' => $type,
             'source_kind' => 'upload',
             'original_filename' => $originalFilename,
+            'sheet_name' => $sheetName,
+            'header_row' => $headerRow,
+            'excluded_rows' => $excludedRows,
             'raw_storage_path' => $storagePath,
             'file_size_bytes' => $file->getSize(),
             'status' => 'pending',
@@ -76,7 +82,7 @@ class UploadDataSourceAction
     {
         $uuid = Str::uuid();
         $extension = strtolower($file->getClientOriginalExtension());
-        $path = "private/datasources/{$uuid}/raw.{$extension}";
+        $path = "datasources/{$uuid}/raw.{$extension}";
 
         Storage::put($path, file_get_contents($file->getRealPath()));
 

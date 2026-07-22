@@ -8,7 +8,7 @@ use App\Services\DataIngestion\Contracts\FileParserInterface;
 
 class CsvParser implements FileParserInterface
 {
-    public function parse(string $absolutePath, int $maxRows): ParsedFileDTO
+    public function parse(string $absolutePath, int $maxRows, ?string $sheetName = null, ?int $headerRow = null, ?array $excludedRows = null): ParsedFileDTO
     {
         $handle = @fopen($absolutePath, 'r');
 
