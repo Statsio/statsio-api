@@ -2,6 +2,7 @@
 
 namespace App\Services\DataIngestion;
 
+use App\Services\DataIngestion\Security\SsrfGuard;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
@@ -9,6 +10,13 @@ use Illuminate\Support\Facades\Http;
 class HttpProbeService
 {
     private const TIMEOUT_SECONDS = 10;
+
+    private readonly SsrfGuard $ssrfGuard;
+
+    public function __construct(?SsrfGuard $ssrfGuard = null)
+    {
+        $this->ssrfGuard = $ssrfGuard ?? new SsrfGuard();
+    }
 
     /**
      * Calls an external URL and returns the decoded JSON body.
@@ -19,6 +27,8 @@ class HttpProbeService
      */
     public function fetch(string $url, string $method, array $headers = []): array
     {
+        $this->ssrfGuard->assertUrlIsSafe($url);
+
         $response = Http::withHeaders($headers)
             ->timeout(self::TIMEOUT_SECONDS)
             ->send(strtoupper($method), $url);
@@ -44,6 +54,8 @@ class HttpProbeService
      */
     public function probe(string $url, string $method, array $headers = []): void
     {
+        $this->ssrfGuard->assertUrlIsSafe($url);
+
         $response = Http::withHeaders($headers)
             ->timeout(self::TIMEOUT_SECONDS)
             ->send(strtoupper($method), $url);
@@ -68,6 +80,8 @@ class HttpProbeService
      */
     public function fetchPage(string $url, string $method, array $headers, array $query, int $timeoutSeconds): array
     {
+        $this->ssrfGuard->assertUrlIsSafe($url);
+
         // Guzzle remplace (et non fusionne) la query string de l'URI avec l'option 'query' —
         // on fusionne donc nous-mêmes $query dans la query string déjà présente dans $url
         // (ex. "?size=5000" saisi par l'utilisateur, ou des filtres persistants appliqués à
@@ -120,6 +134,8 @@ class HttpProbeService
      */
     public function fetchPages(string $url, string $method, array $headers, array $queriesByKey, int $timeoutSeconds): array
     {
+        $this->ssrfGuard->assertUrlIsSafe($url);
+
         $retryTimes = (int) config('statsio.data_ingestion.pagination.page_retry_times', 2);
         $retryDelayMs = (int) config('statsio.data_ingestion.pagination.page_retry_delay_ms', 500);
 

@@ -2,12 +2,34 @@
 
 namespace Tests\Unit\Domain\DataIngestion;
 
+use App\Domain\DataIngestion\Exceptions\SsrfBlockedException;
 use App\Services\DataIngestion\HttpProbeService;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class HttpProbeServiceTest extends TestCase
 {
+    /**
+     * OWASP A10 (SSRF) : une URL qui résout vers une plage privée/loopback doit être
+     * rejetée avant l'appel réel — voir SsrfGuard, appelé par fetch/probe/fetchPage/
+     * fetchPages. Vérifié ici pour fetch() et fetchPage() ; aucune requête HTTP ne doit
+     * même être tentée (d'où l'absence de Http::fake, qui ferait échouer le test si
+     * une requête partait malgré tout).
+     */
+    public function test_fetch_rejects_url_resolving_to_a_private_ip(): void
+    {
+        $this->expectException(SsrfBlockedException::class);
+
+        (new HttpProbeService())->fetch('http://127.0.0.1/admin', 'GET');
+    }
+
+    public function test_fetch_page_rejects_url_resolving_to_a_private_ip(): void
+    {
+        $this->expectException(SsrfBlockedException::class);
+
+        (new HttpProbeService())->fetchPage('http://169.254.169.254/latest/meta-data', 'GET', [], [], 15);
+    }
+
     /**
      * Régression : Guzzle remplace (et ne fusionne pas) la query string de l'URI avec
      * l'option 'query'. Passer 'query' => [] écrasait silencieusement une query string
