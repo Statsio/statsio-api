@@ -28,6 +28,12 @@ class UploadDataSourceRequest extends FormRequest
             'categories.*' => ['string', 'max:50'],
             'provenance_id' => ['sometimes', 'nullable', 'integer', 'exists:source_provenances,id'],
             'provenance_other_label' => ['sometimes', 'nullable', 'string', 'max:255'],
+
+            // Fichiers xlsx/xls uniquement — feuille et ligne d'en-têtes choisies via l'aperçu.
+            'sheet_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'header_row' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
+            'excluded_rows' => ['sometimes', 'nullable', 'array'],
+            'excluded_rows.*' => ['integer', 'min:1'],
         ];
     }
 

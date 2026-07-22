@@ -42,7 +42,7 @@ class DataIngestionOrchestrator
             // sources API sont désormais toujours "live", jamais matérialisées en Parquet).
             $absolutePath = Storage::path($dataSource->raw_storage_path);
             $parser = $this->parserFactory->make($dataSource->type);
-            $parsed = $parser->parse($absolutePath, $this->maxRows);
+            $parsed = $parser->parse($absolutePath, $this->maxRows, $dataSource->sheet_name, $dataSource->header_row, $dataSource->excluded_rows);
             $dataSource->dataset?->updateProgress(25);
 
             // 2. Infer schema

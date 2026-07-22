@@ -46,7 +46,7 @@ class UpdateDataSourceAction
         }
 
         if ($dataSource->source_kind === 'upload' && $file) {
-            $this->replaceFile($dataSource, $file);
+            $this->replaceFile($dataSource, $file, Arr::only($attributes, ['sheet_name', 'header_row', 'excluded_rows']));
         } elseif ($dataSource->source_kind === 'api'
             && (! empty(Arr::only($attributes, self::API_FIELDS)) || array_key_exists('query_mapping', $attributes))) {
             // Toute source API est "live" : re-sonde et redétecte le mapping de filtres et
@@ -58,9 +58,11 @@ class UpdateDataSourceAction
     }
 
     /**
+     * @param  array{sheet_name?: ?string, header_row?: ?int, excluded_rows?: ?array}  $sheetSelection
+     *
      * @throws UnsupportedFileTypeException
      */
-    private function replaceFile(DataSource $dataSource, UploadedFile $file): void
+    private function replaceFile(DataSource $dataSource, UploadedFile $file, array $sheetSelection = []): void
     {
         $extension = strtolower($file->getClientOriginalExtension());
 
@@ -74,12 +76,15 @@ class UpdateDataSourceAction
 
         $originalFilename = $file->getClientOriginalName();
         $uuid = Str::uuid();
-        $storagePath = "private/datasources/{$uuid}/raw.{$extension}";
+        $storagePath = "datasources/{$uuid}/raw.{$extension}";
         Storage::put($storagePath, file_get_contents($file->getRealPath()));
 
         $dataSource->update([
             'type' => $type,
             'original_filename' => $originalFilename,
+            'sheet_name' => $sheetSelection['sheet_name'] ?? null,
+            'header_row' => $sheetSelection['header_row'] ?? null,
+            'excluded_rows' => $sheetSelection['excluded_rows'] ?? null,
             'raw_storage_path' => $storagePath,
             'file_size_bytes' => $file->getSize(),
             'status' => 'pending',

@@ -10,15 +10,30 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as SpreadsheetDate;
 
 class XlsxParser implements FileParserInterface
 {
-    public function parse(string $absolutePath, int $maxRows): ParsedFileDTO
-    {
+    /**
+     * @param  $sheetName  Feuille à utiliser (nom exact) — feuille active par défaut si absente/inconnue.
+     * @param  $headerRow  Numéro de ligne (1-indexé, dans la feuille sélectionnée) contenant les
+     *                     en-têtes de colonnes — ligne 1 par défaut. Utile pour les exports avec
+     *                     titre/lignes de garde avant le vrai tableau (rapports institutionnels).
+     * @param  $excludedRows  Numéros de ligne (1-indexés, dans la feuille sélectionnée) à ignorer —
+     *                        sous la ligne d'en-têtes (notes de bas de tableau, lignes d'unités...).
+     */
+    public function parse(
+        string $absolutePath,
+        int $maxRows,
+        ?string $sheetName = null,
+        ?int $headerRow = null,
+        ?array $excludedRows = null,
+    ): ParsedFileDTO {
         try {
             $spreadsheet = IOFactory::load($absolutePath);
         } catch (\Throwable $e) {
             throw new FileParsingException(basename($absolutePath), $e->getMessage(), $e);
         }
 
-        $sheet = $spreadsheet->getActiveSheet();
+        $sheet = ($sheetName !== null && $spreadsheet->sheetNameExists($sheetName))
+            ? $spreadsheet->getSheetByName($sheetName)
+            : $spreadsheet->getActiveSheet();
 
         // toArray(nullValue, calculateFormulas, formatData, returnCellRef)
         $rawData = $sheet->toArray(null, true, false, false);
@@ -31,21 +46,34 @@ class XlsxParser implements FileParserInterface
             throw new FileParsingException(basename($absolutePath), 'La feuille de calcul est vide');
         }
 
-        $headers = array_map(
-            fn ($h) => trim((string) ($h ?? '')),
-            array_shift($rawData)
-        );
-
-        if (empty(array_filter($headers))) {
-            throw new FileParsingException(basename($absolutePath), 'La première ligne doit contenir les en-têtes de colonnes');
+        $headerIndex = max(0, ($headerRow ?? 1) - 1);
+        if ($headerIndex >= count($rawData)) {
+            throw new FileParsingException(
+                basename($absolutePath),
+                "La ligne d'en-têtes indiquée ({$headerRow}) dépasse le nombre de lignes de la feuille"
+            );
         }
 
+        $headers = array_map(fn ($h) => trim((string) ($h ?? '')), $rawData[$headerIndex]);
+        $rawData = array_slice($rawData, $headerIndex + 1);
+
+        if (empty(array_filter($headers))) {
+            throw new FileParsingException(basename($absolutePath), "La ligne d'en-têtes sélectionnée ne contient aucune colonne nommée");
+        }
+
+        $excludedSet = array_flip($excludedRows ?? []);
         $columnCount = count($headers);
         $rows = [];
 
-        foreach ($rawData as $rawRow) {
+        foreach ($rawData as $i => $rawRow) {
             if (count($rows) >= $maxRows) {
                 break;
+            }
+
+            // Numéro de ligne absolu dans la feuille (1-indexé), pour le comparer à $excludedRows.
+            $absoluteRowNumber = $headerIndex + 2 + $i;
+            if (isset($excludedSet[$absoluteRowNumber])) {
+                continue;
             }
 
             // Skip completely empty rows
