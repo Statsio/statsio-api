@@ -21,7 +21,7 @@ use App\Services\DataIngestion\Contracts\FileParserInterface;
  */
 class JsonLinesParser implements FileParserInterface
 {
-    public function parse(string $absolutePath, int $maxRows): ParsedFileDTO
+    public function parse(string $absolutePath, int $maxRows, ?string $sheetName = null, ?int $headerRow = null, ?array $excludedRows = null): ParsedFileDTO
     {
         [$headers, $rowCount] = $this->scanHeadersAndCount($absolutePath, $maxRows);
 

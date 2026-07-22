@@ -4,12 +4,15 @@ namespace App\Http\Controllers\Api\DataIngestion;
 
 use App\Domain\DataIngestion\Actions\AttachPublicDataSourceAction;
 use App\Domain\DataIngestion\Actions\CreateLiveApiDataSourceAction;
+use App\Domain\DataIngestion\Actions\PreviewSpreadsheetAction;
 use App\Domain\DataIngestion\Actions\UpdateDataSourceAction;
 use App\Domain\DataIngestion\Actions\UploadDataSourceAction;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
+use App\Domain\DataIngestion\Exceptions\FileParsingException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DataIngestion\CreateApiDataSourceRequest;
+use App\Http\Requests\DataIngestion\PreviewSpreadsheetRequest;
 use App\Http\Requests\DataIngestion\UpdateDataSourceRequest;
 use App\Http\Requests\DataIngestion\UploadDataSourceRequest;
 use App\Models\DataIngestion\DataSource;
@@ -23,7 +26,33 @@ class DataSourceController extends Controller
         private readonly CreateLiveApiDataSourceAction $createLiveApiAction,
         private readonly AttachPublicDataSourceAction $attachAction,
         private readonly UpdateDataSourceAction $updateAction,
+        private readonly PreviewSpreadsheetAction $previewSpreadsheetAction,
     ) {}
+
+    /**
+     * Aperçu d'un fichier xlsx/xls (feuilles + premières lignes) pour permettre
+     * de choisir la feuille et la ligne d'en-têtes avant l'upload définitif —
+     * ne crée aucune DataSource, ne persiste pas le fichier.
+     */
+    public function previewSpreadsheet(PreviewSpreadsheetRequest $request): JsonResponse
+    {
+        try {
+            $preview = $this->previewSpreadsheetAction->execute(
+                file: $request->file('file'),
+                sheetName: $request->input('sheet_name'),
+            );
+
+            return response()->json(['success' => true, 'data' => $preview]);
+        } catch (FileParsingException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la lecture du fichier.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
 
     public function upload(UploadDataSourceRequest $request): JsonResponse
     {
@@ -36,6 +65,9 @@ class DataSourceController extends Controller
                 categories: $request->input('categories', []),
                 provenanceId: $request->input('provenance_id'),
                 provenanceOtherLabel: $request->input('provenance_other_label'),
+                sheetName: $request->input('sheet_name'),
+                headerRow: $request->input('header_row'),
+                excludedRows: $request->input('excluded_rows'),
             );
 
             return response()->json([
@@ -221,6 +253,9 @@ class DataSourceController extends Controller
             'type' => $dataSource->type->value,
             'source_kind' => $dataSource->source_kind,
             'original_filename' => $dataSource->original_filename,
+            'sheet_name' => $dataSource->sheet_name,
+            'header_row' => $dataSource->header_row,
+            'excluded_rows' => $dataSource->excluded_rows ?? [],
             'file_size_bytes' => $dataSource->file_size_bytes,
             'status' => $dataSource->status->value,
             'error_message' => $dataSource->error_message,

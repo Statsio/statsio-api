@@ -8,7 +8,7 @@ use App\Services\DataIngestion\Contracts\FileParserInterface;
 
 class JsonParser implements FileParserInterface
 {
-    public function parse(string $absolutePath, int $maxRows): ParsedFileDTO
+    public function parse(string $absolutePath, int $maxRows, ?string $sheetName = null, ?int $headerRow = null, ?array $excludedRows = null): ParsedFileDTO
     {
         $content = @file_get_contents($absolutePath);
 

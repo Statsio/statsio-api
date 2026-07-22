@@ -10,6 +10,7 @@ Route::get('/source-provenances', [SourceProvenanceController::class, 'index']);
 Route::middleware('auth:api')->group(function () {
 
     Route::prefix('data-sources')->name('data-sources.')->group(function () {
+        Route::post('/preview-spreadsheet', [DataSourceController::class, 'previewSpreadsheet'])->name('preview-spreadsheet');
         Route::post('/upload', [DataSourceController::class, 'upload'])->name('upload');
         Route::get('/public', [DataSourceController::class, 'publicCatalog'])->name('public');
         Route::get('/', [DataSourceController::class, 'index'])->name('index');

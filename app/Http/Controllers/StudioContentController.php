@@ -336,6 +336,7 @@ class StudioContentController extends Controller
                 ? [
                     'id' => $content->channel->id,
                     'name' => $content->channel->profile?->name,
+                    'handle' => $content->channel->profile?->handle,
                     'logo_url' => $content->channel->profile?->logo_url,
                     'custom_color_primary' => $content->channel->profile?->custom_color_primary,
                     'custom_color_secondary' => $content->channel->profile?->custom_color_secondary,
