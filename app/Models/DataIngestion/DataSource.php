@@ -28,6 +28,9 @@ class DataSource extends Model
         'last_refreshed_at',
         'next_refresh_at',
         'original_filename',
+        'sheet_name',
+        'header_row',
+        'excluded_rows',
         'raw_storage_path',
         'file_size_bytes',
         'status',
@@ -53,6 +56,7 @@ class DataSource extends Model
             'processed_at' => 'datetime',
             'api_config' => 'array',
             'categories' => 'array',
+            'excluded_rows' => 'array',
             'is_partial' => 'boolean',
         ];
     }
