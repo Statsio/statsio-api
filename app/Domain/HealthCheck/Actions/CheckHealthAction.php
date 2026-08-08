@@ -4,6 +4,7 @@ namespace App\Domain\HealthCheck\Actions;
 use App\Domain\HealthCheck\DTOs\HealthStatusDTO;
 use App\Domain\HealthCheck\Enums\HealthStatus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 
 class CheckHealthAction
 {
@@ -12,6 +13,7 @@ class CheckHealthAction
         $checks = [
             'api' => true,
             'database' => $this->checkDatabase(),
+            'redis' => $this->checkRedis(),
         ];
 
         $status = in_array(false, $checks, true)
@@ -26,6 +28,15 @@ class CheckHealthAction
         try {
             DB::connection()->getPdo();
             return true;
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function checkRedis(): bool
+    {
+        try {
+            return Redis::connection()->ping() !== false;
         } catch (\Throwable) {
             return false;
         }

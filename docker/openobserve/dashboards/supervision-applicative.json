@@ -1,0 +1,348 @@
+{
+    "version": 5,
+    "title": "Supervision applicative (Statsio)",
+    "description": "Statut de santé applicatif (health:monitor) : DB, Redis, API — reflète exactement la condition surveillée par l'alerte statsio_health_critical",
+    "role": "",
+    "tabs": [
+        {
+            "tabId": "default",
+            "name": "Default",
+            "panels": [
+                {
+                    "id": "Panel_ID_health_critical_count",
+                    "type": "metric",
+                    "title": "Échecs de santé (5 dernières minutes)",
+                    "description": "Même condition que l'alerte statsio_health_critical : >=1 déclenche l'alerte",
+                    "config": {
+                        "show_legends": true,
+                        "legends_position": "bottom",
+                        "unit": "numbers",
+                        "decimals": 0.0,
+                        "line_thickness": 1.5,
+                        "step_value": "0",
+                        "top_results_others": false,
+                        "axis_border_show": true,
+                        "label_option": {
+                            "rotate": 0.0
+                        },
+                        "show_symbol": true,
+                        "line_interpolation": "smooth",
+                        "legend_width": {
+                            "unit": "px"
+                        },
+                        "base_map": {
+                            "type": "osm"
+                        },
+                        "map_type": {
+                            "type": "world"
+                        },
+                        "map_view": {
+                            "zoom": 1.0,
+                            "lat": 0.0,
+                            "lng": 0.0
+                        },
+                        "map_symbol_style": {
+                            "size": "by Value",
+                            "size_by_value": {
+                                "min": 1.0,
+                                "max": 100.0
+                            },
+                            "size_fixed": 2.0
+                        },
+                        "drilldown": [],
+                        "mark_line": [],
+                        "override_config": [],
+                        "connect_nulls": false,
+                        "no_value_replacement": "",
+                        "wrap_table_cells": false,
+                        "table_transpose": false,
+                        "table_dynamic_columns": false,
+                        "color": {
+                            "mode": "palette-classic",
+                            "fixedColor": [],
+                            "seriesBy": "last"
+                        },
+                        "trellis": {
+                            "layout": null,
+                            "num_of_columns": 1
+                        }
+                    },
+                    "queryType": "sql",
+                    "queries": [
+                        {
+                            "query": "SELECT count(*) as \"y_axis_1\" FROM \"docker_logs\" WHERE container_name = 'statsio-api' AND message LIKE '%local.CRITICAL%'",
+                            "vrlFunctionQuery": "",
+                            "customQuery": true,
+                            "fields": {
+                                "stream": "docker_logs",
+                                "stream_type": "logs",
+                                "x": [],
+                                "y": [
+                                    {
+                                        "label": "Count",
+                                        "alias": "y_axis_1",
+                                        "column": "_timestamp",
+                                        "color": "#eb5757",
+                                        "aggregationFunction": "count",
+                                        "isDerived": false,
+                                        "havingConditions": []
+                                    }
+                                ],
+                                "z": [],
+                                "breakdown": [],
+                                "filter": {
+                                    "filterType": "group",
+                                    "logicalOperator": "AND",
+                                    "conditions": []
+                                }
+                            },
+                            "config": {
+                                "promql_legend": "",
+                                "layer_type": "scatter",
+                                "weight_fixed": 1.0,
+                                "limit": 0.0,
+                                "min": 0.0,
+                                "max": 100.0,
+                                "time_shift": []
+                            }
+                        }
+                    ],
+                    "layout": {
+                        "x": 0,
+                        "y": 0,
+                        "w": 12,
+                        "h": 9,
+                        "i": 1
+                    },
+                    "htmlContent": "",
+                    "markdownContent": ""
+                },
+                {
+                    "id": "Panel_ID_health_ok_count",
+                    "type": "metric",
+                    "title": "Vérifications OK (5 dernières minutes)",
+                    "description": "Absence de ce signal = scheduler probablement arrêté",
+                    "config": {
+                        "show_legends": true,
+                        "legends_position": "bottom",
+                        "unit": "numbers",
+                        "decimals": 0.0,
+                        "line_thickness": 1.5,
+                        "step_value": "0",
+                        "top_results_others": false,
+                        "axis_border_show": true,
+                        "label_option": {
+                            "rotate": 0.0
+                        },
+                        "show_symbol": true,
+                        "line_interpolation": "smooth",
+                        "legend_width": {
+                            "unit": "px"
+                        },
+                        "base_map": {
+                            "type": "osm"
+                        },
+                        "map_type": {
+                            "type": "world"
+                        },
+                        "map_view": {
+                            "zoom": 1.0,
+                            "lat": 0.0,
+                            "lng": 0.0
+                        },
+                        "map_symbol_style": {
+                            "size": "by Value",
+                            "size_by_value": {
+                                "min": 1.0,
+                                "max": 100.0
+                            },
+                            "size_fixed": 2.0
+                        },
+                        "drilldown": [],
+                        "mark_line": [],
+                        "override_config": [],
+                        "connect_nulls": false,
+                        "no_value_replacement": "",
+                        "wrap_table_cells": false,
+                        "table_transpose": false,
+                        "table_dynamic_columns": false,
+                        "color": {
+                            "mode": "palette-classic",
+                            "fixedColor": [],
+                            "seriesBy": "last"
+                        },
+                        "trellis": {
+                            "layout": null,
+                            "num_of_columns": 1
+                        }
+                    },
+                    "queryType": "sql",
+                    "queries": [
+                        {
+                            "query": "SELECT count(*) as \"y_axis_1\" FROM \"docker_logs\" WHERE container_name = 'statsio-api' AND message LIKE '%local.INFO: Health check OK%'",
+                            "vrlFunctionQuery": "",
+                            "customQuery": true,
+                            "fields": {
+                                "stream": "docker_logs",
+                                "stream_type": "logs",
+                                "x": [],
+                                "y": [
+                                    {
+                                        "label": "Count",
+                                        "alias": "y_axis_1",
+                                        "column": "_timestamp",
+                                        "color": "#27ae60",
+                                        "aggregationFunction": "count",
+                                        "isDerived": false,
+                                        "havingConditions": []
+                                    }
+                                ],
+                                "z": [],
+                                "breakdown": [],
+                                "filter": {
+                                    "filterType": "group",
+                                    "logicalOperator": "AND",
+                                    "conditions": []
+                                }
+                            },
+                            "config": {
+                                "promql_legend": "",
+                                "layer_type": "scatter",
+                                "weight_fixed": 1.0,
+                                "limit": 0.0,
+                                "min": 0.0,
+                                "max": 100.0,
+                                "time_shift": []
+                            }
+                        }
+                    ],
+                    "layout": {
+                        "x": 12,
+                        "y": 0,
+                        "w": 12,
+                        "h": 9,
+                        "i": 2
+                    },
+                    "htmlContent": "",
+                    "markdownContent": ""
+                },
+                {
+                    "id": "Panel_ID_health_history",
+                    "type": "table",
+                    "title": "Historique des vérifications de santé",
+                    "description": "",
+                    "config": {
+                        "show_legends": true,
+                        "legends_position": "bottom",
+                        "unit": "numbers",
+                        "decimals": 0.0,
+                        "line_thickness": 1.5,
+                        "step_value": "0",
+                        "top_results_others": false,
+                        "axis_border_show": true,
+                        "label_option": {
+                            "rotate": 0.0
+                        },
+                        "show_symbol": true,
+                        "line_interpolation": "smooth",
+                        "legend_width": {
+                            "unit": "px"
+                        },
+                        "base_map": {
+                            "type": "osm"
+                        },
+                        "map_type": {
+                            "type": "world"
+                        },
+                        "map_view": {
+                            "zoom": 1.0,
+                            "lat": 0.0,
+                            "lng": 0.0
+                        },
+                        "map_symbol_style": {
+                            "size": "by Value",
+                            "size_by_value": {
+                                "min": 1.0,
+                                "max": 100.0
+                            },
+                            "size_fixed": 2.0
+                        },
+                        "drilldown": [],
+                        "mark_line": [],
+                        "override_config": [],
+                        "connect_nulls": false,
+                        "no_value_replacement": "",
+                        "wrap_table_cells": false,
+                        "table_transpose": false,
+                        "table_dynamic_columns": false,
+                        "color": {
+                            "mode": "palette-classic",
+                            "fixedColor": [],
+                            "seriesBy": "last"
+                        },
+                        "trellis": {
+                            "layout": null,
+                            "num_of_columns": 1
+                        }
+                    },
+                    "queryType": "sql",
+                    "queries": [
+                        {
+                            "query": "SELECT _timestamp as \"x_axis_1\", message as \"x_axis_2\" FROM \"docker_logs\" WHERE container_name = 'statsio-api' AND (message LIKE '%local.CRITICAL%' OR message LIKE '%local.INFO: Health check%') ORDER BY _timestamp DESC LIMIT 50",
+                            "vrlFunctionQuery": "",
+                            "customQuery": true,
+                            "fields": {
+                                "stream": "docker_logs",
+                                "stream_type": "logs",
+                                "x": [
+                                    {
+                                        "label": "Horodatage",
+                                        "alias": "x_axis_1",
+                                        "column": "_timestamp",
+                                        "color": null,
+                                        "isDerived": false,
+                                        "havingConditions": []
+                                    },
+                                    {
+                                        "label": "Résultat",
+                                        "alias": "x_axis_2",
+                                        "column": "message",
+                                        "color": null,
+                                        "isDerived": false,
+                                        "havingConditions": []
+                                    }
+                                ],
+                                "y": [],
+                                "z": [],
+                                "breakdown": [],
+                                "filter": {
+                                    "filterType": "group",
+                                    "logicalOperator": "AND",
+                                    "conditions": []
+                                }
+                            },
+                            "config": {
+                                "promql_legend": "",
+                                "layer_type": "scatter",
+                                "weight_fixed": 1.0,
+                                "limit": 0.0,
+                                "min": 0.0,
+                                "max": 100.0,
+                                "time_shift": []
+                            }
+                        }
+                    ],
+                    "layout": {
+                        "x": 0,
+                        "y": 9,
+                        "w": 48,
+                        "h": 12,
+                        "i": 3
+                    },
+                    "htmlContent": "",
+                    "markdownContent": ""
+                }
+            ]
+        }
+    ]
+}

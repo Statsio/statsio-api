@@ -79,6 +79,27 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile.prod
+    container_name: statsio-scheduler-staging
+    restart: unless-stopped
+    env_file: .env.staging
+    volumes:
+      - .:/var/www
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["php", "artisan", "schedule:work"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   nginx:
     image: nginx:alpine
     container_name: statsio-nginx-staging
