@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\MonitorHealthCommand;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -20,7 +21,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withSchedule(function (Schedule $schedule): void {
-        //
+        // Laravel exécute chaque tâche planifiée via Symfony Process, qui capture systématiquement
+        // la sortie du sous-shell dans son propre pipe (donc `/dev/stdout` s'y reboucle et se fait
+        // avaler par le callback muet de execute()) : cibler /proc/1/fd/1 contourne ce pipe et écrit
+        // directement dans le flux stdout réel du conteneur (PID 1), celui que Docker capture.
+        // Pas de withoutOverlapping() ici : son mutex passe par le cache (Redis) — dépendre de Redis
+        // pour surveiller Redis créerait un angle mort exactement quand la sonde doit fonctionner.
+        // Inutile de toute façon : l'exécution prend ~0,5s pour un cycle d'une minute.
+        $schedule->command(MonitorHealthCommand::class)
+            ->everyMinute()
+            ->sendOutputTo('/proc/1/fd/1');
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->use([
