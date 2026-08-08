@@ -2,7 +2,7 @@ name: Tests API
 
 on:
   pull_request:
-    branches: [main, staging]
+    branches: [main, staging, dev]
   workflow_call:
 
 jobs:
