@@ -45,6 +45,10 @@ services:
     container_name: statsio-api-staging
     restart: unless-stopped
     env_file: .env.staging
+    environment:
+      # Seul ce service prépare le code partagé (composer install, migrations, cache) — cf.
+      # entrypoint.prod.sh. queue et scheduler montent le même volume et attendent que ce soit prêt.
+      RUN_SETUP: "true"
     volumes:
       - .:/var/www
     depends_on:
@@ -72,6 +76,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      api:
+        condition: service_started
     command: ["php", "artisan", "queue:work", "--queue=ingestion", "--sleep=3", "--tries=3", "--timeout=300"]
     logging:
       driver: json-file
@@ -93,6 +99,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      api:
+        condition: service_started
     command: ["php", "artisan", "schedule:work"]
     logging:
       driver: json-file
