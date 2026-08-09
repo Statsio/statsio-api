@@ -97,6 +97,10 @@ jobs:
             CACHE_STORE=database
             QUEUE_CONNECTION=database
 
+            REDIS_HOST=redis
+            REDIS_PORT=6379
+            REDIS_PASSWORD=${REDIS_PASSWORD}
+
             CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
             SANCTUM_STATEFUL_DOMAINS=${SANCTUM_STATEFUL_DOMAINS}
             SANCTUM_EXPIRATION=1440
