@@ -125,8 +125,11 @@ ALERT_ID=$(curl -s -u "$AUTH" "$OO_URL/api/v2/$ORG/alerts" \
   | python3 -c "import json,sys; d=json.load(sys.stdin); print(next((a['alert_id'] for a in d['list'] if a['name']=='$ALERT_NAME'), ''))")
 
 # Le stream docker_logs ne contient qu'un champ 'message' texte brut (Vector n'y applique aucun
-# parsing) : on filtre sur la sous-chaîne stable produite par Monolog ("local.CRITICAL:") plutôt
-# que sur un champ structuré 'level', qui n'existe pas dans ce stream.
+# parsing) : on filtre sur la sous-chaîne stable produite par Monolog ("<env>.CRITICAL:") plutôt
+# que sur un champ structuré 'level', qui n'existe pas dans ce stream. Le préfixe d'environnement
+# (APP_ENV, ex. "production", "staging") varie selon la cible : on filtre sur ".CRITICAL:" seul,
+# qui matche quel que soit l'environnement plutôt que sur "local.CRITICAL", qui ne serait jamais
+# produit en dehors d'un poste de développement.
 ALERT_DESTINATIONS=$(printf '"%s",' "${DEST_LIST[@]}")
 ALERT_DESTINATIONS="${ALERT_DESTINATIONS%,}"
 
@@ -138,7 +141,7 @@ ALERT_PAYLOAD=$(cat <<JSON
   "is_real_time": false,
   "query_condition": {
     "type": "sql",
-    "sql": "SELECT _timestamp, container_name, message FROM docker_logs WHERE container_name = '$CONTAINER_NAME' AND message LIKE '%local.CRITICAL%'"
+    "sql": "SELECT _timestamp, container_name, message FROM docker_logs WHERE container_name = '$CONTAINER_NAME' AND message LIKE '%.CRITICAL:%'"
   },
   "trigger_condition": {
     "period": 5,
