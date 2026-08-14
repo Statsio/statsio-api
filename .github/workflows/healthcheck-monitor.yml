@@ -1,0 +1,26 @@
+name: Production Healthcheck Monitor
+
+# Sonde externe et indépendante de l'infrastructure surveillée (cf. BLOC4_2, 2.1) : les alertes
+# OpenObserve (cf. BLOC4_1, 1.3) ne couvrent que les échecs applicatifs journalisés par Laravel,
+# pas une panne qui empêche l'application de démarrer (ex. incident du 09/08/2026). Ce workflow
+# ping l'endpoint public directement, sans dépendre de Vector/OpenObserve pour porter le signal —
+# si ceux-ci sont eux-mêmes en panne, cette sonde reste fonctionnelle.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check production API health
+        run: |
+          RESPONSE=$(curl -sf --max-time 10 https://api.statsio.fr/api/healthcheck 2>/dev/null || echo "")
+          echo "Response: ${RESPONSE:-<no response>}"
+
+          if ! echo "$RESPONSE" | grep -q '"status":"ok"'; then
+            echo "::error::Production API is not healthy (https://api.statsio.fr/api/healthcheck)"
+            exit 1
+          fi
