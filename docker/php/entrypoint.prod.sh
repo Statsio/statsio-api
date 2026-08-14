@@ -8,7 +8,14 @@ git config --global --add safe.directory /var/www
 # écrivent dans le même vendor/ en même temps — ça a déjà corrompu vendor/autoload_classmap.php
 # en prod. Un seul conteneur (api, via RUN_SETUP=true) prépare le code partagé ; les autres se
 # contentent d'attendre que vendor/ existe déjà et d'exécuter leur commande.
+READY_MARKER=/var/www/storage/.ready
+
 if [ "${RUN_SETUP:-false}" = "true" ]; then
+  # Retiré en premier : le bind mount persiste entre recréations de conteneur, donc un marqueur
+  # laissé par un déploiement précédent réussi resterait présent même si CE déploiement échoue
+  # en cours de route (set -e arrête le script avant d'atteindre le "touch" plus bas).
+  rm -f "$READY_MARKER"
+
   echo "Installing dependencies..."
   composer install --no-interaction --optimize-autoloader --no-dev
 
@@ -30,9 +37,11 @@ if [ "${RUN_SETUP:-false}" = "true" ]; then
 
   echo "Linking storage..."
   php artisan storage:link --force
+
+  touch "$READY_MARKER"
 else
-  echo "Waiting for vendor/ to be ready (installed by the api service)..."
-  until [ -f /var/www/vendor/autoload.php ]; do
+  echo "Waiting for the api service to finish setup..."
+  until [ -f "$READY_MARKER" ]; do
     sleep 1
   done
 fi
