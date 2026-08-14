@@ -160,6 +160,11 @@ services:
       ZO_SMTP_ENCRYPTION: starttls
     volumes:
       - openobserve_data:/data
+    ports:
+      # Lié à 127.0.0.1 uniquement : accès public toujours exclusivement via Traefik/TLS
+      # (labels ci-dessous). Ce port sert à l'outillage exécuté sur l'hôte du VPS lui-même
+      # (provision-alerts.sh, cf. deploy-api.yml / deploy-api-staging.yml).
+      - "127.0.0.1:5080:5080"
     labels:
       traefik.enable: "true"
       traefik.http.routers.statsio-observe.rule: "Host(`observe.statsio.fr`)"
