@@ -1,0 +1,77 @@
+name: "Signalement d'anomalie"
+description: "Consigner un bogue rencontré sur l'API (production, staging ou développement)"
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Que se passe-t-il ? Un résumé clair du problème.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Étapes de reproduction
+      description: Étapes précises, numérotées, permettant de reproduire le bogue à coup sûr.
+      placeholder: |
+        1. Aller sur ...
+        2. Appeler l'endpoint ...
+        3. Envoyer la requête avec ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportement observé
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environnement
+      options:
+        - Production
+        - Staging
+        - Développement local
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Sévérité
+      description: "Critique : service indisponible ou données corrompues. Majeure : fonctionnalité importante cassée, contournement possible. Mineure : impact limité."
+      options:
+        - Critique
+        - Majeure
+        - Mineure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit concerné
+      description: "Tag, hash de commit, ou date de déploiement si connus."
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, captures d'écran, lien OpenObserve
+      description: Toute preuve utile au diagnostic (extrait de log, capture, lien vers un dashboard OpenObserve).
+    validations:
+      required: false
