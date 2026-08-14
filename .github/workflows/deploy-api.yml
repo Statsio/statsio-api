@@ -166,4 +166,10 @@ jobs:
               exit 1
             fi
 
+            # Reprovisionne la règle d'alerte OpenObserve (email + Slack, cf. BLOC4_1, 1.3) à
+            # chaque déploiement, avec les mêmes secrets que ceux injectés dans .env.prod
+            # ci-dessus. Non-bloquant : une indisponibilité d'OpenObserve ne doit pas faire
+            # échouer un déploiement applicatif par ailleurs réussi.
+            ./docker/openobserve/provision-alerts.sh || echo "::warning::Provisionnement des alertes OpenObserve échoué (non bloquant)"
+
             echo "Deploy OK"
