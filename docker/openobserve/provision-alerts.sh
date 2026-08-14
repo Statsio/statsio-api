@@ -36,9 +36,18 @@ ALERT_SUFFIX="${ALERT_SUFFIX:-}"
 INCLUDE_EMAIL="${INCLUDE_EMAIL:-true}"
 
 DEST_NAME="statsio_health_alerts${ALERT_SUFFIX}"
+EMAIL_TEMPLATE_NAME="statsio_email_template${ALERT_SUFFIX}"
 SLACK_TEMPLATE_NAME="statsio_slack_template${ALERT_SUFFIX}"
 SLACK_DEST_NAME="statsio_slack_alerts${ALERT_SUFFIX}"
 ALERT_NAME="statsio_health_critical${ALERT_SUFFIX}"
+
+# Libellé humain de l'environnement, dérivé du suffixe : indispensable dans le corps de l'email/
+# Slack, sinon rien ne permet de savoir sur quel environnement porte l'alerte à la lecture.
+case "$ALERT_SUFFIX" in
+  "") ENV_LABEL="Production" ;;
+  "_staging") ENV_LABEL="Staging" ;;
+  *) ENV_LABEL="Environnement${ALERT_SUFFIX}" ;;
+esac
 
 curl -sf -u "$AUTH" "$OO_URL/healthz" > /dev/null || {
   echo "OpenObserve injoignable sur $OO_URL" >&2
@@ -50,8 +59,30 @@ DEST_LIST=()
 # Destination email (optionnelle : désactivée pour un environnement comme staging où seule une
 # visibilité Slack "légère" est souhaitée, sans réveiller personne par email).
 if [ "$INCLUDE_EMAIL" = "true" ]; then
+  # Le template par défaut d'OpenObserve ("prebuilt_email") n'affiche qu'un objet générique sans
+  # corps exploitable (ni environnement, ni horodatage, ni lien) : un template dédié est
+  # nécessaire pour que l'email seul suffise à comprendre ce qui se passe et où.
+  EMAIL_TEMPLATE_PAYLOAD=$(cat <<JSON
+{
+  "name": "$EMAIL_TEMPLATE_NAME",
+  "type": "email",
+  "title": "🚨 [$ENV_LABEL] Alerte critique — {alert_name}",
+  "body": "<h3>🚨 Alerte critique — {alert_name}</h3><p><strong>Environnement :</strong> $ENV_LABEL</p><p><strong>Flux surveillé :</strong> {stream_name}</p><p><strong>Condition :</strong> {alert_count} occurrence(s) sur la fenêtre, seuil {alert_threshold}</p><p><strong>Déclenché à :</strong> {alert_start_time}</p><p><a href=\\"{alert_url}\\">Voir le détail dans OpenObserve</a></p>"
+}
+JSON
+)
+
+  if curl -sf -u "$AUTH" -X PUT "$OO_URL/api/$ORG/alerts/templates/$EMAIL_TEMPLATE_NAME" \
+    -H "Content-Type: application/json" -d "$EMAIL_TEMPLATE_PAYLOAD" > /dev/null 2>&1; then
+    echo "Template '$EMAIL_TEMPLATE_NAME' mis à jour."
+  else
+    curl -sf -u "$AUTH" -X POST "$OO_URL/api/$ORG/alerts/templates" \
+      -H "Content-Type: application/json" -d "$EMAIL_TEMPLATE_PAYLOAD" > /dev/null
+    echo "Template '$EMAIL_TEMPLATE_NAME' créé."
+  fi
+
   DEST_PAYLOAD=$(cat <<JSON
-{"name":"$DEST_NAME","type":"email","emails":["${ZO_ROOT_USER_EMAIL}"],"template":"prebuilt_email"}
+{"name":"$DEST_NAME","type":"email","emails":["${ZO_ROOT_USER_EMAIL}"],"template":"$EMAIL_TEMPLATE_NAME"}
 JSON
 )
 
@@ -78,7 +109,7 @@ if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
 {
   "name": "$SLACK_TEMPLATE_NAME",
   "type": "http",
-  "body": "{\\"text\\": \\":rotating_light: *[$ALERT_NAME]* {alert_name} est actif sur le flux {stream_name} (seuil : {alert_count}/{alert_threshold}) — {alert_url}\\"}"
+  "body": "{\\"text\\": \\":rotating_light: *[$ENV_LABEL]* {alert_name} est actif sur le flux {stream_name} (seuil : {alert_count}/{alert_threshold}) — {alert_url}\\"}"
 }
 JSON
 )
