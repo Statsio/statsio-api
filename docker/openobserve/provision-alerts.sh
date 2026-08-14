@@ -95,7 +95,7 @@ JSON
   "name": "$SLACK_DEST_NAME",
   "type": "http",
   "url": "$SLACK_WEBHOOK_URL",
-  "method": "POST",
+  "method": "post",
   "headers": {"Content-Type": "application/json"},
   "template": "$SLACK_TEMPLATE_NAME"
 }
