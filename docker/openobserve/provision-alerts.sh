@@ -29,7 +29,9 @@ set -euo pipefail
 OO_URL="${OO_URL:-http://localhost:5080}"
 ORG="default"
 AUTH="${ZO_ROOT_USER_EMAIL}:${ZO_ROOT_USER_PASSWORD}"
-CONTAINER_NAME="${CONTAINER_NAME:-statsio-api}"
+# health:monitor tourne dans le conteneur "scheduler" (schedule:work, cf. bootstrap/app.php),
+# pas dans "api" : c'est bien ce conteneur qu'il faut surveiller pour cette alerte.
+CONTAINER_NAME="${CONTAINER_NAME:-statsio-scheduler}"
 ALERT_SUFFIX="${ALERT_SUFFIX:-}"
 INCLUDE_EMAIL="${INCLUDE_EMAIL:-true}"
 
