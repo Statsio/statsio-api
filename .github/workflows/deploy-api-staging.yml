@@ -47,6 +47,8 @@ jobs:
           DATASETS_DISK: ${{ vars.DATASETS_DISK }}
           MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
           MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          ZO_ROOT_USER_EMAIL: ${{ secrets.ZO_ROOT_USER_EMAIL }}
+          ZO_ROOT_USER_PASSWORD: ${{ secrets.ZO_ROOT_USER_PASSWORD }}
           MEDICAMENTS_API_BASE_URL: ${{ vars.MEDICAMENTS_API_BASE_URL }}
           WHO_GHO_API_BASE_URL: ${{ vars.WHO_GHO_API_BASE_URL }}
           ICD11_API_BASE_URL: ${{ vars.ICD11_API_BASE_URL }}
@@ -56,11 +58,12 @@ jobs:
           ICD11_RELEASE_ID: ${{ vars.ICD11_RELEASE_ID }}
           UMLS_API_BASE_URL: ${{ vars.UMLS_API_BASE_URL }}
           UMLS_API_KEY: ${{ secrets.UMLS_API_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         with:
           host: ${{ vars.SSH_HOST }}
           username: ${{ vars.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: APP_KEY,DB_PASSWORD,REDIS_PASSWORD,GOOGLE_CLIENT_ID,ADMIN_PASSWORD,APP_URL,CORS_ALLOWED_ORIGINS,SANCTUM_STATEFUL_DOMAINS,R2_ENDPOINT,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY,R2_DATASETS_BUCKET,R2_MEDIA_BUCKET,DATASETS_DISK,MAIL_USERNAME,MAIL_PASSWORD,MEDICAMENTS_API_BASE_URL,WHO_GHO_API_BASE_URL,ICD11_API_BASE_URL,ICD11_TOKEN_URL,ICD11_CLIENT_ID,ICD11_CLIENT_SECRET,ICD11_RELEASE_ID,UMLS_API_BASE_URL,UMLS_API_KEY
+          envs: APP_KEY,DB_PASSWORD,REDIS_PASSWORD,GOOGLE_CLIENT_ID,ADMIN_PASSWORD,APP_URL,CORS_ALLOWED_ORIGINS,SANCTUM_STATEFUL_DOMAINS,R2_ENDPOINT,R2_ACCESS_KEY_ID,R2_SECRET_ACCESS_KEY,R2_DATASETS_BUCKET,R2_MEDIA_BUCKET,DATASETS_DISK,MAIL_USERNAME,MAIL_PASSWORD,ZO_ROOT_USER_EMAIL,ZO_ROOT_USER_PASSWORD,MEDICAMENTS_API_BASE_URL,WHO_GHO_API_BASE_URL,ICD11_API_BASE_URL,ICD11_TOKEN_URL,ICD11_CLIENT_ID,ICD11_CLIENT_SECRET,ICD11_RELEASE_ID,UMLS_API_BASE_URL,UMLS_API_KEY,SLACK_WEBHOOK_URL
           script: |
             set -e
 
@@ -136,6 +139,7 @@ jobs:
             [ -n "${ICD11_RELEASE_ID}" ] && echo "ICD11_RELEASE_ID=${ICD11_RELEASE_ID}" >> .env.staging
             [ -n "${UMLS_API_BASE_URL}" ] && echo "UMLS_API_BASE_URL=${UMLS_API_BASE_URL}" >> .env.staging
             [ -n "${UMLS_API_KEY}" ] && echo "UMLS_API_KEY=${UMLS_API_KEY}" >> .env.staging
+            [ -n "${SLACK_WEBHOOK_URL}" ] && echo "SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}" >> .env.staging
 
             docker compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
 
@@ -158,6 +162,16 @@ jobs:
               docker compose -f docker-compose.staging.yml logs api --tail 100
               exit 1
             fi
+
+            # Reprovisionne la règle d'alerte OpenObserve du staging (Slack uniquement, canal
+            # "preview logs" — cf. BLOC4_1, 1.3.B) à chaque déploiement. Cible l'instance
+            # OpenObserve partagée avec la production (le staging n'en a pas de dédiée) via le
+            # script versionné dans statsio-api, copié ici lors de l'étape "Copy files to server".
+            # Non-bloquant : une indisponibilité d'OpenObserve ne doit pas faire échouer un
+            # déploiement applicatif par ailleurs réussi.
+            CONTAINER_NAME=statsio-api-staging ALERT_SUFFIX=_staging INCLUDE_EMAIL=false \
+              ./docker/openobserve/provision-alerts.sh \
+              || echo "::warning::Provisionnement des alertes OpenObserve (staging) échoué (non bloquant)"
 
             # Nettoie les images non utilisées pour éviter l'accumulation de layers au fil des déploiements
             docker image prune -f
