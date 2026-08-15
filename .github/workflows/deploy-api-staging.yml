@@ -169,7 +169,7 @@ jobs:
             # script versionné dans statsio-api, copié ici lors de l'étape "Copy files to server".
             # Non-bloquant : une indisponibilité d'OpenObserve ne doit pas faire échouer un
             # déploiement applicatif par ailleurs réussi.
-            CONTAINER_NAME=statsio-scheduler-staging ALERT_SUFFIX=_staging INCLUDE_EMAIL=false \
+            CONTAINER_NAME=statsio-scheduler-staging API_CONTAINER_NAME=statsio-api-staging ALERT_SUFFIX=_staging INCLUDE_EMAIL=false \
               ./docker/openobserve/provision-alerts.sh \
               || echo "::warning::Provisionnement des alertes OpenObserve (staging) échoué (non bloquant)"
 

@@ -12,6 +12,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Illuminate\Support\Facades\Log;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -45,6 +46,37 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(function () {
             return true;
+        });
+
+        // Journalise en ERROR uniquement les vraies anomalies serveur (5xx), avec le contexte
+        // nécessaire pour diagnostiquer sans ouvrir OpenObserve : URL, méthode, utilisateur,
+        // type d'exception. Les 4xx (validation, non-authentifié, non-autorisé) sont des cas
+        // d'usage normaux du client, pas des anomalies — on ne les journalise pas du tout ici,
+        // return false empêchant aussi le report() par défaut de Laravel pour éviter un doublon.
+        $exceptions->report(function (Throwable $e): bool {
+            if ($e instanceof ValidationException
+                || $e instanceof AuthenticationException
+                || $e instanceof AuthorizationException) {
+                return false;
+            }
+
+            $statusCode = $e instanceof HttpException ? $e->getStatusCode() : 500;
+
+            if ($statusCode < 500) {
+                return false;
+            }
+
+            Log::error('Erreur applicative non gérée', [
+                'exception_type' => get_class($e),
+                'message' => $e->getMessage(),
+                'url' => request()?->fullUrl(),
+                'method' => request()?->method(),
+                'user_id' => auth()->id(),
+                'status_code' => $statusCode,
+                'location' => $e->getFile().':'.$e->getLine(),
+            ]);
+
+            return false;
         });
 
         // Helper function pour formater les réponses d'erreur API
