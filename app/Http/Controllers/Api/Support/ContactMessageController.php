@@ -13,7 +13,7 @@ class ContactMessageController extends Controller
 {
     public function store(StoreContactMessageRequest $request): JsonResponse
     {
-        $message = ContactMessage::create($request->validated());
+        $message = ContactMessage::create($request->safe()->except('turnstile_token'));
 
         Mail::to($message->email)->send(new ContactConfirmationMailable($message));
 

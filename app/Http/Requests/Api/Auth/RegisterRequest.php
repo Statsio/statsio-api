@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Api\Auth;
 
+use App\Rules\TurnstileToken;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class RegisterRequest extends FormRequest
 {
@@ -60,6 +62,13 @@ class RegisterRequest extends FormRequest
             'birthday' => ['required', 'date'],
             'email' => ['required', 'email', 'unique:users'],
             'password' => ['required', 'min:8'],
+            'turnstile_token' => [
+                'bail',
+                Rule::requiredIf(fn () => filled(config('services.turnstile.secret'))),
+                'nullable',
+                'string',
+                new TurnstileToken('register'),
+            ],
         ];
     }
 
@@ -74,6 +83,7 @@ class RegisterRequest extends FormRequest
             'email.unique' => __('validation.unique'),
             'password.required' => __('validation.required'),
             'password.min' => __('validation.min.string'),
+            'turnstile_token.required' => 'La vérification anti-robot est requise.',
         ];
     }
 
