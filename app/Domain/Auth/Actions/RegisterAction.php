@@ -1,8 +1,10 @@
 <?php
 namespace App\Domain\Auth\Actions;
 
+use App\Mail\Auth\RegistrationConfirmedMailable;
 use App\Models\User\User;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 
 class RegisterAction
 {
@@ -23,7 +25,22 @@ class RegisterAction
             'birthday' => $data['birthday'],
         ]);
 
-        $this->sendVerificationEmailAction->execute($user->fresh('profile'));
+        $user = $user->fresh('profile');
+
+        $this->sendVerificationEmailAction->execute($user);
+
+        $activationUrl = sprintf(
+            '%s/verify-email?email=%s',
+            rtrim(config('app.frontend_url'), '/'),
+            urlencode($user->email),
+        );
+
+        Mail::to($user->email)->send(new RegistrationConfirmedMailable(
+            firstName: $user->profile?->first_name ?? '',
+            email: $user->email,
+            activationUrl: $activationUrl,
+            createdAt: $user->created_at,
+        ));
 
         return ['email' => $user->email];
     }

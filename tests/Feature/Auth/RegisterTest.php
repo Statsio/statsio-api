@@ -2,8 +2,12 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Mail\Auth\RegistrationConfirmedMailable;
+use App\Mail\Auth\VerifyEmailMailable;
 use App\Models\User\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class RegisterTest extends TestCase
@@ -27,6 +31,16 @@ class RegisterTest extends TestCase
                  ->assertJsonStructure(['data' => ['email']]);
 
         $this->assertDatabaseHas('users', ['email' => 'alice@example.com']);
+    }
+
+    public function test_registration_sends_verification_and_welcome_emails(): void
+    {
+        Mail::fake();
+
+        $this->postJson('/api/auth/register', $this->validPayload);
+
+        Mail::assertSent(VerifyEmailMailable::class, fn ($mail) => $mail->hasTo('alice@example.com'));
+        Mail::assertSent(RegistrationConfirmedMailable::class, fn ($mail) => $mail->hasTo('alice@example.com'));
     }
 
     public function test_registration_creates_user_profile(): void
@@ -62,5 +76,32 @@ class RegisterTest extends TestCase
         ]));
 
         $response->assertStatus(422);
+    }
+
+    public function test_registration_requires_turnstile_token_when_configured(): void
+    {
+        config(['services.turnstile.secret' => 'test-secret']);
+
+        $response = $this->postJson('/api/auth/register', $this->validPayload);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('turnstile_token');
+    }
+
+    public function test_registration_accepts_successful_turnstile_verification(): void
+    {
+        config(['services.turnstile.secret' => 'test-secret']);
+        Http::fake([
+            'challenges.cloudflare.com/*' => Http::response([
+                'success' => true,
+                'action' => 'register',
+                'hostname' => parse_url((string) config('app.frontend_url'), PHP_URL_HOST),
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/auth/register', array_merge($this->validPayload, [
+            'turnstile_token' => 'valid-token',
+        ]));
+
+        $response->assertStatus(201)->assertJsonPath('success', true);
     }
 }
