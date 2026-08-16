@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\Auth;
 use App\Http\Controllers\Controller;
 use App\Domain\Auth\Actions\LoginAction;
 use App\Domain\Auth\Exceptions\InvalidCredentialsException;
+use App\Rules\TurnstileToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class LoginController extends Controller
 {
@@ -14,6 +16,13 @@ class LoginController extends Controller
         $validator = Validator::make($request->all(), [
             'email' => ['required', 'email'],
             'password' => ['required'],
+            'turnstile_token' => [
+                'bail',
+                Rule::requiredIf(fn () => filled(config('services.turnstile.secret'))),
+                'nullable',
+                'string',
+                new TurnstileToken('login'),
+            ],
         ]);
 
         if ($validator->fails()) {

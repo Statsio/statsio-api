@@ -3,7 +3,9 @@
 namespace App\Http\Requests\Support;
 
 use App\Domain\Support\Enums\ContactReasonEnum;
+use App\Rules\TurnstileToken;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Enum;
 
 class StoreContactMessageRequest extends FormRequest
@@ -21,6 +23,13 @@ class StoreContactMessageRequest extends FormRequest
             'email' => ['required', 'email', 'max:255'],
             'company' => ['nullable', 'string', 'max:255'],
             'message' => ['required', 'string', 'max:5000'],
+            'turnstile_token' => [
+                'bail',
+                Rule::requiredIf(fn () => filled(config('services.turnstile.secret'))),
+                'nullable',
+                'string',
+                new TurnstileToken('contact'),
+            ],
         ];
     }
 
@@ -32,6 +41,7 @@ class StoreContactMessageRequest extends FormRequest
             'email.required' => 'Votre e-mail est requis.',
             'email.email' => "L'e-mail n'est pas valide.",
             'message.required' => 'Le message ne peut pas être vide.',
+            'turnstile_token.required' => 'La vérification anti-robot est requise.',
         ];
     }
 }

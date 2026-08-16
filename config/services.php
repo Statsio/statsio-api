@@ -39,6 +39,10 @@ return [
         'client_id' => env('GOOGLE_CLIENT_ID'),
     ],
 
+    'turnstile' => [
+        'secret' => env('TURNSTILE_SECRET'),
+    ],
+
     'duckdb' => [
         'path' => env('DUCKDB_PATH', '/usr/local/bin/duckdb'),
     ],
