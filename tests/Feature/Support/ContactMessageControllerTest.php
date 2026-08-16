@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Support;
 
+use App\Mail\Support\ContactConfirmationMailable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class ContactMessageControllerTest extends TestCase
@@ -11,6 +13,8 @@ class ContactMessageControllerTest extends TestCase
 
     public function test_store_creates_contact_message(): void
     {
+        Mail::fake();
+
         $response = $this->postJson('/api/contact', [
             'reason' => 'general',
             'name' => 'Jeanne Dupont',
@@ -26,6 +30,8 @@ class ContactMessageControllerTest extends TestCase
             'reason' => 'general',
             'status' => 'new',
         ]);
+
+        Mail::assertSent(ContactConfirmationMailable::class, fn ($mail) => $mail->hasTo('jeanne@example.com'));
     }
 
     public function test_store_requires_valid_reason(): void

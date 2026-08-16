@@ -2,8 +2,11 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Mail\Auth\RegistrationConfirmedMailable;
+use App\Mail\Auth\VerifyEmailMailable;
 use App\Models\User\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class RegisterTest extends TestCase
@@ -27,6 +30,16 @@ class RegisterTest extends TestCase
                  ->assertJsonStructure(['data' => ['email']]);
 
         $this->assertDatabaseHas('users', ['email' => 'alice@example.com']);
+    }
+
+    public function test_registration_sends_verification_and_welcome_emails(): void
+    {
+        Mail::fake();
+
+        $this->postJson('/api/auth/register', $this->validPayload);
+
+        Mail::assertSent(VerifyEmailMailable::class, fn ($mail) => $mail->hasTo('alice@example.com'));
+        Mail::assertSent(RegistrationConfirmedMailable::class, fn ($mail) => $mail->hasTo('alice@example.com'));
     }
 
     public function test_registration_creates_user_profile(): void
