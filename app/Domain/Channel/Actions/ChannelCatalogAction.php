@@ -2,11 +2,11 @@
 
 namespace App\Domain\Channel\Actions;
 
+use App\Domain\Channel\Enums\ChannelBadgeEnum;
 use App\Domain\Channel\Enums\ChannelKindEnum;
 use App\Domain\Channel\Enums\ChannelStatusEnum;
 use App\Models\Channel\Channel;
 use App\Models\Channel\ChannelCategory;
-use App\Models\Channel\ChannelProfile;
 use App\Models\StudioContent;
 use Illuminate\Support\Collection;
 
@@ -54,7 +54,7 @@ class ChannelCatalogAction
         // pouvoir calculer des compteurs de facettes cohérents.
         $universe = $this->baseQuery($userId)
             ->when($q !== '', fn ($query) => $this->applySearch($query, $q))
-            ->when($verified, fn ($query) => $query->whereHas('profile', fn ($p) => $p->whereNotNull('verified_at')))
+            ->when($verified, fn ($query) => $query->whereHas('channelBadges', fn ($b) => $b->where('slug', ChannelBadgeEnum::VERIFIED->value)))
             ->when($followed, fn ($query) => $query->whereHas('subscribers', fn ($s) => $s->where('users.id', $userId)))
             ->get();
 
@@ -99,7 +99,7 @@ class ChannelCatalogAction
         return Channel::query()
             ->where('status', ChannelStatusEnum::ACTIVE->value)
             ->whereHas('profile')
-            ->with('profile.channelCategories')
+            ->with(['profile.channelCategories', 'channelBadges'])
             ->withCount('subscribers')
             ->when($userId, fn ($q) => $q->withExists(['subscribers as is_following' => fn ($s) => $s->where('users.id', $userId)]));
     }
@@ -159,7 +159,7 @@ class ChannelCatalogAction
             'handle' => $profile->handle,
             'description' => $profile->description,
             'kind' => $profile->kind?->value ?? 'independant',
-            'verified' => $profile->verified_at !== null,
+            'verified' => in_array(ChannelBadgeEnum::VERIFIED->value, $channel->badges ?? [], true),
             'categories' => $profile->channelCategories->pluck('slug')->all(),
             'tags' => $profile->tags ?? [],
             'followers_count' => (int) ($channel->subscribers_count ?? 0),
@@ -326,8 +326,8 @@ class ChannelCatalogAction
     private function heroStats(): array
     {
         $active = Channel::where('status', ChannelStatusEnum::ACTIVE->value)->whereHas('profile')->count();
-        $verified = ChannelProfile::whereNotNull('verified_at')
-            ->whereHas('channel', fn ($c) => $c->where('status', ChannelStatusEnum::ACTIVE->value))
+        $verified = Channel::where('status', ChannelStatusEnum::ACTIVE->value)
+            ->whereHas('channelBadges', fn ($b) => $b->where('slug', ChannelBadgeEnum::VERIFIED->value))
             ->count();
         $publicationsMonth = StudioContent::where('published_as', 'channel')
             ->where('status', 'published')

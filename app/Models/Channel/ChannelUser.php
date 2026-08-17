@@ -2,8 +2,8 @@
 
 namespace App\Models\Channel;
 
-use App\Models\User\User;
 use App\Domain\Channel\Enums\ChannelUserRoleEnum;
+use App\Models\User\User;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -15,6 +15,7 @@ class ChannelUser extends Model
         'channel_id',
         'user_id',
         'role',
+        'permissions',
         'subscribed_at',
         'notifications_enabled',
         'is_banned',
@@ -24,6 +25,7 @@ class ChannelUser extends Model
 
     protected $casts = [
         'role' => ChannelUserRoleEnum::class,
+        'permissions' => 'array',
         'subscribed_at' => 'datetime',
         'notifications_enabled' => 'boolean',
         'is_banned' => 'boolean',
@@ -59,7 +61,7 @@ class ChannelUser extends Model
      */
     public function isCurrentlyBanned(): bool
     {
-        if (!$this->is_banned) {
+        if (! $this->is_banned) {
             return false;
         }
 
@@ -120,7 +122,7 @@ class ChannelUser extends Model
     public function toggleNotifications(): void
     {
         $this->update([
-            'notifications_enabled' => !$this->notifications_enabled,
+            'notifications_enabled' => ! $this->notifications_enabled,
         ]);
     }
 
@@ -157,6 +159,43 @@ class ChannelUser extends Model
     }
 
     /**
+     * Check if this member has a given permission (see ChannelPermissionEnum).
+     * Owners always have every permission, regardless of what's stored.
+     */
+    public function hasPermission(string $permissionKey): bool
+    {
+        if ($this->isOwner()) {
+            return true;
+        }
+
+        return in_array($permissionKey, $this->permissions ?? [], true);
+    }
+
+    /**
+     * Helper statique pour les FormRequest::authorize() : est-ce que l'utilisateur
+     * $userId a la permission $permissionKey sur la chaîne $channelId ?
+     */
+    public static function userHasPermission(int $channelId, int $userId, string $permissionKey): bool
+    {
+        $channelUser = static::where('channel_id', $channelId)
+            ->where('user_id', $userId)
+            ->first();
+
+        return $channelUser?->hasPermission($permissionKey) ?? false;
+    }
+
+    /**
+     * Est-ce que l'utilisateur $userId est owner de la chaîne $channelId ?
+     */
+    public static function userIsOwner(int $channelId, int $userId): bool
+    {
+        return static::where('channel_id', $channelId)
+            ->where('user_id', $userId)
+            ->where('role', ChannelUserRoleEnum::OWNER->value)
+            ->exists();
+    }
+
+    /**
      * Scope to get only subscribed users
      */
     public function scopeSubscribed($query)
@@ -170,10 +209,10 @@ class ChannelUser extends Model
     public function scopeBanned($query)
     {
         return $query->where('is_banned', true)
-                    ->where(function($q) {
-                        $q->whereNull('banned_until')
-                          ->orWhere('banned_until', '>', now());
-                    });
+            ->where(function ($q) {
+                $q->whereNull('banned_until')
+                    ->orWhere('banned_until', '>', now());
+            });
     }
 
     /**
@@ -185,14 +224,13 @@ class ChannelUser extends Model
     }
 
     /**
-     * Scope to get management team (owner, admin, moderator)
+     * Scope to get management team (owner, admin, redactor, guest)
      */
     public function scopeManagementTeam($query)
     {
-        return $query->whereIn('role', [
-            ChannelUserRoleEnum::OWNER->value,
-            ChannelUserRoleEnum::ADMIN->value,
-            ChannelUserRoleEnum::MODERATOR->value,
-        ]);
+        return $query->whereIn('role', array_map(
+            fn (ChannelUserRoleEnum $role) => $role->value,
+            ChannelUserRoleEnum::getManagementRoles(),
+        ));
     }
 }

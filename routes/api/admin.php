@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\AdminBroadcastController;
 use App\Http\Controllers\Api\Admin\AdminCategoryController;
 use App\Http\Controllers\Api\Admin\AdminChannelController;
 use App\Http\Controllers\Api\Admin\AdminContactMessageController;
+use App\Http\Controllers\Api\Admin\AdminEditorialChannelController;
 use App\Http\Controllers\Api\Admin\AdminProgramController;
 use App\Http\Controllers\Api\Admin\AdminReviewQuestionController;
 use App\Http\Controllers\Api\Admin\AdminSourceProvenanceController;
@@ -25,6 +26,17 @@ Route::middleware(['auth:api', 'admin'])->prefix('admin')->name('admin.')->group
     Route::patch('/tv/channels/{id}', [AdminChannelController::class, 'update'])->name('tv.channels.update');
     Route::post('/tv/channels/{id}/logo', [AdminChannelController::class, 'uploadLogo'])->name('tv.channels.logo');
     Route::delete('/tv/channels/{id}', [AdminChannelController::class, 'destroy'])->name('tv.channels.destroy');
+
+    // Chaînes éditoriales (Channel/ChannelProfile — distinct des chaînes TV ci-dessus)
+    Route::get('/channels', [AdminEditorialChannelController::class, 'index'])->name('channels.index');
+    Route::get('/channels/{id}', [AdminEditorialChannelController::class, 'show'])->name('channels.show');
+    Route::patch('/channels/{id}', [AdminEditorialChannelController::class, 'update'])->name('channels.update');
+    Route::post('/channels/{id}/suspend', [AdminEditorialChannelController::class, 'suspend'])->name('channels.suspend');
+    Route::post('/channels/{id}/ban', [AdminEditorialChannelController::class, 'ban'])->name('channels.ban');
+    Route::post('/channels/{id}/activate', [AdminEditorialChannelController::class, 'activate'])->name('channels.activate');
+    Route::post('/channels/{id}/anonymize', [AdminEditorialChannelController::class, 'anonymize'])->name('channels.anonymize');
+    Route::post('/channels/{id}/badges', [AdminEditorialChannelController::class, 'syncBadges'])->name('channels.badges.sync');
+    Route::delete('/channels/{id}', [AdminEditorialChannelController::class, 'destroy'])->name('channels.destroy');
 
     // Categories CRUD
     Route::get('/tv/categories', [AdminCategoryController::class, 'index'])->name('tv.categories.index');

@@ -2,14 +2,14 @@
 
 namespace App\Models\Channel;
 
-use App\Traits\HasMedia;
-use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
 use App\Domain\Channel\Enums\ChannelKindEnum;
-use App\Models\Channel\ChannelCategory;
+use App\Models\Media;
 use App\Models\StudioContent;
+use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\Auth;
 
 class ChannelProfile extends Model
@@ -22,16 +22,15 @@ class ChannelProfile extends Model
         'handle',
         'kind',
         'description',
+        'is_private',
         'logo',
         'banner',
         'tags',
         'country',
         'is_featured',
-        'verified_at',
         'view_count',
         'custom_color_primary',
         'custom_color_secondary',
-        'age_restriction',
         'featured_article_id',
         'featured_statsdata_id',
         'featured_survey_id',
@@ -39,19 +38,13 @@ class ChannelProfile extends Model
 
     protected $casts = [
         'is_featured' => 'boolean',
-        'verified_at' => 'datetime',
-        'view_count'  => 'integer',
-        'age_restriction' => ChannelAgeRestrictionEnum::class,
+        'is_private' => 'boolean',
+        'view_count' => 'integer',
         'kind' => ChannelKindEnum::class,
         'tags' => 'array',
     ];
 
-    protected $appends = ['subscriber_count', 'is_following', 'logo_url', 'banner_url', 'categories', 'verified'];
-
-    public function getVerifiedAttribute(): bool
-    {
-        return $this->verified_at !== null;
-    }
+    protected $appends = ['subscriber_count', 'is_following', 'logo_url', 'banner_url', 'categories'];
 
     public function getSubscriberCountAttribute(): int
     {
@@ -82,7 +75,7 @@ class ChannelProfile extends Model
         return $this->channelCategories->pluck('slug')->toArray();
     }
 
-    public function channelCategories(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    public function channelCategories(): BelongsToMany
     {
         return $this->belongsToMany(
             ChannelCategory::class,
@@ -95,24 +88,24 @@ class ChannelProfile extends Model
     public function getLogoUrlAttribute(): ?string
     {
         $media = $this->media()->where('collection_name', 'logo')->latest()->first();
+
         return $media ? $media->getUrl() : null;
     }
 
     public function getBannerUrlAttribute(): ?string
     {
         $media = $this->media()->where('collection_name', 'banner')->latest()->first();
+
         return $media ? $media->getUrl() : null;
     }
 
     public function toArray(): array
     {
         $array = parent::toArray();
-        if (isset($array['age_restriction']) && $array['age_restriction'] instanceof ChannelAgeRestrictionEnum) {
-            $array['age_restriction'] = $array['age_restriction']->value;
-        }
         if (isset($array['kind']) && $array['kind'] instanceof ChannelKindEnum) {
             $array['kind'] = $array['kind']->value;
         }
+
         return $array;
     }
 
@@ -143,7 +136,7 @@ class ChannelProfile extends Model
 
     public function addMediaById(int $mediaId, string $collection): void
     {
-        $media = \App\Models\Media::find($mediaId);
+        $media = Media::find($mediaId);
         if ($media) {
             $this->media()->save($media);
         }
@@ -170,54 +163,6 @@ class ChannelProfile extends Model
     }
 
     /**
-     * Check if content is suitable for a given age
-     */
-    public function isSuitableFor(int $age): bool
-    {
-        return $this->age_restriction->isSuitableFor($age);
-    }
-
-    /**
-     * Check if this is adult content
-     */
-    public function isAdultContent(): bool
-    {
-        return $this->age_restriction->isAdultContent();
-    }
-
-    /**
-     * Check if this is restricted content
-     */
-    public function isRestricted(): bool
-    {
-        return $this->age_restriction->isRestricted();
-    }
-
-    /**
-     * Get age restriction display name
-     */
-    public function getAgeRestrictionDisplay(): string
-    {
-        return $this->age_restriction->getDisplayName();
-    }
-
-    /**
-     * Get age restriction color for UI
-     */
-    public function getAgeRestrictionColor(): string
-    {
-        return $this->age_restriction->getColor();
-    }
-
-    /**
-     * Get age restriction icon
-     */
-    public function getAgeRestrictionIcon(): string
-    {
-        return $this->age_restriction->getIcon();
-    }
-
-    /**
      * Get channel completion percentage
      */
     public function getProfileCompletionPercentage(): int
@@ -230,14 +175,18 @@ class ChannelProfile extends Model
         $totalFields = count($allFields);
 
         foreach ($allFields as $field) {
-            if (!empty($this->$field)) {
+            if (! empty($this->$field)) {
                 $filledFields++;
             }
         }
 
         // Add bonus points for logo and banner
-        if ($this->getLogoUrl()) $filledFields++;
-        if ($this->getBannerUrl()) $filledFields++;
+        if ($this->getLogoUrl()) {
+            $filledFields++;
+        }
+        if ($this->getBannerUrl()) {
+            $filledFields++;
+        }
         $totalFields += 2;
 
         return round(($filledFields / $totalFields) * 100);

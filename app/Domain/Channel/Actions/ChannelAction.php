@@ -2,11 +2,12 @@
 
 namespace App\Domain\Channel\Actions;
 
+use App\Domain\Channel\Enums\ChannelBadgeEnum;
+use App\Domain\Channel\Enums\ChannelStatusEnum;
+use App\Domain\Channel\Enums\ChannelUserRoleEnum;
+use App\Models\Channel\Badge;
 use App\Models\Channel\Channel;
 use App\Models\Channel\ChannelProfile;
-use App\Domain\Channel\Enums\ChannelStatusEnum;
-use App\Domain\Channel\Actions\ChannelProfileAction;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
 
 class ChannelAction
@@ -28,6 +29,9 @@ class ChannelAction
         if ($userId = Auth::id()) {
             $channel->users()->attach($userId, [
                 'role' => 'owner',
+                // attach() écrit le pivot en brut, sans passer par les casts du modèle
+                // ChannelUser : il faut donc encoder l'array nous-mêmes.
+                'permissions' => json_encode(ChannelUserRoleEnum::OWNER->defaultPermissions()),
                 'subscribed_at' => now(),
                 'notifications_enabled' => true,
             ]);
@@ -45,6 +49,7 @@ class ChannelAction
     public function updateChannel(Channel $channel, array $data): Channel
     {
         $channel->update($data);
+
         return $channel;
     }
 
@@ -65,6 +70,8 @@ class ChannelAction
             'profile.featuredArticle',
             'profile.featuredStatsdata',
             'profile.featuredSurvey',
+            'channelBadges',
+            'organization.principalChannel.profile',
         ])->find($id);
     }
 
@@ -76,14 +83,14 @@ class ChannelAction
     /**
      * Liste publique des channels actifs, avec recherche/filtre/tri.
      *
-     * @param array{search?: ?string, category?: ?string, sort?: ?string} $filters
+     * @param  array{search?: ?string, category?: ?string, sort?: ?string}  $filters
      */
     public function getAllChannels(int $perPage = 15, array $filters = [], ?int $userId = null)
     {
         $query = Channel::query()
             ->where('status', ChannelStatusEnum::ACTIVE->value)
-            ->whereHas('profile')
-            ->with('profile.channelCategories')
+            ->whereHas('profile', fn ($q) => $q->where('is_private', false))
+            ->with(['profile.channelCategories', 'channelBadges', 'organization.principalChannel.profile'])
             ->withCount('subscribers');
 
         if ($userId) {
@@ -95,7 +102,7 @@ class ChannelAction
             // LOWER(...) LIKE plutôt que ILIKE (spécifique Postgres) : fonctionne aussi sur
             // le SQLite en mémoire utilisé par les tests (voir phpunit.xml), tout en restant
             // insensible à la casse sur Postgres en production.
-            $like = '%' . mb_strtolower($search) . '%';
+            $like = '%'.mb_strtolower($search).'%';
             $query->whereHas('profile', function ($q) use ($like) {
                 $q->whereRaw('LOWER(name) LIKE ?', [$like])
                     ->orWhereRaw('LOWER(handle) LIKE ?', [$like])
@@ -103,7 +110,7 @@ class ChannelAction
             });
         }
 
-        if (!empty($filters['category'])) {
+        if (! empty($filters['category'])) {
             $category = $filters['category'];
             $query->whereHas('profile.channelCategories', fn ($q) => $q->where('slug', $category));
         }
@@ -125,7 +132,7 @@ class ChannelAction
 
     public function getChannelsForUser(int $userId, int $perPage = 15)
     {
-        return Channel::with('profile.channelCategories')
+        return Channel::with(['profile.channelCategories', 'channelBadges', 'organization.principalChannel.profile'])
             ->whereHas('users', fn ($q) => $q->where('users.id', $userId)->whereIn('channel_users.role', ['owner', 'admin']))
             ->paginate($perPage);
     }
@@ -134,7 +141,7 @@ class ChannelAction
     {
         $channel->update([
             'status' => ChannelStatusEnum::SUSPENDED->value,
-            'suspended_until' => now()->addDays(7)
+            'suspended_until' => now()->addDays(7),
         ]);
 
         return $channel;
@@ -144,7 +151,7 @@ class ChannelAction
     {
         $channel->update([
             'status' => ChannelStatusEnum::BANNED->value,
-            'suspended_until' => null
+            'suspended_until' => null,
         ]);
 
         return $channel;
@@ -154,7 +161,7 @@ class ChannelAction
     {
         $channel->update([
             'status' => ChannelStatusEnum::ACTIVE->value,
-            'suspended_until' => null
+            'suspended_until' => null,
         ]);
 
         return $channel;
@@ -164,8 +171,26 @@ class ChannelAction
     {
         $channel->update([
             'status' => ChannelStatusEnum::ANONYMIZED->value,
-            'anonymized_at' => now()
+            'anonymized_at' => now(),
         ]);
+
+        return $channel;
+    }
+
+    /**
+     * Attribution admin des badges d'une chaîne (mirror de
+     * ChannelProfileAction::syncCategories, mais sur Channel::channelBadges()).
+     */
+    public function syncBadges(Channel $channel, array $slugs): Channel
+    {
+        $allowed = ChannelBadgeEnum::values();
+        $slugs = array_values(array_unique(array_filter(
+            $slugs,
+            static fn ($s) => is_string($s) && in_array($s, $allowed, true)
+        )));
+
+        $ids = Badge::whereIn('slug', $slugs)->pluck('id')->toArray();
+        $channel->channelBadges()->sync($ids);
 
         return $channel;
     }
