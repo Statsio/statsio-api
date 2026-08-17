@@ -2,14 +2,15 @@
 
 namespace App\Models\Channel;
 
+use App\Models\User\User;
 use App\Traits\HasMedia;
 use Database\Factories\ChannelFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use App\Models\User\User;
 
 class Channel extends Model
 {
@@ -23,8 +24,11 @@ class Channel extends Model
     protected $fillable = [
         'status',
         'suspended_until',
-        'anonymized_at'
+        'anonymized_at',
+        'organization_id',
     ];
+
+    protected $appends = ['badges'];
 
     public function channelProfiles()
     {
@@ -62,13 +66,35 @@ class Channel extends Model
     }
 
     /**
+     * Badges attribués à cette chaîne par un admin (officielle, vérifiée, ...)
+     */
+    public function channelBadges(): BelongsToMany
+    {
+        return $this->belongsToMany(Badge::class, 'badge_channel');
+    }
+
+    public function getBadgesAttribute(): array
+    {
+        return $this->channelBadges->pluck('slug')->toArray();
+    }
+
+    /**
+     * Organisation à laquelle cette chaîne est liée (badge avec le logo de la
+     * chaîne principale) — voir OrganizationAction.
+     */
+    public function organization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class);
+    }
+
+    /**
      * Get all users associated with this channel
      */
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'channel_users')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled', 'is_banned', 'banned_until', 'ban_reason'])
-                    ->withTimestamps();
+            ->withPivot(['role', 'permissions', 'subscribed_at', 'notifications_enabled', 'is_banned', 'banned_until', 'ban_reason'])
+            ->withTimestamps();
     }
 
     /**
@@ -77,8 +103,8 @@ class Channel extends Model
     public function owners(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'channel_users')
-                    ->wherePivot('role', 'owner')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->wherePivot('role', 'owner')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
@@ -87,18 +113,28 @@ class Channel extends Model
     public function admins(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'channel_users')
-                    ->wherePivot('role', 'admin')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->wherePivot('role', 'admin')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
-     * Get channel moderators
+     * Get channel redactors
      */
-    public function moderators(): BelongsToMany
+    public function redactors(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'channel_users')
-                    ->wherePivot('role', 'moderator')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->wherePivot('role', 'redactor')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+    }
+
+    /**
+     * Get channel guests
+     */
+    public function guests(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'channel_users')
+            ->wherePivot('role', 'guest')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
@@ -107,19 +143,19 @@ class Channel extends Model
     public function subscribers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'channel_users')
-                    ->whereNotNull('subscribed_at')
-                    ->wherePivot('is_banned', false)
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->whereNotNull('subscribed_at')
+            ->wherePivot('is_banned', false)
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
-     * Get management team (owner, admin, moderator)
+     * Get management team (owner, admin, redactor, guest)
      */
     public function managementTeam(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'channel_users')
-                    ->whereIn('channel_users.role', ['owner', 'admin', 'moderator'])
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->whereIn('channel_users.role', ['owner', 'admin', 'redactor', 'guest'])
+            ->withPivot(['role', 'permissions', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
@@ -128,12 +164,12 @@ class Channel extends Model
     public function bannedUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'channel_users')
-                    ->where('channel_users.is_banned', true)
-                    ->where(function($query) {
-                        $query->whereNull('channel_users.banned_until')
-                              ->orWhere('channel_users.banned_until', '>', now());
-                    })
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled', 'is_banned', 'banned_until', 'ban_reason']);
+            ->where('channel_users.is_banned', true)
+            ->where(function ($query) {
+                $query->whereNull('channel_users.banned_until')
+                    ->orWhere('channel_users.banned_until', '>', now());
+            })
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled', 'is_banned', 'banned_until', 'ban_reason']);
     }
 
     /**
@@ -150,9 +186,9 @@ class Channel extends Model
     public function isUserSubscribed(User $user): bool
     {
         return $this->users()
-                    ->where('users.id', $user->id)
-                    ->whereNotNull('channel_users.subscribed_at')
-                    ->exists();
+            ->where('users.id', $user->id)
+            ->whereNotNull('channel_users.subscribed_at')
+            ->exists();
     }
 
     /**
@@ -161,13 +197,13 @@ class Channel extends Model
     public function isUserBanned(User $user): bool
     {
         return $this->users()
-                    ->where('users.id', $user->id)
-                    ->where('channel_users.is_banned', true)
-                    ->where(function($query) {
-                        $query->whereNull('channel_users.banned_until')
-                              ->orWhere('channel_users.banned_until', '>', now());
-                    })
-                    ->exists();
+            ->where('users.id', $user->id)
+            ->where('channel_users.is_banned', true)
+            ->where(function ($query) {
+                $query->whereNull('channel_users.banned_until')
+                    ->orWhere('channel_users.banned_until', '>', now());
+            })
+            ->exists();
     }
 
     /**
@@ -176,9 +212,9 @@ class Channel extends Model
     public function getUserRole(User $user): ?string
     {
         $pivot = $this->users()
-                     ->where('users.id', $user->id)
-                     ->first()
-                     ?->pivot;
+            ->where('users.id', $user->id)
+            ->first()
+            ?->pivot;
 
         return $pivot?->role;
     }

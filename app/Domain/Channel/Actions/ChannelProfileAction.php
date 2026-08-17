@@ -5,7 +5,6 @@ namespace App\Domain\Channel\Actions;
 use App\Models\Channel\ChannelProfile;
 use App\Models\Channel\ChannelProfileLink;
 use App\Models\Channel\ChannelCategory;
-use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
 use App\Domain\Channel\Enums\ChannelCategoryEnum;
 use Illuminate\Http\UploadedFile;
 
@@ -23,9 +22,6 @@ class ChannelProfileAction
             'is_featured'            => $data['is_featured'] ?? false,
             'custom_color_primary'   => $data['custom_color_primary'] ?? null,
             'custom_color_secondary' => $data['custom_color_secondary'] ?? null,
-            'age_restriction'        => isset($data['age_restriction'])
-                ? ChannelAgeRestrictionEnum::fromValue((int) $data['age_restriction'])
-                : ChannelAgeRestrictionEnum::ALL_AGES,
         ];
 
         $channelProfile = ChannelProfile::create($profileData);
@@ -51,14 +47,12 @@ class ChannelProfileAction
         if (isset($data['name']))                   $profileData['name']                   = $data['name'];
         if (isset($data['handle']))                 $profileData['handle']                 = $data['handle'];
         if (isset($data['description']))            $profileData['description']            = $data['description'];
+        if (isset($data['is_private']))              $profileData['is_private']             = $data['is_private'];
         if (isset($data['tags']))                   $profileData['tags']                   = $data['tags'];
         if (isset($data['country']))                $profileData['country']                = $data['country'];
         if (isset($data['is_featured']))            $profileData['is_featured']            = $data['is_featured'];
         if (isset($data['custom_color_primary']))   $profileData['custom_color_primary']   = $data['custom_color_primary'];
         if (isset($data['custom_color_secondary'])) $profileData['custom_color_secondary'] = $data['custom_color_secondary'];
-        if (isset($data['age_restriction'])) {
-            $profileData['age_restriction'] = ChannelAgeRestrictionEnum::fromValue((int) $data['age_restriction']);
-        }
 
         if (!empty($profileData)) {
             $profile->update($profileData);

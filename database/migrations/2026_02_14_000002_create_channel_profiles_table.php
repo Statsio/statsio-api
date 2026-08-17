@@ -1,6 +1,5 @@
 <?php
 
-use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -24,7 +23,7 @@ return new class extends Migration
             $table->unsignedBigInteger('view_count')->default(0);
             $table->string('custom_color_primary', 20)->nullable();
             $table->string('custom_color_secondary', 20)->nullable();
-            $table->unsignedTinyInteger('age_restriction')->default(ChannelAgeRestrictionEnum::ALL_AGES->value);
+            $table->unsignedTinyInteger('age_restriction')->default(0);
             $table->timestamps();
 
             $table->index(['is_featured']);

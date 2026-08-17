@@ -3,7 +3,6 @@
 namespace App\Models\Channel;
 
 use App\Traits\HasMedia;
-use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
 use App\Models\Channel\ChannelCategory;
 use App\Models\StudioContent;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -20,6 +19,7 @@ class ChannelProfile extends Model
         'name',
         'handle',
         'description',
+        'is_private',
         'logo',
         'banner',
         'tags',
@@ -28,7 +28,6 @@ class ChannelProfile extends Model
         'view_count',
         'custom_color_primary',
         'custom_color_secondary',
-        'age_restriction',
         'featured_article_id',
         'featured_statsdata_id',
         'featured_survey_id',
@@ -36,8 +35,8 @@ class ChannelProfile extends Model
 
     protected $casts = [
         'is_featured' => 'boolean',
+        'is_private' => 'boolean',
         'view_count'  => 'integer',
-        'age_restriction' => ChannelAgeRestrictionEnum::class,
         'tags' => 'array',
     ];
 
@@ -94,15 +93,6 @@ class ChannelProfile extends Model
         return $media ? $media->getUrl() : null;
     }
 
-    public function toArray(): array
-    {
-        $array = parent::toArray();
-        if (isset($array['age_restriction']) && $array['age_restriction'] instanceof ChannelAgeRestrictionEnum) {
-            $array['age_restriction'] = $array['age_restriction']->value;
-        }
-        return $array;
-    }
-
     public function channel()
     {
         return $this->belongsTo(Channel::class);
@@ -154,54 +144,6 @@ class ChannelProfile extends Model
     public function getBannerUrl(): ?string
     {
         return $this->getFirstMediaUrl('banner');
-    }
-
-    /**
-     * Check if content is suitable for a given age
-     */
-    public function isSuitableFor(int $age): bool
-    {
-        return $this->age_restriction->isSuitableFor($age);
-    }
-
-    /**
-     * Check if this is adult content
-     */
-    public function isAdultContent(): bool
-    {
-        return $this->age_restriction->isAdultContent();
-    }
-
-    /**
-     * Check if this is restricted content
-     */
-    public function isRestricted(): bool
-    {
-        return $this->age_restriction->isRestricted();
-    }
-
-    /**
-     * Get age restriction display name
-     */
-    public function getAgeRestrictionDisplay(): string
-    {
-        return $this->age_restriction->getDisplayName();
-    }
-
-    /**
-     * Get age restriction color for UI
-     */
-    public function getAgeRestrictionColor(): string
-    {
-        return $this->age_restriction->getColor();
-    }
-
-    /**
-     * Get age restriction icon
-     */
-    public function getAgeRestrictionIcon(): string
-    {
-        return $this->age_restriction->getIcon();
     }
 
     /**
