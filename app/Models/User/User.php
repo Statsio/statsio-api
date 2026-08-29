@@ -3,18 +3,21 @@
 namespace App\Models\User;
 
 use App\Models\Channel\Channel;
+use App\Models\StudioContent;
+use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Database\Factories\UserFactory;
-use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, SoftDeletes, HasApiTokens;
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     protected static function newFactory(): UserFactory
     {
@@ -97,8 +100,8 @@ class User extends Authenticatable
     public function ownedChannels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
-                    ->wherePivot('role', 'owner')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->wherePivot('role', 'owner')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
@@ -107,8 +110,8 @@ class User extends Authenticatable
     public function adminChannels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
-                    ->wherePivot('role', 'admin')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->wherePivot('role', 'admin')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
@@ -117,8 +120,8 @@ class User extends Authenticatable
     public function moderatorChannels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
-                    ->wherePivot('role', 'moderator')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->wherePivot('role', 'moderator')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
@@ -127,8 +130,8 @@ class User extends Authenticatable
     public function subscribedChannels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
-                    ->whereNotNull('subscribed_at')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+            ->whereNotNull('subscribed_at')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 
     /**
@@ -137,7 +140,35 @@ class User extends Authenticatable
     public function channels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
-                    ->withPivot(['role', 'subscribed_at', 'notifications_enabled', 'is_banned', 'banned_until']);
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled', 'is_banned', 'banned_until']);
+    }
+
+    /**
+     * Favoris de l'utilisateur (lignes de pivot user_favorites, tout type confondu).
+     */
+    public function favorites(): HasMany
+    {
+        return $this->hasMany(UserFavorite::class);
+    }
+
+    /**
+     * Contenus studio mis en favori par l'utilisateur.
+     */
+    public function favoriteContents(): MorphToMany
+    {
+        return $this->morphedByMany(
+            StudioContent::class,
+            'favoritable',
+            'user_favorites',
+        )->withTimestamps();
+    }
+
+    /**
+     * Historique de consultation de contenus (une ligne par contenu, upsert).
+     */
+    public function contentViews(): HasMany
+    {
+        return $this->hasMany(UserContentView::class);
     }
 
     /**
@@ -149,8 +180,10 @@ class User extends Authenticatable
             if ($this->status === 'suspended' && $this->suspended_until && $this->suspended_until->isFuture()) {
                 return false;
             }
+
             return false;
         }
+
         return true;
     }
 }

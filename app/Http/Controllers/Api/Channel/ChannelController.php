@@ -2,24 +2,25 @@
 
 namespace App\Http\Controllers\Api\Channel;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use App\Domain\Channel\Actions\ChannelAction;
+use App\Domain\Channel\Actions\ChannelDataSourcesAction;
 use App\Domain\Channel\Actions\ChannelFeaturedContentAction;
 use App\Domain\Channel\Actions\ChannelStatsAction;
 use App\Domain\Channel\Actions\ToggleChannelFollowAction;
-use App\Models\Channel\ChannelProfile;
-use App\Models\Channel\ChannelCategory;
+use App\Http\Controllers\Controller;
 use App\Http\Requests\Channel\CreateChannelRequest;
 use App\Http\Requests\Channel\UpdateChannelRequest;
 use App\Http\Requests\Channel\UpdateFeaturedContentRequest;
+use App\Models\Channel\ChannelCategory;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class ChannelController extends Controller
 {
     public function __construct(
         private ChannelAction $channelAction,
         private ChannelStatsAction $channelStatsAction,
+        private ChannelDataSourcesAction $channelDataSourcesAction,
         private ChannelFeaturedContentAction $channelFeaturedContentAction,
         private ToggleChannelFollowAction $toggleChannelFollowAction
     ) {}
@@ -45,7 +46,7 @@ class ChannelController extends Controller
         return response()->json([
             'success' => true,
             'message' => __('channel.created_successfully'),
-            'data' => $channel
+            'data' => $channel,
         ], 201);
     }
 
@@ -56,10 +57,10 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json([
                 'success' => false,
-                'message' => __('channel.not_found')
+                'message' => __('channel.not_found'),
             ], 404);
         }
 
@@ -69,7 +70,7 @@ class ChannelController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $channel
+            'data' => $channel,
         ]);
     }
 
@@ -80,7 +81,7 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel || !$channel->profile) {
+        if (! $channel || ! $channel->profile) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
@@ -98,7 +99,7 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel || !$channel->profile) {
+        if (! $channel || ! $channel->profile) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
@@ -117,13 +118,13 @@ class ChannelController extends Controller
     public function updateMedia(Request $request, int $id)
     {
         $request->validate([
-            'logo'   => 'sometimes|file|image:allow_svg|max:5120',
+            'logo' => 'sometimes|file|image:allow_svg|max:5120',
             'banner' => 'sometimes|file|image:allow_svg|max:10240',
         ]);
 
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel || !$channel->profile) {
+        if (! $channel || ! $channel->profile) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
@@ -133,7 +134,7 @@ class ChannelController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Médias mis à jour.',
-            'data'    => $channel->fresh(['profile']),
+            'data' => $channel->fresh(['profile']),
         ]);
     }
 
@@ -144,10 +145,10 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel || !$channel->profile) {
+        if (! $channel || ! $channel->profile) {
             return response()->json([
                 'success' => false,
-                'message' => __('channel.not_found')
+                'message' => __('channel.not_found'),
             ], 404);
         }
 
@@ -157,7 +158,7 @@ class ChannelController extends Controller
         return response()->json([
             'success' => true,
             'message' => __('channel.updated_successfully'),
-            'data' => $updated
+            'data' => $updated,
         ]);
     }
 
@@ -168,10 +169,10 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json([
                 'success' => false,
-                'message' => __('channel.not_found')
+                'message' => __('channel.not_found'),
             ], 404);
         }
 
@@ -179,7 +180,7 @@ class ChannelController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => __('channel.deleted_successfully')
+            'message' => __('channel.deleted_successfully'),
         ]);
     }
 
@@ -195,7 +196,7 @@ class ChannelController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $channels
+            'data' => $channels,
         ]);
     }
 
@@ -207,7 +208,7 @@ class ChannelController extends Controller
         $perPage = $request->get('per_page', 50);
         $user = Auth::user();
 
-        if (!$user) {
+        if (! $user) {
             return response()->json(['success' => false, 'message' => 'Unauthenticated.'], 401);
         }
 
@@ -215,7 +216,7 @@ class ChannelController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $channels
+            'data' => $channels,
         ]);
     }
 
@@ -226,7 +227,7 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
@@ -234,12 +235,12 @@ class ChannelController extends Controller
             ->with('profile')
             ->get()
             ->map(fn ($user) => [
-                'id'       => $user->id,
-                'email'    => $user->email,
-                'name'     => trim(($user->profile?->first_name ?? '') . ' ' . ($user->profile?->last_name ?? '')) ?: $user->email,
-                'avatar'   => $user->profile?->avatar ?? null,
-                'role'     => $user->pivot->role,
-                'joined_at'=> $user->pivot->created_at,
+                'id' => $user->id,
+                'email' => $user->email,
+                'name' => trim(($user->profile?->first_name ?? '').' '.($user->profile?->last_name ?? '')) ?: $user->email,
+                'avatar' => $user->profile?->avatar ?? null,
+                'role' => $user->pivot->role,
+                'joined_at' => $user->pivot->created_at,
             ]);
 
         return response()->json(['success' => true, 'data' => $members]);
@@ -252,11 +253,27 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
         return response()->json(['success' => true, 'data' => $this->channelStatsAction->getStats($channel)]);
+    }
+
+    /**
+     * Jeux de données rattachés aux contenus publiés au nom de la chaîne, avec
+     * leur fraîcheur et les contenus qui les utilisent. Alimente l'onglet
+     * « Sources de données » du dashboard chaîne.
+     */
+    public function dataSources(int $id)
+    {
+        $channel = $this->channelAction->getChannelById($id);
+
+        if (! $channel) {
+            return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $this->channelDataSourcesAction->getDataSources($channel)]);
     }
 
     /**
@@ -266,7 +283,7 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
@@ -282,7 +299,7 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
@@ -292,10 +309,10 @@ class ChannelController extends Controller
             ->with('profile')
             ->paginate($perPage)
             ->through(fn ($user) => [
-                'id'            => $user->id,
-                'email'         => $user->email,
-                'name'          => trim(($user->profile?->first_name ?? '') . ' ' . ($user->profile?->last_name ?? '')) ?: $user->email,
-                'avatar'        => $user->profile?->avatar ?? null,
+                'id' => $user->id,
+                'email' => $user->email,
+                'name' => trim(($user->profile?->first_name ?? '').' '.($user->profile?->last_name ?? '')) ?: $user->email,
+                'avatar' => $user->profile?->avatar ?? null,
                 'subscribed_at' => $user->pivot->subscribed_at,
             ]);
 
@@ -309,7 +326,7 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
@@ -325,10 +342,10 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json([
                 'success' => false,
-                'message' => __('channel.not_found')
+                'message' => __('channel.not_found'),
             ], 404);
         }
 
@@ -337,7 +354,7 @@ class ChannelController extends Controller
         return response()->json([
             'success' => true,
             'message' => __('channel.suspended_successfully'),
-            'data' => $updated
+            'data' => $updated,
         ]);
     }
 
@@ -348,10 +365,10 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json([
                 'success' => false,
-                'message' => __('channel.not_found')
+                'message' => __('channel.not_found'),
             ], 404);
         }
 
@@ -360,7 +377,7 @@ class ChannelController extends Controller
         return response()->json([
             'success' => true,
             'message' => __('channel.banned_successfully'),
-            'data' => $updated
+            'data' => $updated,
         ]);
     }
 
@@ -371,10 +388,10 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json([
                 'success' => false,
-                'message' => __('channel.not_found')
+                'message' => __('channel.not_found'),
             ], 404);
         }
 
@@ -383,7 +400,7 @@ class ChannelController extends Controller
         return response()->json([
             'success' => true,
             'message' => __('channel.activated_successfully'),
-            'data' => $updated
+            'data' => $updated,
         ]);
     }
 
@@ -394,10 +411,10 @@ class ChannelController extends Controller
     {
         $channel = $this->channelAction->getChannelById($id);
 
-        if (!$channel) {
+        if (! $channel) {
             return response()->json([
                 'success' => false,
-                'message' => __('channel.not_found')
+                'message' => __('channel.not_found'),
             ], 404);
         }
 
@@ -406,7 +423,7 @@ class ChannelController extends Controller
         return response()->json([
             'success' => true,
             'message' => __('channel.anonymized_successfully'),
-            'data' => $updated
+            'data' => $updated,
         ]);
     }
 }

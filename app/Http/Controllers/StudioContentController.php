@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Content\Actions\StudioContentDataSourcesAction;
+use App\Domain\User\Actions\RecordContentViewAction;
 use App\Models\Channel\ChannelUser;
 use App\Models\DataIngestion\Dataset;
 use App\Models\StudioContent;
@@ -10,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class StudioContentController extends Controller
 {
@@ -104,6 +107,21 @@ class StudioContentController extends Controller
         ]);
     }
 
+    /**
+     * Jeux de données rattachés à ce contenu (blocs référençant un `datasetId`),
+     * avec leur fraîcheur. Alimente l'onglet « Sources de données » du dashboard
+     * du contenu.
+     */
+    public function dataSources(Request $request, StudioContentDataSourcesAction $action, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        return response()->json([
+            'success' => true,
+            'data' => $action->getDataSources($content),
+        ]);
+    }
+
     public function indexPublic(Request $request): JsonResponse
     {
         $type = $request->query('type');
@@ -174,8 +192,28 @@ class StudioContentController extends Controller
         // in-memory attribute used by format() below reflects this visit too.
         $content->increment('views_count');
 
+        // Historique de consultation : trace la visite pour l'utilisateur connecté
+        // (pas de progression ici — elle est poussée séparément par le front).
+        $viewer = $request->user('sanctum');
+        if ($viewer) {
+            app(RecordContentViewAction::class)->execute($viewer, $content);
+        }
+
         $data = $this->format($content);
-        $data['can_edit'] = $this->canEditContent($request->user('sanctum'), $content);
+        $data['can_edit'] = $this->canEditContent($viewer, $content);
+        $data['is_favorited'] = $viewer
+            ? $viewer->favorites()
+                ->where('favoritable_type', $content->getMorphClass())
+                ->where('favoritable_id', $content->getKey())
+                ->exists()
+            : false;
+
+        // Suivi de la chaîne éditrice (bouton « Suivre » du bandeau publisher).
+        if (is_array($data['channel'] ?? null)) {
+            $data['channel']['is_following'] = $viewer && $content->channel_id
+                ? $viewer->subscribedChannels()->where('channels.id', $content->channel_id)->exists()
+                : false;
+        }
 
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -186,6 +224,13 @@ class StudioContentController extends Controller
 
         $data = $request->validate([
             'title' => 'sometimes|required|string|max:255',
+            'slug' => [
+                'sometimes',
+                'string',
+                'max:255',
+                'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/',
+                Rule::unique('studio_contents', 'slug')->ignore($content->id),
+            ],
             'description' => 'sometimes|nullable|string|max:2000',
             'status' => 'sometimes|string|in:draft,published',
             'pages' => 'sometimes|nullable|array',
@@ -208,7 +253,14 @@ class StudioContentController extends Controller
         $removeThumbnail = $request->boolean('remove_thumbnail');
         unset($data['thumbnail'], $data['remove_thumbnail']);
 
+        // Purge le cache public de l'ancien slug avant qu'il ne change.
+        $previousSlug = $content->slug;
+
         $content->update($data);
+
+        if ($previousSlug !== $content->slug) {
+            Cache::forget("studio.public.show.{$previousSlug}");
+        }
 
         if ($thumbnailFile) {
             $content->getMedia('thumbnail')->each(fn ($m) => $content->deleteMedia($m));
@@ -247,22 +299,7 @@ class StudioContentController extends Controller
 
     private function canEditContent(?User $user, StudioContent $content): bool
     {
-        if (! $user) {
-            return false;
-        }
-
-        if ($content->user_id === $user->id) {
-            return true;
-        }
-
-        if ($content->published_as === 'channel' && $content->channel_id) {
-            return ChannelUser::where('channel_id', $content->channel_id)
-                ->where('user_id', $user->id)
-                ->whereIn('role', ['owner', 'admin'])
-                ->exists();
-        }
-
-        return false;
+        return $user !== null && $user->can('update', $content);
     }
 
     private function findBySlug(int $userId, string $slug): StudioContent
@@ -308,10 +345,24 @@ class StudioContentController extends Controller
 
         $datasets = [];
         if (! empty($datasetIds)) {
+            // Inclut les sources publiques rattachées au propriétaire via le pivot
+            // data_source_user (l'assistant IA peut lier un bloc à une telle source).
             $datasets = Dataset::whereIn('id', $datasetIds)
-                ->where('user_id', $content->user_id)
-                ->get(['id', 'name', 'row_count'])
-                ->map(fn ($d) => ['id' => $d->id, 'name' => $d->name, 'row_count' => $d->row_count])
+                ->with('dataSource')
+                ->where(fn ($q) => $q
+                    ->where('user_id', $content->user_id)
+                    ->orWhereHas('dataSource.users', fn ($u) => $u->where('user_id', $content->user_id)))
+                ->get(['id', 'name', 'row_count', 'data_source_id'])
+                ->map(fn ($d) => [
+                    'id' => $d->id,
+                    'name' => $d->name,
+                    'row_count' => $d->row_count,
+                    // Fraîcheur : alimente le badge « Mis à jour il y a… » de la page publique.
+                    'is_live' => (bool) $d->dataSource?->isLive(),
+                    'last_refreshed_at' => $d->dataSource?->last_refreshed_at?->toIso8601String(),
+                    'next_refresh_at' => $d->dataSource?->next_refresh_at?->toIso8601String(),
+                    'refresh_frequency' => $d->dataSource?->refresh_frequency?->value,
+                ])
                 ->toArray();
         }
 
