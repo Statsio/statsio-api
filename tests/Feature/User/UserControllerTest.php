@@ -19,8 +19,8 @@ class UserControllerTest extends TestCase
         $response = $this->withToken($token)->getJson('/api/me');
 
         $response->assertStatus(200)
-                 ->assertJsonPath('success', true)
-                 ->assertJsonPath('data.user.email', $user->email);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.user.email', $user->email);
     }
 
     public function test_unauthenticated_request_returns_401(): void
@@ -36,14 +36,14 @@ class UserControllerTest extends TestCase
 
         $response = $this->withToken($token)->putJson('/api/me', [
             'first_name' => 'Nouveau',
-            'last_name'  => 'Prénom',
+            'last_name' => 'Prénom',
         ]);
 
         $response->assertStatus(200)
-                 ->assertJsonPath('success', true);
+            ->assertJsonPath('success', true);
 
         $this->assertDatabaseHas('user_profiles', [
-            'user_id'    => $user->id,
+            'user_id' => $user->id,
             'first_name' => 'Nouveau',
         ]);
     }
@@ -59,9 +59,40 @@ class UserControllerTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertDatabaseHas('user_profiles', [
-            'user_id'    => $user->id,
+            'user_id' => $user->id,
             'first_name' => 'Sophie',
         ]);
+    }
+
+    public function test_user_can_update_notification_preferences(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $response = $this->withToken($token)->patchJson('/api/me', [
+            'notification_preferences' => [
+                'articles' => false,
+                'weekly' => true,
+                'replies' => true,
+                'offers' => false,
+            ],
+        ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.user.profile.notification_preferences.articles', false)
+            ->assertJsonPath('data.user.profile.notification_preferences.replies', true);
+    }
+
+    public function test_me_returns_default_notification_preferences(): void
+    {
+        $user = User::factory()->create();
+        $user->profile()->create(['first_name' => 'Marie']);
+        $token = $user->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->getJson('/api/me')
+            ->assertStatus(200)
+            ->assertJsonPath('data.user.profile.notification_preferences.articles', true)
+            ->assertJsonPath('data.user.profile.notification_preferences.offers', false);
     }
 
     public function test_user_can_anonymize_account(): void
@@ -74,7 +105,7 @@ class UserControllerTest extends TestCase
         $response->assertStatus(200);
 
         $this->assertDatabaseHas('users', [
-            'id'     => $user->id,
+            'id' => $user->id,
             'status' => 'anonymized',
         ]);
     }

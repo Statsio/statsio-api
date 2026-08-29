@@ -3,14 +3,17 @@
 namespace App\Models\User;
 
 use App\Models\Channel\Channel;
+use App\Models\StudioContent;
+use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphToMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Database\Factories\UserFactory;
-use Illuminate\Database\Eloquent\Relations\HasOne;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class User extends Authenticatable
 {
@@ -138,6 +141,34 @@ class User extends Authenticatable
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
                     ->withPivot(['role', 'subscribed_at', 'notifications_enabled', 'is_banned', 'banned_until']);
+    }
+
+    /**
+     * Favoris de l'utilisateur (lignes de pivot user_favorites, tout type confondu).
+     */
+    public function favorites(): HasMany
+    {
+        return $this->hasMany(UserFavorite::class);
+    }
+
+    /**
+     * Contenus studio mis en favori par l'utilisateur.
+     */
+    public function favoriteContents(): MorphToMany
+    {
+        return $this->morphedByMany(
+            StudioContent::class,
+            'favoritable',
+            'user_favorites',
+        )->withTimestamps();
+    }
+
+    /**
+     * Historique de consultation de contenus (une ligne par contenu, upsert).
+     */
+    public function contentViews(): HasMany
+    {
+        return $this->hasMany(UserContentView::class);
     }
 
     /**
