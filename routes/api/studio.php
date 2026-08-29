@@ -18,6 +18,7 @@ Route::post('/studio/content/public/{slug}/blocks/{blockId}/response', [StudioBl
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/studio/content', [StudioContentController::class, 'index']);
     Route::post('/studio/content', [StudioContentController::class, 'store']);
+    Route::get('/studio/content/{slug}/data-sources', [StudioContentController::class, 'dataSources']);
     Route::get('/studio/content/{slug}', [StudioContentController::class, 'show']);
     Route::match(['put', 'patch'], '/studio/content/{slug}', [StudioContentController::class, 'update']);
     Route::delete('/studio/content/{slug}', [StudioContentController::class, 'destroy']);

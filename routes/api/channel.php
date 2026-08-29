@@ -21,6 +21,7 @@ Route::prefix('channels')->name('channels.')->group(function () {
         Route::get('{id}/subscribers', [ChannelController::class, 'subscribers'])->name('subscribers');
         Route::post('{id}/follow', [ChannelController::class, 'toggleFollow'])->name('follow');
         Route::get('{id}/stats', [ChannelController::class, 'stats'])->name('stats');
+        Route::get('{id}/data-sources', [ChannelController::class, 'dataSources'])->name('data-sources');
         Route::put('{id}/featured', [ChannelController::class, 'updateFeaturedContent'])->name('featured.update');
         Route::post('{id}/suspend', [ChannelController::class, 'suspend'])->name('suspend');
         Route::post('{id}/ban', [ChannelController::class, 'ban'])->name('ban');

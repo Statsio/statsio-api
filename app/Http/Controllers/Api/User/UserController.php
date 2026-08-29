@@ -1,16 +1,18 @@
 <?php
+
 namespace App\Http\Controllers\Api\User;
 
-use App\Http\Controllers\Controller;
-use App\Domain\User\Actions\MeAction;
 use App\Domain\User\Actions\AnonymizeAction;
+use App\Domain\User\Actions\MeAction;
+use App\Domain\User\Actions\UpdateAvatarAction;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 
 class UserController extends Controller
 {
     /**
      * Retourne les infos de l'utilisateur connecté
-    */
+     */
     public function me(Request $request, MeAction $action)
     {
         $user = $request->user();
@@ -32,7 +34,7 @@ class UserController extends Controller
             'last_name' => 'sometimes|nullable|string|max:100',
             'phone' => 'sometimes|nullable|string|max:30',
             'birthday' => 'sometimes|nullable|date',
-            'birth_year' => 'sometimes|nullable|integer|min:1900|max:' . date('Y'),
+            'birth_year' => 'sometimes|nullable|integer|min:1900|max:'.date('Y'),
             'country' => 'sometimes|nullable|string|max:2',
             'region' => 'sometimes|nullable|string|max:150',
             'city' => 'sometimes|nullable|string|max:150',
@@ -43,6 +45,11 @@ class UserController extends Controller
             'education_level_id' => 'sometimes|nullable|exists:education_levels,id',
             'employment_status_id' => 'sometimes|nullable|exists:employment_statuses,id',
             'marital_status_id' => 'sometimes|nullable|exists:marital_statuses,id',
+            'notification_preferences' => 'sometimes|array',
+            'notification_preferences.articles' => 'sometimes|boolean',
+            'notification_preferences.weekly' => 'sometimes|boolean',
+            'notification_preferences.replies' => 'sometimes|boolean',
+            'notification_preferences.offers' => 'sometimes|boolean',
         ]);
 
         $user = $request->user();
@@ -60,14 +67,41 @@ class UserController extends Controller
         ]);
     }
 
+    /** POST /me/avatar — upload de la photo de profil (multipart, champ `file`). */
+    public function updateAvatar(Request $request, UpdateAvatarAction $action, MeAction $me)
+    {
+        $request->validate([
+            'file' => 'required|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+        ]);
+
+        $url = $action->execute($request->user(), $request->file('file'));
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'avatar' => $url,
+                'user' => $me->execute($request->user()->fresh()),
+            ],
+        ]);
+    }
+
+    /** DELETE /me/avatar — retire la photo de profil. */
+    public function deleteAvatar(Request $request, UpdateAvatarAction $action, MeAction $me)
+    {
+        $action->remove($request->user());
+
+        return response()->json([
+            'success' => true,
+            'data' => ['user' => $me->execute($request->user()->fresh())],
+        ]);
+    }
+
     public function anonymize(Request $request, AnonymizeAction $action)
     {
         $action->execute($request->user());
 
         return response()->json([
-            'message' => __('user.anonymize_success')
+            'message' => __('user.anonymize_success'),
         ]);
     }
 }
-
-?>
