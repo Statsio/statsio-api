@@ -2,9 +2,8 @@
 
 namespace Tests\Feature\Studio;
 
-use App\Models\DataIngestion\DataSource;
 use App\Models\DataIngestion\Dataset;
-use App\Models\StudioContent;
+use App\Models\DataIngestion\DataSource;
 use App\Models\User\User;
 use Database\Factories\StudioContentFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;

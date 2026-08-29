@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Domain\Channel\Actions\ChannelAction;
+use App\Domain\Channel\Actions\ChannelDataSourcesAction;
 use App\Domain\Channel\Actions\ChannelFeaturedContentAction;
 use App\Domain\Channel\Actions\ChannelStatsAction;
 use App\Domain\Channel\Actions\ToggleChannelFollowAction;
@@ -20,6 +21,7 @@ class ChannelController extends Controller
     public function __construct(
         private ChannelAction $channelAction,
         private ChannelStatsAction $channelStatsAction,
+        private ChannelDataSourcesAction $channelDataSourcesAction,
         private ChannelFeaturedContentAction $channelFeaturedContentAction,
         private ToggleChannelFollowAction $toggleChannelFollowAction
     ) {}
@@ -257,6 +259,22 @@ class ChannelController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $this->channelStatsAction->getStats($channel)]);
+    }
+
+    /**
+     * Jeux de données rattachés aux contenus publiés au nom de la chaîne, avec
+     * leur fraîcheur et les contenus qui les utilisent. Alimente l'onglet
+     * « Sources de données » du dashboard chaîne.
+     */
+    public function dataSources(int $id)
+    {
+        $channel = $this->channelAction->getChannelById($id);
+
+        if (! $channel) {
+            return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
+        }
+
+        return response()->json(['success' => true, 'data' => $this->channelDataSourcesAction->getDataSources($channel)]);
     }
 
     /**

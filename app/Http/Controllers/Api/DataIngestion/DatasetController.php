@@ -98,7 +98,7 @@ class DatasetController extends Controller
 
         try {
             if ($p['distinct'] && count($p['columns']) === 1) {
-                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
+                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters']);
             }
 
             [$allColumns, $rows, $total] = $this->resolveRows(
@@ -116,6 +116,7 @@ class DatasetController extends Controller
                 $p['aggregate'],
                 $p['aggregateColumns'],
                 $p['groupBy'],
+                $p['offset'],
             );
         } catch (UnsupportedLiveQueryOperationException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
@@ -175,7 +176,7 @@ class DatasetController extends Controller
 
         try {
             if ($p['distinct'] && count($p['columns']) === 1) {
-                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''));
+                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters']);
             }
 
             [$allColumns, $rows, $total] = $this->resolveRows(
@@ -193,6 +194,7 @@ class DatasetController extends Controller
                 $p['aggregate'],
                 $p['aggregateColumns'],
                 $p['groupBy'],
+                $p['offset'],
             );
         } catch (UnsupportedLiveQueryOperationException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
@@ -220,6 +222,7 @@ class DatasetController extends Controller
     private function parseQueryParams(Request $request): array
     {
         $limit = min((int) $request->query('limit', 500), 5000);
+        $offset = max((int) $request->query('offset', 0), 0);
         $columns = $request->query('columns', []);
         $filters = $request->query('filters', []);
         $joins = $request->query('joins', []);
@@ -259,6 +262,7 @@ class DatasetController extends Controller
 
         return [
             'limit' => $limit,
+            'offset' => $offset,
             'columns' => $columns,
             'filters' => $filters,
             'joins' => $joins,
@@ -274,9 +278,12 @@ class DatasetController extends Controller
         ];
     }
 
-    private function distinctResponse(Dataset $dataset, string $col, int $limit, string $search): JsonResponse
+    /**
+     * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     */
+    private function distinctResponse(Dataset $dataset, string $col, int $limit, string $search, array $filters = []): JsonResponse
     {
-        $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search);
+        $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search, $filters);
 
         $response = [
             'success' => true,
@@ -302,9 +309,10 @@ class DatasetController extends Controller
      * @param  array<int, array{column: string, operator: string, value: string}>  $filters
      * @param  array<int, array{dataset_id: string, left_column: string, right_column: string, columns: array<string>, type: string}>  $joins
      */
-    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc', ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = []): array
+    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc', ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = [], int $offset = 0): array
     {
         if ($dataset->isLive()) {
+            // La pagination serveur (offset) ne s'applique qu'aux datasets matérialisés.
             return $this->liveQueryService->resolveRows(
                 $dataset, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols,
                 $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy,
@@ -330,17 +338,18 @@ class DatasetController extends Controller
             'aggregate' => $aggregate,
             'aggregateColumns' => $aggregateColumns,
             'groupBy' => $groupBy,
+            'offset' => $offset,
         ]);
 
         return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchParquetRows(
-            $dataset, $version, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols, $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy,
+            $dataset, $version, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols, $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy, $offset,
         ));
     }
 
     /**
      * Runs the actual DuckDB / mock-parquet query. Only called on a cache miss.
      */
-    private function fetchParquetRows(Dataset $dataset, DatasetVersion $version, ?array $selectColumns, array $filters, int $limit, array $joins, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection, ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = []): array
+    private function fetchParquetRows(Dataset $dataset, DatasetVersion $version, ?array $selectColumns, array $filters, int $limit, array $joins, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection, ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = [], int $offset = 0): array
     {
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
         $storagePath = $version->parquet_storage_path;
@@ -427,8 +436,8 @@ class DatasetController extends Controller
                 return [$allColumns, $rows, $totalAfterFilter];
             }
 
-            // 4. Limit
-            $rows = array_slice($rows, 0, $limit);
+            // 4. Pagination (offset + limit) — s'applique aux lignes non agrégées.
+            $rows = array_slice($rows, $offset, $limit);
 
             // Apply each join using a hash join
             foreach ($joins as $join) {
@@ -544,7 +553,7 @@ class DatasetController extends Controller
         if ($aggregate !== null && ! empty($aggregateColumns)) {
             $sql = $this->wrapAggregateSql($sql, $aggregate, $aggregateColumns, $groupBy)." LIMIT {$limit}";
         } else {
-            $sql .= " LIMIT {$limit}";
+            $sql .= " LIMIT {$limit}".($offset > 0 ? " OFFSET {$offset}" : '');
         }
 
         $output = shell_exec('duckdb -json -c '.escapeshellarg($sql).' 2>/dev/null');
@@ -727,9 +736,14 @@ class DatasetController extends Controller
         return $result;
     }
 
-    private function resolveDistinctValues(Dataset $dataset, string $column, int $limit, string $search = ''): array
+    /**
+     * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     */
+    private function resolveDistinctValues(Dataset $dataset, string $column, int $limit, string $search = '', array $filters = []): array
     {
         if ($dataset->isLive()) {
+            // Les sources live servent leurs valeurs distinctes depuis l'échantillon
+            // capturé à la création (déjà partiel) — les filtres n'y sont pas appliqués.
             return $this->liveQueryService->resolveDistinctValues($dataset, $column, $limit, $search);
         }
 
@@ -743,15 +757,16 @@ class DatasetController extends Controller
             'column' => $column,
             'limit' => $limit,
             'search' => $search,
+            'filters' => $filters,
         ]);
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchDistinctValues($dataset, $version, $column, $limit, $search));
+        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchDistinctValues($dataset, $version, $column, $limit, $search, $filters));
     }
 
     /**
      * Runs the actual DuckDB / mock-parquet distinct-values query. Only called on a cache miss.
      */
-    private function fetchDistinctValues(Dataset $dataset, DatasetVersion $version, string $column, int $limit, string $search): array
+    private function fetchDistinctValues(Dataset $dataset, DatasetVersion $version, string $column, int $limit, string $search, array $filters = []): array
     {
         $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
 
@@ -775,6 +790,9 @@ class DatasetController extends Controller
                 if ($val === null || $val === '') {
                     continue;
                 }
+                if (! $this->matchesFilters($assoc, $filters)) {
+                    continue;
+                }
                 $str = (string) $val;
                 if ($needle !== '' && mb_stripos($str, $needle) === false) {
                     continue;
@@ -795,7 +813,13 @@ class DatasetController extends Controller
         $whereSearch = $search !== ''
             ? " AND lower({$escapedCol}::VARCHAR) LIKE lower(".escapeshellarg('%'.$search.'%').')'
             : '';
-        $sql = "SELECT DISTINCT {$escapedCol} FROM read_parquet({$escapedPath}) WHERE {$escapedCol} IS NOT NULL{$whereSearch} ORDER BY {$escapedCol} LIMIT {$limit}";
+        // buildDuckDbWhere() renvoie " WHERE a AND b" — on le raccorde en " AND ..."
+        // à la clause WHERE déjà présente (IS NOT NULL).
+        $filterClause = $this->buildDuckDbWhere($filters);
+        if ($filterClause !== '') {
+            $filterClause = ' AND '.substr($filterClause, strlen(' WHERE '));
+        }
+        $sql = "SELECT DISTINCT {$escapedCol} FROM read_parquet({$escapedPath}) WHERE {$escapedCol} IS NOT NULL{$filterClause}{$whereSearch} ORDER BY {$escapedCol} LIMIT {$limit}";
         $output = shell_exec('duckdb -json -c '.escapeshellarg($sql).' 2>/dev/null');
 
         if ($output) {
