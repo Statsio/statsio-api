@@ -82,7 +82,9 @@ return [
         'driver' => env('AI_DRIVER', 'gemini'),
 
         // Boucle d'agent : plafonds partagés par tous les drivers.
-        'max_iterations' => (int) env('AI_MAX_ITERATIONS', 15),
+        // 20 tours : marge pour composer un contenu entier (article complet = ~5 sections
+        // + ~14 blocs) même si le modèle n'émet qu'un appel d'outil par tour.
+        'max_iterations' => (int) env('AI_MAX_ITERATIONS', 20),
         'rate_limit_per_minute' => (int) env('AI_RATE_LIMIT_PER_MINUTE', 10),
 
         'gemini' => [

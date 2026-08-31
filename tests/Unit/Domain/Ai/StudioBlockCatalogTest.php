@@ -25,6 +25,7 @@ class StudioBlockCatalogTest extends TestCase
             'image', 'video', 'button', 'link-card', 'retenir', 'map', 'field-grid',
             'choice', 'checkboxes', 'dropdown', 'scale', 'rating',
             'loop', 'if',
+            'sd-embed',
         ];
 
         sort($expected);
@@ -62,6 +63,14 @@ class StudioBlockCatalogTest extends TestCase
             $this->assertFalse($this->catalog->isAllowed($type, 'article'), $type);
             $this->assertFalse($this->catalog->isAllowed($type, 'survey'), $type);
         }
+    }
+
+    public function test_sd_embed_block_is_article_only(): void
+    {
+        $this->assertTrue($this->catalog->isAllowed('sd-embed', 'article'));
+        $this->assertFalse($this->catalog->isAllowed('sd-embed', 'statsdata'));
+        $this->assertFalse($this->catalog->isAllowed('sd-embed', 'survey'));
+        $this->assertFalse($this->catalog->get('sd-embed')['requiresDataset']);
     }
 
     public function test_if_block_is_a_container_available_everywhere(): void

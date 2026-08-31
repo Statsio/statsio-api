@@ -8,8 +8,14 @@ use Illuminate\Support\Facades\Route;
 // Public read-only access (no auth required)
 Route::get('/studio/content/public', [StudioContentController::class, 'indexPublic']);
 Route::get('/studio/content/public/catalog', [StudioContentController::class, 'catalogPublic']);
+Route::get('/studio/content/public/mentions', [StudioContentController::class, 'mentionsPublic']);
 Route::get('/studio/content/public/{slug}', [StudioContentController::class, 'showPublic']);
 Route::get('/studio/content/public/{slug}/datasets/{dataset}/query', [DatasetController::class, 'queryPublic']);
+
+// Blocs embarquables d'un Statsdata publié (bloc « sd-embed » des articles)
+Route::get('/studio/content/public/{slug}/blocks', [StudioContentController::class, 'listPublicBlocks']);
+Route::get('/studio/content/public/{slug}/blocks/{blockId}', [StudioContentController::class, 'showPublicBlock'])
+    ->where('blockId', '[A-Za-z0-9_-]+');
 
 // Public form/survey block responses (anonyme autorisé, throttle sur l'écriture)
 Route::get('/studio/content/public/{slug}/blocks/{blockId}/response', [StudioBlockResponseController::class, 'show']);
