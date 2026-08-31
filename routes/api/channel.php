@@ -8,6 +8,7 @@ Route::prefix('channels')->name('channels.')->group(function () {
     // Routes statiques en premier (avant les routes avec paramètres)
     Route::get('check-handle/{handle}', [ChannelValidationController::class, 'checkHandle'])->name('check-handle');
     Route::get('categories', [ChannelController::class, 'categories'])->name('categories');
+    Route::get('catalog', [ChannelController::class, 'catalog'])->name('catalog');
     Route::get('/', [ChannelController::class, 'index'])->name('index');
 
     // Route "my" AVANT {id} pour éviter le conflit de routing
