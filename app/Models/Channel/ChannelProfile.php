@@ -4,6 +4,7 @@ namespace App\Models\Channel;
 
 use App\Traits\HasMedia;
 use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
+use App\Domain\Channel\Enums\ChannelKindEnum;
 use App\Models\Channel\ChannelCategory;
 use App\Models\StudioContent;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -19,12 +20,14 @@ class ChannelProfile extends Model
         'channel_id',
         'name',
         'handle',
+        'kind',
         'description',
         'logo',
         'banner',
         'tags',
         'country',
         'is_featured',
+        'verified_at',
         'view_count',
         'custom_color_primary',
         'custom_color_secondary',
@@ -36,12 +39,19 @@ class ChannelProfile extends Model
 
     protected $casts = [
         'is_featured' => 'boolean',
+        'verified_at' => 'datetime',
         'view_count'  => 'integer',
         'age_restriction' => ChannelAgeRestrictionEnum::class,
+        'kind' => ChannelKindEnum::class,
         'tags' => 'array',
     ];
 
-    protected $appends = ['subscriber_count', 'is_following', 'logo_url', 'banner_url', 'categories'];
+    protected $appends = ['subscriber_count', 'is_following', 'logo_url', 'banner_url', 'categories', 'verified'];
+
+    public function getVerifiedAttribute(): bool
+    {
+        return $this->verified_at !== null;
+    }
 
     public function getSubscriberCountAttribute(): int
     {
@@ -99,6 +109,9 @@ class ChannelProfile extends Model
         $array = parent::toArray();
         if (isset($array['age_restriction']) && $array['age_restriction'] instanceof ChannelAgeRestrictionEnum) {
             $array['age_restriction'] = $array['age_restriction']->value;
+        }
+        if (isset($array['kind']) && $array['kind'] instanceof ChannelKindEnum) {
+            $array['kind'] = $array['kind']->value;
         }
         return $array;
     }
