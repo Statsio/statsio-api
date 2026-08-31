@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
 use App\Domain\User\Actions\RecordContentViewAction;
 use App\Models\Channel\ChannelUser;
@@ -119,6 +120,14 @@ class StudioContentController extends Controller
         return response()->json([
             'success' => true,
             'data' => $action->getDataSources($content),
+        ]);
+    }
+
+    public function catalogPublic(Request $request, ListPublicStudioCatalogAction $action): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            ...$action->execute($request),
         ]);
     }
 
