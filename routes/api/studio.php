@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 
 // Public read-only access (no auth required)
 Route::get('/studio/content/public', [StudioContentController::class, 'indexPublic']);
+Route::get('/studio/content/public/catalog', [StudioContentController::class, 'catalogPublic']);
 Route::get('/studio/content/public/{slug}', [StudioContentController::class, 'showPublic']);
 Route::get('/studio/content/public/{slug}/datasets/{dataset}/query', [DatasetController::class, 'queryPublic']);
 

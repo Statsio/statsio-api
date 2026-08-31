@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Channel;
 
 use App\Domain\Channel\Enums\ChannelCategoryEnum;
+use App\Domain\Channel\Enums\ChannelKindEnum;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -19,6 +20,7 @@ class CreateChannelRequest extends FormRequest
             'name' => 'required|string|max:255',
             'handle' => 'required|string|max:50|regex:/^[a-zA-Z0-9_]+$/|unique:channel_profiles,handle',
             'description' => 'sometimes|string|max:1000',
+            'kind' => ['sometimes', Rule::in(ChannelKindEnum::values())],
             'category' => ['sometimes', Rule::in(ChannelCategoryEnum::values())],
             'categories' => 'sometimes|array',
             'categories.*' => ['string', Rule::in(ChannelCategoryEnum::values())],

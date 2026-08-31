@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Models\StudioContent;
 use App\Models\User\User;
 
 class Channel extends Model
@@ -59,6 +60,14 @@ class Channel extends Model
     public function dailyViews(): HasMany
     {
         return $this->hasMany(ChannelDailyView::class);
+    }
+
+    /**
+     * Get the studio contents (articles / statsdata / surveys) published under this channel
+     */
+    public function studioContents(): HasMany
+    {
+        return $this->hasMany(StudioContent::class);
     }
 
     /**
