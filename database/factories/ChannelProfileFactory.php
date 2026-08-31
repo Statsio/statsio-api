@@ -19,7 +19,6 @@ class ChannelProfileFactory extends Factory
             'handle' => fake()->unique()->regexify('[a-z]{3,10}-[a-z]{3,6}'),
             'kind' => fake()->randomElement(ChannelKindEnum::values()),
             'description' => fake()->sentence(),
-            'verified_at' => fake()->boolean(30) ? now() : null,
         ];
     }
 }

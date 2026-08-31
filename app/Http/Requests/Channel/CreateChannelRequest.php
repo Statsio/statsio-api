@@ -26,9 +26,11 @@ class CreateChannelRequest extends FormRequest
             'categories.*' => ['string', Rule::in(ChannelCategoryEnum::values())],
             'logo' => 'sometimes|file|image:allow_svg|max:5120', // max 5MB
             'banner' => 'sometimes|file|image:allow_svg|max:10240', // max 10MB
+            'custom_color_primary' => 'sometimes|nullable|string|regex:/^#[0-9a-fA-F]{6}$/',
+            'custom_color_secondary' => 'sometimes|nullable|string|regex:/^#[0-9a-fA-F]{6}$/',
             'status' => 'sometimes|in:active,suspended,banned,anonymized',
             'suspended_until' => 'sometimes|date|after:now',
-            'anonymized_at' => 'sometimes|date'
+            'anonymized_at' => 'sometimes|date',
         ];
     }
 
@@ -51,6 +53,8 @@ class CreateChannelRequest extends FormRequest
             'banner.file' => 'La bannière doit être un fichier',
             'banner.image' => 'La bannière doit être une image',
             'banner.max' => 'La bannière ne doit pas dépasser 10MB',
+            'custom_color_primary.regex' => 'La couleur principale doit être au format hexadécimal (#rrggbb)',
+            'custom_color_secondary.regex' => 'La couleur secondaire doit être au format hexadécimal (#rrggbb)',
             'status.in' => 'Le statut doit être l\'une des valeurs suivantes: active, suspended, banned, anonymized',
             'suspended_until.after' => 'La date de suspension doit être dans le futur',
         ];

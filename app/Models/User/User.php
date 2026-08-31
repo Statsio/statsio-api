@@ -115,12 +115,22 @@ class User extends Authenticatable
     }
 
     /**
-     * Get channels where user is moderator
+     * Get channels where user is redactor
      */
-    public function moderatorChannels(): BelongsToMany
+    public function redactorChannels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
-            ->wherePivot('role', 'moderator')
+            ->wherePivot('role', 'redactor')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+    }
+
+    /**
+     * Get channels where user is guest
+     */
+    public function guestChannels(): BelongsToMany
+    {
+        return $this->belongsToMany(Channel::class, 'channel_users')
+            ->wherePivot('role', 'guest')
             ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 

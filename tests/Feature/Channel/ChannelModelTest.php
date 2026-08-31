@@ -11,21 +11,24 @@ class ChannelModelTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_owners_admins_and_moderators_relations(): void
+    public function test_owners_admins_and_redactors_relations(): void
     {
         $channel = Channel::factory()->withProfile()->create();
         $owner = User::factory()->create();
         $admin = User::factory()->create();
-        $moderator = User::factory()->create();
+        $redactor = User::factory()->create();
+        $guest = User::factory()->create();
 
         $channel->users()->attach($owner->id, ['role' => 'owner', 'subscribed_at' => now()]);
         $channel->users()->attach($admin->id, ['role' => 'admin', 'subscribed_at' => now()]);
-        $channel->users()->attach($moderator->id, ['role' => 'moderator', 'subscribed_at' => now()]);
+        $channel->users()->attach($redactor->id, ['role' => 'redactor', 'subscribed_at' => now()]);
+        $channel->users()->attach($guest->id, ['role' => 'guest', 'subscribed_at' => now()]);
 
         $this->assertSame([$owner->id], $channel->owners()->pluck('users.id')->all());
         $this->assertSame([$admin->id], $channel->admins()->pluck('users.id')->all());
-        $this->assertSame([$moderator->id], $channel->moderators()->pluck('users.id')->all());
-        $this->assertCount(3, $channel->managementTeam()->get());
+        $this->assertSame([$redactor->id], $channel->redactors()->pluck('users.id')->all());
+        $this->assertSame([$guest->id], $channel->guests()->pluck('users.id')->all());
+        $this->assertCount(4, $channel->managementTeam()->get());
     }
 
     public function test_get_subscriber_count_and_is_user_subscribed(): void

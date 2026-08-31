@@ -6,7 +6,8 @@ enum ChannelUserRoleEnum: string
 {
     case OWNER = 'owner';
     case ADMIN = 'admin';
-    case MODERATOR = 'moderator';
+    case REDACTOR = 'redactor';
+    case GUEST = 'guest';
     case SUBSCRIBER = 'subscriber';
 
     /**
@@ -14,10 +15,11 @@ enum ChannelUserRoleEnum: string
      */
     public function getDisplayName(): string
     {
-        return match($this) {
+        return match ($this) {
             self::OWNER => 'Propriétaire',
             self::ADMIN => 'Administrateur',
-            self::MODERATOR => 'Modérateur',
+            self::REDACTOR => 'Rédacteur',
+            self::GUEST => 'Invité',
             self::SUBSCRIBER => 'Abonné',
         };
     }
@@ -27,11 +29,12 @@ enum ChannelUserRoleEnum: string
      */
     public function getPermissionLevel(): int
     {
-        return match($this) {
+        return match ($this) {
             self::OWNER => 100,
             self::ADMIN => 80,
-            self::MODERATOR => 60,
-            self::SUBSCRIBER => 20,
+            self::REDACTOR => 60,
+            self::GUEST => 40,
+            self::SUBSCRIBER => 10,
         };
     }
 
@@ -68,14 +71,41 @@ enum ChannelUserRoleEnum: string
     }
 
     /**
-     * Get all management roles
+     * Permissions cochées par défaut pour ce rôle lors d'une invitation (voir
+     * ChannelPermissionEnum). Owner/admin ont toujours le catalogue complet,
+     * quoi que le client envoie — cf. ChannelInvitationAction::invite().
+     */
+    public function defaultPermissions(): array
+    {
+        return match ($this) {
+            self::OWNER, self::ADMIN => array_map(
+                fn (ChannelPermissionEnum $p) => $p->value,
+                ChannelPermissionEnum::cases(),
+            ),
+            self::REDACTOR => [
+                ChannelPermissionEnum::CONTENTS_CREATE->value,
+                ChannelPermissionEnum::CONTENTS_EDIT->value,
+                ChannelPermissionEnum::CONTENTS_PUBLISH->value,
+                ChannelPermissionEnum::AUDIENCE_VIEW_STATS->value,
+            ],
+            self::GUEST => [
+                ChannelPermissionEnum::CONTENTS_CREATE->value,
+                ChannelPermissionEnum::CONTENTS_EDIT->value,
+            ],
+            self::SUBSCRIBER => [],
+        };
+    }
+
+    /**
+     * Get all management roles (équipe affichée dans le dashboard chaîne — hors abonnés)
      */
     public static function getManagementRoles(): array
     {
         return [
             self::OWNER,
             self::ADMIN,
-            self::MODERATOR,
+            self::REDACTOR,
+            self::GUEST,
         ];
     }
 
@@ -87,8 +117,18 @@ enum ChannelUserRoleEnum: string
         return [
             self::OWNER,
             self::ADMIN,
-            self::MODERATOR,
+            self::REDACTOR,
+            self::GUEST,
             self::SUBSCRIBER,
         ];
+    }
+
+    /**
+     * Rôles assignables via l'invitation de membres (tous sauf abonné, qui n'est
+     * pas un rôle "équipe" mais l'état par défaut d'un simple follower).
+     */
+    public static function getInvitableRoles(): array
+    {
+        return self::getManagementRoles();
     }
 }

@@ -6,6 +6,7 @@ use App\Models\DataIngestion\DataSource;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetVersion;
 use App\Services\DataIngestion\Contracts\ParquetWriterInterface;
+use App\Services\DataIngestion\Parsers\JsonLinesParser;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -38,10 +39,14 @@ class DataIngestionOrchestrator
         $localTempPath = null;
 
         try {
-            // 1. Parse raw file (local) — pipeline réservé aux sources "upload" (les
-            // sources API sont désormais toujours "live", jamais matérialisées en Parquet).
+            // 1. Parse raw file (local) — les sources API "snapshot" sont récupérées en JSONL
+            // streamé (FetchApiDataSourcePagesAction) et parsées par JsonLinesParser, qui ne
+            // matérialise jamais l'ensemble des lignes en mémoire, contrairement au JsonParser
+            // générique utilisé pour un upload de fichier .json classique.
             $absolutePath = Storage::path($dataSource->raw_storage_path);
-            $parser = $this->parserFactory->make($dataSource->type);
+            $parser = $dataSource->source_kind === 'api'
+                ? new JsonLinesParser()
+                : $this->parserFactory->make($dataSource->type);
             $parsed = $parser->parse($absolutePath, $this->maxRows, $dataSource->sheet_name, $dataSource->header_row, $dataSource->excluded_rows);
             $dataSource->dataset?->updateProgress(25);
 

@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api\DataIngestion;
 
 use App\Domain\DataIngestion\Actions\AttachPublicDataSourceAction;
+use App\Domain\DataIngestion\Actions\CreateApiDataSourceAction;
 use App\Domain\DataIngestion\Actions\CreateLiveApiDataSourceAction;
 use App\Domain\DataIngestion\Actions\PreviewSpreadsheetAction;
+use App\Domain\DataIngestion\Actions\RefreshApiDataSourceAction;
 use App\Domain\DataIngestion\Actions\UpdateDataSourceAction;
 use App\Domain\DataIngestion\Actions\UploadDataSourceAction;
+use App\Domain\DataIngestion\Enums\DataSourceRefreshFrequencyEnum;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Domain\DataIngestion\Exceptions\FileParsingException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
@@ -23,7 +26,9 @@ class DataSourceController extends Controller
 {
     public function __construct(
         private readonly UploadDataSourceAction $uploadAction,
+        private readonly CreateApiDataSourceAction $createApiAction,
         private readonly CreateLiveApiDataSourceAction $createLiveApiAction,
+        private readonly RefreshApiDataSourceAction $refreshApiAction,
         private readonly AttachPublicDataSourceAction $attachAction,
         private readonly UpdateDataSourceAction $updateAction,
         private readonly PreviewSpreadsheetAction $previewSpreadsheetAction,
@@ -91,8 +96,34 @@ class DataSourceController extends Controller
 
     public function createFromApi(CreateApiDataSourceRequest $request): JsonResponse
     {
+        $isLive = $request->input('materialization', 'snapshot') === 'live';
+
         try {
-            $dataSource = $this->createLiveApiAction->execute(
+            if ($isLive) {
+                $dataSource = $this->createLiveApiAction->execute(
+                    user: $request->user(),
+                    name: $request->input('name'),
+                    url: $request->input('url'),
+                    method: $request->input('method', 'GET'),
+                    headers: $request->input('headers', []),
+                    dataPath: $request->input('data_path'),
+                    authType: $request->input('auth_type', 'none'),
+                    visibility: $request->input('visibility', 'private'),
+                    categories: $request->input('categories', []),
+                    provenanceId: $request->input('provenance_id'),
+                    provenanceOtherLabel: $request->input('provenance_other_label'),
+                    pagination: $request->input('pagination', ['style' => 'none']),
+                    queryMappingOverrides: $request->input('query_mapping'),
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Source API en direct créée.',
+                    'data' => $this->formatDataSource($dataSource, $request->user()->id),
+                ], 201);
+            }
+
+            $dataSource = $this->createApiAction->execute(
                 user: $request->user(),
                 name: $request->input('name'),
                 url: $request->input('url'),
@@ -104,15 +135,15 @@ class DataSourceController extends Controller
                 categories: $request->input('categories', []),
                 provenanceId: $request->input('provenance_id'),
                 provenanceOtherLabel: $request->input('provenance_other_label'),
+                refreshFrequency: DataSourceRefreshFrequencyEnum::from($request->input('refresh_frequency', 'none')),
                 pagination: $request->input('pagination', ['style' => 'none']),
-                queryMappingOverrides: $request->input('query_mapping'),
             );
 
             return response()->json([
                 'success' => true,
-                'message' => 'Source API en direct créée.',
+                'message' => 'Source API créée. Le traitement est en cours.',
                 'data' => $this->formatDataSource($dataSource, $request->user()->id),
-            ], 201);
+            ], 202);
         } catch (ApiSourceFetchException $e) {
             return response()->json([
                 'success' => false,
@@ -122,6 +153,44 @@ class DataSourceController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la création de la source API.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Ré-appelle l'API d'une source "snapshot" existante et relance le pipeline
+     * d'ingestion (bouton « Actualiser maintenant »). Les sources "live" sont
+     * toujours à jour, une source upload ne peut pas être actualisée ainsi.
+     */
+    public function refresh(Request $request, DataSource $dataSource): JsonResponse
+    {
+        if (! $dataSource->isOwnedBy($request->user()->id)) {
+            return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
+        }
+
+        if ($dataSource->source_kind !== 'api') {
+            return response()->json(['success' => false, 'message' => 'Seules les sources API peuvent être actualisées.'], 422);
+        }
+
+        if ($dataSource->isLive()) {
+            return response()->json(['success' => false, 'message' => 'Une source en direct est toujours à jour, aucune actualisation n\'est nécessaire.'], 422);
+        }
+
+        try {
+            $refreshed = $this->refreshApiAction->execute($dataSource);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Actualisation lancée. Le traitement est en cours.',
+                'data' => $this->formatDataSourceWithDataset($refreshed, $request->user()->id),
+            ], 202);
+        } catch (ApiSourceFetchException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Erreur lors de l'actualisation de la source.",
                 'error' => $e->getMessage(),
             ], 500);
         }
@@ -170,7 +239,7 @@ class DataSourceController extends Controller
         $query = DataSource::where('visibility', 'public')->with('provenance');
 
         if ($q = $request->query('q')) {
-            $query->whereRaw('LOWER(name) LIKE ?', ['%' . mb_strtolower($q) . '%']);
+            $query->whereRaw('LOWER(name) LIKE ?', ['%'.mb_strtolower($q).'%']);
         }
 
         if ($category = $request->query('category')) {
