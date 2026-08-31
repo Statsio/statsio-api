@@ -229,6 +229,9 @@ class StudioContentController extends Controller
                 'string',
                 'max:255',
                 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/',
+                // $content->id est la clé primaire du modèle résolu par findBySlug(), pas une entrée
+                // utilisateur — usage canonique de Rule::unique()->ignore().
+                // nosemgrep: php.laravel.security.laravel-unsafe-validator.laravel-unsafe-validator
                 Rule::unique('studio_contents', 'slug')->ignore($content->id),
             ],
             'description' => 'sometimes|nullable|string|max:2000',
