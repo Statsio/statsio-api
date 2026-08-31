@@ -17,6 +17,7 @@ if [ "${RUN_SETUP:-false}" = "true" ]; then
   rm -f "$READY_MARKER"
 
   echo "Installing dependencies..."
+  export COMPOSER_HTTP2_DISABLE=1
   composer install --no-interaction --optimize-autoloader --no-dev
 
   echo "Fixing permissions..."
