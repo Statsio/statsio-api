@@ -3,6 +3,7 @@
 namespace App\Models\User;
 
 use App\Models\Channel\Channel;
+use App\Models\Identity\IdentityVerification;
 use App\Models\StudioContent;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -58,6 +59,7 @@ class User extends Authenticatable
      */
     protected $appends = [
         'profile_complete',
+        'identity_verified',
     ];
 
     /**
@@ -69,6 +71,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'identity_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
             'suspended_until' => 'datetime',
@@ -95,6 +98,28 @@ class User extends Authenticatable
     }
 
     /**
+     * Sessions de vérification d'identité Didit du compte.
+     */
+    public function identityVerifications(): HasMany
+    {
+        return $this->hasMany(IdentityVerification::class);
+    }
+
+    /**
+     * Accesseur "identity_verified" — true dès qu'une session Didit du compte
+     * a été approuvée (colonne dénormalisée renseignée par le webhook).
+     */
+    public function getIdentityVerifiedAttribute(): bool
+    {
+        return $this->identity_verified_at !== null;
+    }
+
+    public function hasVerifiedIdentity(): bool
+    {
+        return $this->identity_verified_at !== null;
+    }
+
+    /**
      * Get channels owned by this user
      */
     public function ownedChannels(): BelongsToMany
@@ -115,12 +140,22 @@ class User extends Authenticatable
     }
 
     /**
-     * Get channels where user is moderator
+     * Get channels where user is redactor
      */
-    public function moderatorChannels(): BelongsToMany
+    public function redactorChannels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class, 'channel_users')
-            ->wherePivot('role', 'moderator')
+            ->wherePivot('role', 'redactor')
+            ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
+    }
+
+    /**
+     * Get channels where user is guest
+     */
+    public function guestChannels(): BelongsToMany
+    {
+        return $this->belongsToMany(Channel::class, 'channel_users')
+            ->wherePivot('role', 'guest')
             ->withPivot(['role', 'subscribed_at', 'notifications_enabled']);
     }
 

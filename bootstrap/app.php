@@ -32,6 +32,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command(MonitorHealthCommand::class)
             ->everyMinute()
             ->sendOutputTo('/proc/1/fd/1');
+
+        $schedule->command('data-sources:refresh-due')->hourly();
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->use([

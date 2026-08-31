@@ -138,14 +138,19 @@ class DatasetController extends Controller
 
     public function queryPublic(Request $request, string $slug, Dataset $dataset): JsonResponse
     {
-        $content = StudioContent::where('status', 'published')
-            ->where(function ($q) use ($slug) {
-                $q->where('slug', $slug);
-                if (is_numeric($slug)) {
-                    $q->orWhere('id', (int) $slug);
-                }
-            })
-            ->firstOrFail();
+        $content = StudioContent::where(function ($q) use ($slug) {
+            $q->where('slug', $slug);
+            if (is_numeric($slug)) {
+                $q->orWhere('id', (int) $slug);
+            }
+        })->firstOrFail();
+
+        // Publié = lisible par tous ; brouillon = seulement pour son éditeur
+        // (aperçu d'un bloc `sd-embed` pointant son propre Statsdata dans le Studio).
+        if ($content->status !== 'published') {
+            $viewer = $request->user('sanctum');
+            abort_unless($viewer !== null && $viewer->can('update', $content), 404);
+        }
 
         $docDatasetIds = collect($content->blocks ?? [])
             ->flatMap(function ($block) {

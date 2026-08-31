@@ -198,6 +198,20 @@ class StudioBlockCatalog
                 ],
                 'config' => ['searchPlaceholder', 'title'],
             ],
+            // ─── Statsio (article uniquement) ──────────────────────────────
+            'sd-embed' => [
+                'category' => 'statsio',
+                'label' => 'Bloc Statsdata',
+                'description' => 'Réutilise un bloc (graphique, KPI, tableau ou recherche) d\'un Statsdata PUBLIÉ, '
+                    .'même s\'il appartient à une autre chaîne / un autre utilisateur. Affiche ses données en direct '
+                    .'plus un lien « Ouvrir le Statsdata complet ». config.sourceSlug = slug du Statsdata source, '
+                    .'config.sourceBlockId = id du bloc réutilisé (voir GET /studio/content/public/{slug}/blocks).',
+                'contentTypes' => ['article'],
+                'requiresDataset' => false,
+                'fieldMapping' => [],
+                'config' => ['sourceSlug', 'sourceBlockId', 'sourceBlockType', 'sourceDocTitle', 'showSourceLink'],
+            ],
+
             'param' => [
                 'category' => 'special',
                 'label' => 'Paramètre',

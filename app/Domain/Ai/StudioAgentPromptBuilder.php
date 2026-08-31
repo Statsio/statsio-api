@@ -21,6 +21,7 @@ class StudioAgentPromptBuilder
             $this->intro($content, $type),
             $this->dataModel(),
             $this->palette($type),
+            $this->composition($type),
             $this->currentTree($content),
             $this->pendingIssues($content),
             $this->guardrails(),
@@ -108,6 +109,49 @@ class StudioAgentPromptBuilder
         return implode("\n", $lines);
     }
 
+    /**
+     * Plan de composition par type de contenu — suivi UNIQUEMENT quand l'utilisateur
+     * demande de créer / rédiger / étoffer un contenu entier (« fais-moi un article… »,
+     * « rédige la page… »). Pour une demande ciblée, reste minimal (voir RÈGLES).
+     */
+    private function composition(string $type): ?string
+    {
+        if ($type !== 'article') {
+            return null;
+        }
+
+        return <<<'TXT'
+        PLAN DE COMPOSITION D'UN ARTICLE COMPLET (quand on te demande de « faire / rédiger » l'article)
+        Le titre de l'article est déjà l'accroche (H1) — ne le répète pas dans un bloc. Vise 4 à 6
+        sections et 10 à 16 blocs au total, réparties ainsi :
+
+        1. Section « Introduction » (layout 1-col, sans en-tête) : UN bloc `paragraph` de chapô
+           (3-4 phrases qui posent l'enjeu et le chiffre-clé).
+        2. Puis 3 à 5 sections d'analyse. Chaque section est créée avec `add_section` en passant
+           `title` (le titre de la partie) ET `anchor` (slug) — c'est l'en-tête de section qui
+           alimente le sommaire de l'article, n'ajoute PAS de bloc `heading` séparé. La section
+           contient 1 à 2 blocs `paragraph` d'analyse, et, quand c'est pertinent, UN visuel :
+           * un bloc `sd-embed` reprenant un bloc précis d'un Statsdata référencé par l'utilisateur
+             (voir CONTENUS RÉFÉRENCÉS) — place chaque `sd-embed` dans la section dont le texte
+             parle de ce chiffre, pas tous au même endroit ;
+           * sinon un bloc `image` (avec `imageCaption`) ou un `quote` (citation d'expert + source
+             dans un 2e paragraphe court).
+        3. Une section « À retenir » : UN bloc `retenir` avec `config.retenirItems` = 3 à 5 points
+           clés courts (`config.retenirTitle` = "À retenir").
+        4. Une dernière section : un `paragraph` de conclusion / ouverture (renvoi vers les
+           Statsdata pour explorer les données).
+
+        Rédige un vrai texte journalistique en français (pas de lorem, pas de « [à compléter] »).
+        Si des chiffres précis manquent, reste qualitatif plutôt que d'inventer des valeurs.
+        Tu peux enchaîner plusieurs `add_section` / `add_block` dans le même tour d'outils.
+
+        N'ajoute un bloc `sd-embed` QUE si tu disposes d'un `sourceSlug` ET d'un `sourceBlockId`
+        exacts issus de la liste « CONTENUS RÉFÉRENCÉS » du message. Sans référence : pas de
+        `sd-embed` — illustre alors avec `image` / `quote`, ou construis un vrai graphique de
+        données à partir des sources du contenu (`list_sources`).
+        TXT;
+    }
+
     private function currentTree(StudioContent $content): string
     {
         $sections = $content->sections ?? [];
@@ -181,9 +225,16 @@ class StudioAgentPromptBuilder
         - `field_mapping_json` / `config_json` / `filters_json` sont des objets JSON encodés en
           chaîne, conformes à la palette (ex. field_mapping_json="{\"xAxis\":\"region\",\"yAxes\":[\"population\"],\"aggregate\":\"sum\"}").
         - Ne crée jamais un bloc absent de la palette autorisée.
+        - CONTENUS RÉFÉRENCÉS (@) : si le message utilisateur se termine par un bloc
+          « Contenus référencés », l'utilisateur pointe des contenus publiés. Pour un article,
+          tu peux insérer un bloc `sd-embed` qui réutilise un bloc d'un statsdata référencé :
+          `add_block` type `sd-embed`, config_json = {"sourceSlug":"<slug du statsdata>",
+          "sourceBlockId":"<id de bloc fourni dans la liste>"}. Ce bloc n'a pas besoin de dataset_id.
         - `update_block` fonctionne aussi sur un bloc `locked` (configuration seulement, pas
           move_block/remove_block).
-        - Reste minimal : le plus petit changement qui répond à la demande.
+        - Reste minimal : le plus petit changement qui répond à la demande — SAUF quand on te
+          demande de créer / rédiger / étoffer un contenu entier : suis alors le PLAN DE
+          COMPOSITION et produis une structure complète, pas un squelette.
         TXT;
     }
 }

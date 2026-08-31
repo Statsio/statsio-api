@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use App\Models\Channel\Channel;
+use App\Models\Studio\StudioBlockResponse;
 use App\Models\User\User;
 use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StudioContent extends Model
 {
@@ -17,6 +19,10 @@ class StudioContent extends Model
         'user_id',
         'title',
         'type',
+        'survey_kind',
+        'requires_identity_verification',
+        'petition_goal',
+        'petition_target',
         'description',
         'status',
         'visibility',
@@ -41,6 +47,8 @@ class StudioContent extends Model
         'coverage_data' => 'array',
         'views_count' => 'integer',
         'response_deadline' => 'datetime',
+        'requires_identity_verification' => 'boolean',
+        'petition_goal' => 'integer',
     ];
 
     /**
@@ -57,5 +65,13 @@ class StudioContent extends Model
     public function channel(): BelongsTo
     {
         return $this->belongsTo(Channel::class);
+    }
+
+    /**
+     * Réponses aux blocs de formulaire (votes de sondage / signatures de pétition).
+     */
+    public function blockResponses(): HasMany
+    {
+        return $this->hasMany(StudioBlockResponse::class);
     }
 }
