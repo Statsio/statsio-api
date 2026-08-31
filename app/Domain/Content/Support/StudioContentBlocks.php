@@ -16,6 +16,9 @@ class StudioContentBlocks
     /** @var list<string> */
     public const CHART_TYPES = ['bar', 'line', 'pie', 'map'];
 
+    /** @var list<string> */
+    public const FORM_TYPES = ['choice', 'checkboxes', 'dropdown', 'scale', 'rating'];
+
     /**
      * @return list<array<string, mixed>>
      */
@@ -84,6 +87,47 @@ class StudioContentBlocks
         }
 
         return $n;
+    }
+
+    /**
+     * Blocs de formulaire (questions), dans l'ordre de lecture.
+     *
+     * @param  list<array<string, mixed>>  $blocks
+     * @return list<array<string, mixed>>
+     */
+    public static function formBlocks(array $blocks): array
+    {
+        return array_values(array_filter(
+            $blocks,
+            fn ($block) => is_array($block) && in_array($block['type'] ?? '', self::FORM_TYPES, true),
+        ));
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $blocks
+     */
+    public static function formQuestionCount(array $blocks): int
+    {
+        return count(self::formBlocks($blocks));
+    }
+
+    /**
+     * Types de questions présents (choice / checkboxes / …), dédupliqués, ordre de lecture.
+     *
+     * @param  list<array<string, mixed>>  $blocks
+     * @return list<string>
+     */
+    public static function formQuestionTypes(array $blocks): array
+    {
+        $types = [];
+        foreach (self::formBlocks($blocks) as $block) {
+            $type = $block['type'] ?? '';
+            if ($type !== '' && ! in_array($type, $types, true)) {
+                $types[] = $type;
+            }
+        }
+
+        return $types;
     }
 
     /**

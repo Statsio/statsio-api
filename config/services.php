@@ -70,6 +70,29 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Didit — vérification d'identité (KYC) des sondages
+    |--------------------------------------------------------------------------
+    |
+    | Utilisé uniquement par les sondages dont `requires_identity_verification`
+    | est actif : voter impose alors un compte connecté + une session Didit
+    | approuvée. Laisser `api_key` / `workflow_id` vides désactive proprement la
+    | porte (le sondage retombe sur la notice non bloquante).
+    |
+    */
+    'didit' => [
+        'base_url' => env('DIDIT_BASE_URL', 'https://verification.didit.me'),
+        'api_key' => env('DIDIT_API_KEY'),
+        'workflow_id' => env('DIDIT_WORKFLOW_ID'),
+        'webhook_secret' => env('DIDIT_WEBHOOK_SECRET'),
+        // Origine du front, sans slash final (ex. https://statsio.fr) — sert à construire
+        // l'URL de retour `<origine>/identity/callback` passée à Didit. Vide → repli sur FRONTEND_URL.
+        'callback_base_url' => env('DIDIT_CALLBACK_BASE_URL'),
+        // Mode dev : approuve la vérification immédiatement sans compte Didit (jamais en prod).
+        'fake' => (bool) env('DIDIT_FAKE', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Assistant IA du Studio
     |--------------------------------------------------------------------------
     |

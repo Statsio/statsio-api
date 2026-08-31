@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Domain\Channel\Enums\ChannelUserRoleEnum;
 use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
+use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\User\Actions\RecordContentViewAction;
 use App\Models\Channel\ChannelUser;
 use App\Models\DataIngestion\Dataset;
@@ -70,6 +71,10 @@ class StudioContentController extends Controller
         $data = $request->validate([
             'title' => 'required|string|max:255',
             'type' => 'nullable|string|in:statsdata,article,survey',
+            'survey_kind' => ['nullable', 'string', Rule::enum(SurveyKindEnum::class)],
+            'requires_identity_verification' => 'nullable|boolean',
+            'petition_goal' => 'nullable|integer|min:1',
+            'petition_target' => 'nullable|string|max:2000',
             'description' => 'nullable|string|max:2000',
             'status' => 'nullable|string|in:draft,published',
             'sections' => 'nullable|array',
@@ -85,10 +90,17 @@ class StudioContentController extends Controller
             'response_deadline' => 'nullable|date',
         ]);
 
+        $type = $data['type'] ?? 'statsdata';
+        $isSurvey = $type === 'survey';
+
         $content = StudioContent::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
-            'type' => $data['type'] ?? 'statsdata',
+            'type' => $type,
+            'survey_kind' => $isSurvey ? ($data['survey_kind'] ?? SurveyKindEnum::SingleQuestion->value) : null,
+            'requires_identity_verification' => $isSurvey ? (bool) ($data['requires_identity_verification'] ?? false) : false,
+            'petition_goal' => $isSurvey ? ($data['petition_goal'] ?? null) : null,
+            'petition_target' => $isSurvey ? ($data['petition_target'] ?? null) : null,
             'description' => $data['description'] ?? null,
             'status' => $data['status'] ?? 'draft',
             'slug' => $this->generateUniqueSlug($data['title']),
@@ -388,6 +400,10 @@ class StudioContentController extends Controller
 
         $data = $request->validate([
             'title' => 'sometimes|required|string|max:255',
+            'survey_kind' => ['sometimes', 'nullable', 'string', Rule::enum(SurveyKindEnum::class)],
+            'requires_identity_verification' => 'sometimes|boolean',
+            'petition_goal' => 'sometimes|nullable|integer|min:1',
+            'petition_target' => 'sometimes|nullable|string|max:2000',
             'slug' => [
                 'sometimes',
                 'string',
@@ -670,6 +686,10 @@ class StudioContentController extends Controller
             'id' => (string) $content->id,
             'title' => $content->title,
             'type' => $content->type ?? 'statsdata',
+            'survey_kind' => $content->survey_kind,
+            'requires_identity_verification' => (bool) $content->requires_identity_verification,
+            'petition_goal' => $content->petition_goal,
+            'petition_target' => $content->petition_target,
             'description' => $content->description,
             'status' => $content->status ?? 'draft',
             'views_count' => $content->views_count ?? 0,

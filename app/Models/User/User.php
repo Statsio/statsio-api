@@ -3,6 +3,7 @@
 namespace App\Models\User;
 
 use App\Models\Channel\Channel;
+use App\Models\Identity\IdentityVerification;
 use App\Models\StudioContent;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -58,6 +59,7 @@ class User extends Authenticatable
      */
     protected $appends = [
         'profile_complete',
+        'identity_verified',
     ];
 
     /**
@@ -69,6 +71,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'identity_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
             'suspended_until' => 'datetime',
@@ -92,6 +95,28 @@ class User extends Authenticatable
     public function getProfileCompleteAttribute(): bool
     {
         return $this->profile?->isComplete() ?? false;
+    }
+
+    /**
+     * Sessions de vérification d'identité Didit du compte.
+     */
+    public function identityVerifications(): HasMany
+    {
+        return $this->hasMany(IdentityVerification::class);
+    }
+
+    /**
+     * Accesseur "identity_verified" — true dès qu'une session Didit du compte
+     * a été approuvée (colonne dénormalisée renseignée par le webhook).
+     */
+    public function getIdentityVerifiedAttribute(): bool
+    {
+        return $this->identity_verified_at !== null;
+    }
+
+    public function hasVerifiedIdentity(): bool
+    {
+        return $this->identity_verified_at !== null;
     }
 
     /**
