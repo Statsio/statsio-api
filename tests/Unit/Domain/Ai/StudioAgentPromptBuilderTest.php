@@ -96,4 +96,33 @@ class StudioAgentPromptBuilderTest extends TestCase
         $this->assertStringContainsString('rating', $prompt);
         $this->assertStringNotContainsString('- search ', $prompt);
     }
+
+    public function test_article_palette_exposes_the_sd_embed_block_and_reference_guidance(): void
+    {
+        $article = $this->content(['type' => 'article']);
+        $prompt = $this->builder()->build($article);
+
+        $this->assertStringContainsString('sd-embed', $prompt);
+        $this->assertStringContainsString('Contenus référencés', $prompt);
+    }
+
+    public function test_article_prompt_carries_a_full_composition_plan(): void
+    {
+        $article = $this->content(['type' => 'article']);
+        $prompt = $this->builder()->build($article);
+
+        $this->assertStringContainsString('PLAN DE COMPOSITION', $prompt);
+        $this->assertStringContainsString('À retenir', $prompt);
+    }
+
+    public function test_composition_plan_is_article_only(): void
+    {
+        foreach (['statsdata', 'survey'] as $type) {
+            $this->assertStringNotContainsString(
+                'PLAN DE COMPOSITION',
+                $this->builder()->build($this->content(['type' => $type])),
+                $type,
+            );
+        }
+    }
 }

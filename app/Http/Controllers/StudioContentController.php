@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Domain\Channel\Enums\ChannelUserRoleEnum;
 use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
+use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\User\Actions\RecordContentViewAction;
 use App\Models\Channel\ChannelUser;
 use App\Models\DataIngestion\Dataset;
@@ -19,6 +20,14 @@ use Illuminate\Validation\Rule;
 class StudioContentController extends Controller
 {
     private const PUBLIC_CACHE_TTL = 300; // 5 minutes
+
+    /**
+     * Types de blocs qu'un article peut réutiliser via un bloc `sd-embed`
+     * (« Bloc Statsdata »). Miroir de EMBEDDABLE_BLOCK_TYPES côté front.
+     *
+     * @var list<string>
+     */
+    public const EMBEDDABLE_BLOCK_TYPES = ['bar', 'line', 'pie', 'kpi', 'table', 'search'];
 
     public function index(Request $request): JsonResponse
     {
@@ -62,6 +71,10 @@ class StudioContentController extends Controller
         $data = $request->validate([
             'title' => 'required|string|max:255',
             'type' => 'nullable|string|in:statsdata,article,survey',
+            'survey_kind' => ['nullable', 'string', Rule::enum(SurveyKindEnum::class)],
+            'requires_identity_verification' => 'nullable|boolean',
+            'petition_goal' => 'nullable|integer|min:1',
+            'petition_target' => 'nullable|string|max:2000',
             'description' => 'nullable|string|max:2000',
             'status' => 'nullable|string|in:draft,published',
             'sections' => 'nullable|array',
@@ -77,10 +90,17 @@ class StudioContentController extends Controller
             'response_deadline' => 'nullable|date',
         ]);
 
+        $type = $data['type'] ?? 'statsdata';
+        $isSurvey = $type === 'survey';
+
         $content = StudioContent::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
-            'type' => $data['type'] ?? 'statsdata',
+            'type' => $type,
+            'survey_kind' => $isSurvey ? ($data['survey_kind'] ?? SurveyKindEnum::SingleQuestion->value) : null,
+            'requires_identity_verification' => $isSurvey ? (bool) ($data['requires_identity_verification'] ?? false) : false,
+            'petition_goal' => $isSurvey ? ($data['petition_goal'] ?? null) : null,
+            'petition_target' => $isSurvey ? ($data['petition_target'] ?? null) : null,
             'description' => $data['description'] ?? null,
             'status' => $data['status'] ?? 'draft',
             'slug' => $this->generateUniqueSlug($data['title']),
@@ -183,6 +203,49 @@ class StudioContentController extends Controller
         return $categories;
     }
 
+    /**
+     * Recherche de contenus publiés pour la mention `@` de l'assistant du Studio :
+     * articles, statsdata et sondages confondus. Renvoie des lignes légères
+     * (sans blocs), triées par pertinence puis fraîcheur.
+     */
+    public function mentionsPublic(Request $request): JsonResponse
+    {
+        $q = trim((string) $request->query('q', ''));
+        if (mb_strlen($q) < 2) {
+            return response()->json(['success' => true, 'data' => []]);
+        }
+
+        $type = $request->query('type');
+        $like = '%'.addcslashes(mb_strtolower($q), '%_\\').'%';
+
+        $rows = StudioContent::with(['user.profile', 'channel.profile'])
+            ->where('status', 'published')
+            ->when(in_array($type, ['article', 'statsdata', 'survey'], true), fn ($query) => $query->where('type', $type))
+            ->whereRaw('LOWER(title) LIKE ?', [$like])
+            ->orderByDesc('updated_at')
+            ->limit(12)
+            ->get()
+            ->map(function (StudioContent $c) {
+                $isChannel = $c->published_as === 'channel' && $c->channel;
+                if ($isChannel) {
+                    $name = $c->channel->profile?->name ?: 'Anonyme';
+                } else {
+                    $name = trim(($c->user?->profile?->first_name ?? '').' '.($c->user?->profile?->last_name ?? ''));
+                    $name = $name !== '' ? $name : 'Anonyme';
+                }
+
+                return [
+                    'id' => (string) $c->id,
+                    'type' => $c->type ?? 'statsdata',
+                    'slug' => $c->slug,
+                    'title' => $c->title,
+                    'publisher' => ['name' => $name, 'is_channel' => (bool) $isChannel],
+                ];
+            });
+
+        return response()->json(['success' => true, 'data' => $rows]);
+    }
+
     public function showPublic(Request $request, string $slug): JsonResponse
     {
         // The published content itself is cached (safe to share across visitors), but "can this
@@ -231,12 +294,116 @@ class StudioContentController extends Controller
         return response()->json(['success' => true, 'data' => $data]);
     }
 
+    /**
+     * Liste les blocs « embarquables » (graphique / KPI / tableau / recherche) d'un
+     * Statsdata publié — étape 2 du sélecteur du bloc `sd-embed` dans le Studio.
+     * Ne compte pas de vue.
+     */
+    public function listPublicBlocks(Request $request, string $slug): JsonResponse
+    {
+        $content = $this->findEmbeddableSourceBySlug($request, $slug);
+
+        $blocks = collect($this->orderedBlocks($content))
+            ->filter(fn ($b) => in_array($b['type'] ?? null, self::EMBEDDABLE_BLOCK_TYPES, true))
+            ->map(fn ($b) => [
+                'id' => (string) ($b['id'] ?? ''),
+                'type' => $b['type'],
+                'title' => $this->blockTitle($b),
+                'datasetName' => $this->datasetNameFor($content, $b['datasetId'] ?? null),
+            ])
+            ->filter(fn ($b) => $b['id'] !== '')
+            ->values()
+            ->all();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'doc' => $this->slimDoc($content),
+                'blocks' => $blocks,
+            ],
+        ]);
+    }
+
+    /**
+     * Résout un bloc unique d'un Statsdata publié pour l'afficher dans un article
+     * (bloc `sd-embed`). Renvoie la config du bloc verbatim + les métadonnées du
+     * document source + la fraîcheur de ses datasets. Ne compte pas de vue.
+     */
+    public function showPublicBlock(Request $request, string $slug, string $blockId): JsonResponse
+    {
+        $content = $this->findEmbeddableSourceBySlug($request, $slug);
+
+        $block = collect($content->blocks ?? [])
+            ->first(fn ($b) => is_array($b) && ($b['id'] ?? null) === $blockId);
+
+        if (! $block || ! in_array($block['type'] ?? null, self::EMBEDDABLE_BLOCK_TYPES, true)) {
+            return response()->json(['success' => false, 'message' => 'Bloc introuvable.'], 404);
+        }
+
+        $blockDatasetIds = $this->datasetIdsFor($block);
+        $datasets = collect(self::format($content)['datasets'])
+            ->filter(fn ($d) => in_array((string) $d['id'], $blockDatasetIds, true))
+            ->values()
+            ->all();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'block' => $block,
+                'doc' => $this->slimDoc($content),
+                'pages' => $content->pages ?? [],
+                'datasets' => $datasets,
+                // Paramètres déclarés sur la page du bloc — l'article s'en sert pour
+                // résoudre les jetons `{{param}}` des filtres/expressions du bloc
+                // (défaut de la page source, ou valeur choisie par l'auteur).
+                'params' => $this->paramsForBlockPage($content, $block),
+            ],
+        ]);
+    }
+
+    /**
+     * Paramètres (`PageParam[]`) déclarés sur la page à laquelle appartient un bloc.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function paramsForBlockPage(StudioContent $content, array $block): array
+    {
+        $zone = (string) ($block['zoneId'] ?? '');
+        $sectionId = str_contains($zone, '-') ? substr($zone, 0, (int) strrpos($zone, '-')) : $zone;
+
+        $pageId = 'default';
+        foreach ($content->sections ?? [] as $section) {
+            if (($section['id'] ?? null) === $sectionId) {
+                $pageId = (string) ($section['pageId'] ?? 'default');
+                break;
+            }
+        }
+
+        foreach ($content->pages ?? [] as $page) {
+            if (($page['id'] ?? null) === $pageId) {
+                return array_values(array_filter($page['params'] ?? [], 'is_array'));
+            }
+        }
+
+        // Repli : une seule page → ses params.
+        $pages = $content->pages ?? [];
+        if (count($pages) === 1 && is_array($pages[0]['params'] ?? null)) {
+            return array_values(array_filter($pages[0]['params'], 'is_array'));
+        }
+
+        return [];
+    }
+
     public function update(Request $request, string $slug): JsonResponse
     {
         $content = $this->findBySlug($request->user()->id, $slug);
 
         $data = $request->validate([
             'title' => 'sometimes|required|string|max:255',
+            'survey_kind' => ['sometimes', 'nullable', 'string', Rule::enum(SurveyKindEnum::class)],
+            'requires_identity_verification' => 'sometimes|boolean',
+            'petition_goal' => 'sometimes|nullable|integer|min:1',
+            'petition_target' => 'sometimes|nullable|string|max:2000',
             'slug' => [
                 'sometimes',
                 'string',
@@ -318,6 +485,139 @@ class StudioContentController extends Controller
         return $user !== null && $user->can('update', $content);
     }
 
+    /**
+     * Source d'un bloc `sd-embed` : le Statsdata doit être publié, OU en brouillon
+     * mais éditable par l'appelant authentifié (aperçu de son propre contenu dans le
+     * Studio). Sans cache ni compteur de vue.
+     */
+    private function findEmbeddableSourceBySlug(Request $request, string $slug): StudioContent
+    {
+        $content = StudioContent::with(['user.profile', 'channel.profile'])
+            ->where(function ($q) use ($slug) {
+                $q->where('slug', $slug);
+                if (is_numeric($slug)) {
+                    $q->orWhere('id', (int) $slug);
+                }
+            })
+            ->firstOrFail();
+
+        if ($content->status !== 'published') {
+            $viewer = $request->user('sanctum');
+            abort_unless($viewer !== null && $viewer->can('update', $content), 404);
+        }
+
+        return $content;
+    }
+
+    /** Métadonnées légères d'un document source (auteur / chaîne) pour un bloc embarqué. */
+    private function slimDoc(StudioContent $content): array
+    {
+        $full = self::format($content);
+
+        return [
+            'id' => $full['id'],
+            'slug' => $full['slug'],
+            'title' => $full['title'],
+            'type' => $full['type'],
+            'status' => $full['status'],
+            'published_as' => $full['published_as'],
+            'channel' => $full['channel'],
+            'author' => $full['author'],
+        ];
+    }
+
+    /**
+     * Ids de datasets référencés par un bloc (dataset principal + jointures).
+     *
+     * @return list<string>
+     */
+    private function datasetIdsFor(array $block): array
+    {
+        $ids = [$block['datasetId'] ?? null];
+        foreach ($block['joins'] ?? [] as $join) {
+            $ids[] = $join['datasetId'] ?? null;
+        }
+        foreach ($block['fieldMapping']['searchSources'] ?? [] as $source) {
+            $ids[] = $source['datasetId'] ?? null;
+        }
+
+        return array_values(array_unique(array_map('strval', array_filter($ids))));
+    }
+
+    private function blockTitle(array $block): string
+    {
+        $config = is_array($block['config'] ?? null) ? $block['config'] : [];
+        $title = trim((string) ($config['title'] ?? ''));
+        if ($title !== '') {
+            return $title;
+        }
+
+        return match ($block['type'] ?? '') {
+            'bar' => 'Graphique en barres',
+            'line' => 'Graphique en lignes',
+            'pie' => 'Camembert',
+            'kpi' => 'Indicateur',
+            'table' => 'Tableau',
+            'search' => 'Recherche',
+            default => 'Bloc',
+        };
+    }
+
+    private function datasetNameFor(StudioContent $content, ?string $datasetId): ?string
+    {
+        if (! $datasetId) {
+            return null;
+        }
+        foreach (self::format($content)['datasets'] as $d) {
+            if ((string) $d['id'] === (string) $datasetId) {
+                return $d['name'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Blocs du contenu dans l'ordre de lecture : parcours des sections (ordre du
+     * tableau `sections`) → colonnes → blocs de la zone `"{sectionId}-{col}"`.
+     * Repli : ordre brut du tableau `blocks`.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function orderedBlocks(StudioContent $content): array
+    {
+        $blocks = array_values(array_filter($content->blocks ?? [], 'is_array'));
+        $sections = array_values(array_filter($content->sections ?? [], 'is_array'));
+        if (empty($sections)) {
+            return $blocks;
+        }
+
+        $byZone = [];
+        foreach ($blocks as $block) {
+            $byZone[$block['zoneId'] ?? ''][] = $block;
+        }
+
+        $ordered = [];
+        $seen = [];
+        foreach ($sections as $section) {
+            $sectionId = $section['id'] ?? '';
+            for ($col = 0; $col < 4; $col++) {
+                foreach ($byZone["{$sectionId}-{$col}"] ?? [] as $block) {
+                    $ordered[] = $block;
+                    $seen[$block['id'] ?? ''] = true;
+                }
+            }
+        }
+        // Blocs orphelins (zone inconnue, enfants de script…) : à la fin, ordre brut.
+        foreach ($blocks as $block) {
+            if (! isset($seen[$block['id'] ?? ''])) {
+                $ordered[] = $block;
+            }
+        }
+
+        return $ordered;
+    }
+
     private function findBySlug(int $userId, string $slug): StudioContent
     {
         return StudioContent::with('channel.profile')
@@ -386,6 +686,10 @@ class StudioContentController extends Controller
             'id' => (string) $content->id,
             'title' => $content->title,
             'type' => $content->type ?? 'statsdata',
+            'survey_kind' => $content->survey_kind,
+            'requires_identity_verification' => (bool) $content->requires_identity_verification,
+            'petition_goal' => $content->petition_goal,
+            'petition_target' => $content->petition_target,
             'description' => $content->description,
             'status' => $content->status ?? 'draft',
             'views_count' => $content->views_count ?? 0,
