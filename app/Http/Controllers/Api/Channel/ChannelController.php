@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Channel;
 
 use App\Domain\Channel\Actions\ChannelAction;
+use App\Domain\Channel\Actions\ChannelCatalogAction;
 use App\Domain\Channel\Actions\ChannelDataSourcesAction;
 use App\Domain\Channel\Actions\ChannelFeaturedContentAction;
 use App\Domain\Channel\Actions\ChannelStatsAction;
@@ -14,6 +15,7 @@ use App\Http\Requests\Channel\UpdateFeaturedContentRequest;
 use App\Models\Channel\ChannelCategory;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 class ChannelController extends Controller
 {
@@ -22,7 +24,8 @@ class ChannelController extends Controller
         private ChannelStatsAction $channelStatsAction,
         private ChannelDataSourcesAction $channelDataSourcesAction,
         private ChannelFeaturedContentAction $channelFeaturedContentAction,
-        private ToggleChannelFollowAction $toggleChannelFollowAction
+        private ToggleChannelFollowAction $toggleChannelFollowAction,
+        private ChannelCatalogAction $channelCatalogAction
     ) {}
 
     /**
@@ -198,6 +201,22 @@ class ChannelController extends Controller
             'success' => true,
             'data' => $channels,
         ]);
+    }
+
+    /**
+     * Annuaire « v2 » des chaînes (page /chaines) : recherche, facettes type /
+     * thème / rythme, tri, chaîne du mois et stats. Réponse alignée sur le
+     * catalogue articles/statsdata (data / meta / facets / stats / featured).
+     */
+    public function catalog(Request $request)
+    {
+        $userId = $request->user('api')?->id;
+        $filters = $request->only(['q', 'kind', 'category', 'pace', 'sort', 'verified', 'followed', 'per_page']);
+
+        $cacheKey = 'channels.catalog.'.md5(json_encode($filters).'|u'.($userId ?? 'guest'));
+        $payload = Cache::remember($cacheKey, 60, fn () => $this->channelCatalogAction->getCatalog($filters, $userId));
+
+        return response()->json(['success' => true, 'data' => $payload]);
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Models\Channel\ChannelProfileLink;
 use App\Models\Channel\ChannelCategory;
 use App\Domain\Channel\Enums\ChannelAgeRestrictionEnum;
 use App\Domain\Channel\Enums\ChannelCategoryEnum;
+use App\Domain\Channel\Enums\ChannelKindEnum;
 use Illuminate\Http\UploadedFile;
 
 class ChannelProfileAction
@@ -17,6 +18,7 @@ class ChannelProfileAction
             'channel_id'             => $data['channel_id'],
             'name'                   => $data['name'],
             'handle'                 => $data['handle'],
+            'kind'                   => $data['kind'] ?? ChannelKindEnum::INDEPENDANT->value,
             'description'            => $data['description'] ?? null,
             'tags'                   => $data['tags'] ?? null,
             'country'                => $data['country'] ?? null,
@@ -50,6 +52,7 @@ class ChannelProfileAction
 
         if (isset($data['name']))                   $profileData['name']                   = $data['name'];
         if (isset($data['handle']))                 $profileData['handle']                 = $data['handle'];
+        if (isset($data['kind']))                   $profileData['kind']                   = $data['kind'];
         if (isset($data['description']))            $profileData['description']            = $data['description'];
         if (isset($data['tags']))                   $profileData['tags']                   = $data['tags'];
         if (isset($data['country']))                $profileData['country']                = $data['country'];
