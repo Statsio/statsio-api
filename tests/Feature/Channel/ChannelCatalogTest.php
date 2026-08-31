@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Channel;
 
+use App\Domain\Channel\Enums\ChannelBadgeEnum;
+use App\Models\Channel\Badge;
 use App\Models\Channel\Channel;
 use App\Models\Channel\ChannelCategory;
 use App\Models\StudioContent;
@@ -14,11 +16,20 @@ class ChannelCatalogTest extends TestCase
 {
     use RefreshDatabase;
 
-    private function channel(array $profile = []): Channel
+    private function channel(array $profile = [], bool $verified = false): Channel
     {
-        return Channel::factory()
+        $channel = Channel::factory()
             ->has(ChannelProfileFactory::new()->state($profile), 'profile')
             ->create(['status' => 'active']);
+
+        if ($verified) {
+            $channel->channelBadges()->attach(Badge::firstOrCreate(
+                ['slug' => ChannelBadgeEnum::VERIFIED->value],
+                ['label' => 'Chaîne vérifiée'],
+            ));
+        }
+
+        return $channel;
     }
 
     private function publish(Channel $channel, string $type = 'article', ?\DateTimeInterface $at = null): StudioContent
@@ -66,8 +77,8 @@ class ChannelCatalogTest extends TestCase
 
     public function test_filters_by_verified(): void
     {
-        $this->channel(['name' => 'Vérifiée', 'verified_at' => now()]);
-        $this->channel(['name' => 'Pas vérifiée', 'verified_at' => null]);
+        $this->channel(['name' => 'Vérifiée'], verified: true);
+        $this->channel(['name' => 'Pas vérifiée']);
 
         $names = collect($this->getJson('/api/channels/catalog?verified=1')->json('data.data'))->pluck('name');
 

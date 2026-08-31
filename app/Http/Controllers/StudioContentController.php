@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Channel\Enums\ChannelUserRoleEnum;
 use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
 use App\Domain\User\Actions\RecordContentViewAction;
@@ -27,7 +28,10 @@ class StudioContentController extends Controller
         if ($channelId) {
             $isTeamMember = ChannelUser::where('channel_id', $channelId)
                 ->where('user_id', $request->user()->id)
-                ->whereIn('role', ['owner', 'admin', 'moderator'])
+                ->whereIn('role', array_map(
+                    fn (ChannelUserRoleEnum $role) => $role->value,
+                    ChannelUserRoleEnum::getManagementRoles(),
+                ))
                 ->exists();
 
             if (! $isTeamMember) {

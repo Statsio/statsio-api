@@ -67,10 +67,10 @@ class ChannelFeaturedContentTest extends TestCase
         ])->assertStatus(200)->assertJsonPath('data.statsdata.id', (string) $dataset->id);
     }
 
-    public function test_moderator_cannot_set_featured_content(): void
+    public function test_redactor_cannot_set_featured_content(): void
     {
         $channel = Channel::factory()->withProfile()->create();
-        $token = $this->actingAsRole($channel, 'moderator');
+        $token = $this->actingAsRole($channel, 'redactor');
 
         $article = StudioContentFactory::new()->published()->create([
             'channel_id' => $channel->id,
