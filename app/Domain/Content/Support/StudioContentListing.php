@@ -21,9 +21,17 @@ class StudioContentListing
         'breve' => ['breve', 'brève', 'Brève'],
     ];
 
-    /** @return array<string, mixed> */
-    public static function make(StudioContent $content, bool $isFavorited = false): array
-    {
+    /**
+     * @param  array<string, mixed>|null  $survey  agrégats de participation (cf. SurveyListingAggregates), sondages uniquement
+     * @param  bool  $hasParticipated  le visiteur a déjà répondu à ce sondage
+     * @return array<string, mixed>
+     */
+    public static function make(
+        StudioContent $content,
+        bool $isFavorited = false,
+        ?array $survey = null,
+        bool $hasParticipated = false,
+    ): array {
         $blocks = StudioContentBlocks::all($content);
         $categories = array_values(array_filter(
             is_array($content->categories) ? $content->categories : [],
@@ -40,7 +48,7 @@ class StudioContentListing
         $publisherName = self::publisherName($content, $isChannel);
         $logoUrl = $isChannel ? ($content->channel->profile?->logo_url ?: null) : null;
 
-        return [
+        $card = [
             'id' => (string) $content->id,
             'slug' => $content->slug,
             'title' => $content->title,
@@ -67,6 +75,27 @@ class StudioContentListing
             ],
             'is_favorited' => $isFavorited,
         ];
+
+        if (($content->type ?? null) === 'survey') {
+            $deadline = $content->response_deadline;
+            $card = array_merge($card, [
+                'survey_kind' => $content->survey_kind ?? 'single_question',
+                'requires_identity_verification' => (bool) $content->requires_identity_verification,
+                'response_deadline' => $deadline?->toIso8601String(),
+                'is_closed' => $deadline !== null && $deadline->isPast(),
+                'petition_goal' => $content->petition_goal,
+                'petition_target' => $content->petition_target,
+                'has_participated' => $hasParticipated,
+                'responses_count' => (int) ($survey['responses_count'] ?? 0),
+                'questions_count' => (int) ($survey['questions_count'] ?? StudioContentBlocks::formQuestionCount($blocks)),
+                'estimated_minutes' => (int) ($survey['estimated_minutes'] ?? 1),
+                'question_types' => $survey['question_types'] ?? StudioContentBlocks::formQuestionTypes($blocks),
+                'primary_options' => $survey['primary_options'] ?? [],
+                'question_previews' => $survey['question_previews'] ?? [],
+            ]);
+        }
+
+        return $card;
     }
 
     /**

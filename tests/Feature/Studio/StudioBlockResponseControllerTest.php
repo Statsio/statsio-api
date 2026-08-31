@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Studio;
 
+use App\Models\Identity\IdentityVerification;
 use App\Models\StudioContent;
 use App\Models\User\User;
 use Database\Factories\StudioContentFactory;
@@ -139,6 +140,101 @@ class StudioBlockResponseControllerTest extends TestCase
         ]);
 
         $response->assertStatus(422);
+    }
+
+    private function surveyContent(array $overrides = []): StudioContent
+    {
+        return StudioContentFactory::new()->published()->create(array_merge([
+            'type' => 'survey',
+            'blocks' => [[
+                'id' => 'block-1',
+                'type' => 'choice',
+                'zoneId' => 'zone-a',
+                'config' => ['title' => 'Pour ou contre ?', 'formOptions' => ['Pour', 'Contre']],
+            ]],
+        ], $overrides));
+    }
+
+    public function test_survey_requires_login_even_without_identity_verification(): void
+    {
+        $content = $this->surveyContent();
+
+        $this->postJson("/api/studio/content/public/{$content->slug}/blocks/block-1/response", [
+            'respondent_token' => (string) Str::uuid(),
+            'value' => 'Pour',
+        ])->assertStatus(401);
+    }
+
+    public function test_logged_in_user_can_respond_to_a_plain_survey(): void
+    {
+        $content = $this->surveyContent();
+        $token = User::factory()->create()->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->postJson("/api/studio/content/public/{$content->slug}/blocks/block-1/response", [
+            'respondent_token' => (string) Str::uuid(),
+            'value' => 'Pour',
+        ])->assertStatus(200);
+    }
+
+    public function test_identity_gated_survey_rejects_unverified_user(): void
+    {
+        config(['services.didit.api_key' => 'k', 'services.didit.workflow_id' => 'wf']);
+        $content = $this->surveyContent(['requires_identity_verification' => true]);
+        $token = User::factory()->create()->createToken('test')->plainTextToken;
+
+        $this->withToken($token)->postJson("/api/studio/content/public/{$content->slug}/blocks/block-1/response", [
+            'respondent_token' => (string) Str::uuid(),
+            'value' => 'Pour',
+        ])->assertStatus(403);
+    }
+
+    public function test_identity_gated_survey_accepts_verified_user(): void
+    {
+        config(['services.didit.api_key' => 'k', 'services.didit.workflow_id' => 'wf']);
+        $content = $this->surveyContent(['requires_identity_verification' => true]);
+        $user = User::factory()->create(['identity_verified_at' => now()]);
+        IdentityVerification::factory()->approved()->for($user)->create();
+
+        $this->withToken($user->createToken('test')->plainTextToken)
+            ->postJson("/api/studio/content/public/{$content->slug}/blocks/block-1/response", [
+                'respondent_token' => (string) Str::uuid(),
+                'value' => 'Pour',
+            ])->assertStatus(200);
+    }
+
+    public function test_identity_gate_is_skipped_when_didit_not_configured_but_login_still_required(): void
+    {
+        config(['services.didit.api_key' => null, 'services.didit.workflow_id' => null]);
+        $content = $this->surveyContent(['requires_identity_verification' => true]);
+
+        $this->postJson("/api/studio/content/public/{$content->slug}/blocks/block-1/response", [
+            'respondent_token' => (string) Str::uuid(),
+            'value' => 'Pour',
+        ])->assertStatus(401);
+
+        $token = User::factory()->create()->createToken('test')->plainTextToken;
+        $this->withToken($token)->postJson("/api/studio/content/public/{$content->slug}/blocks/block-1/response", [
+            'respondent_token' => (string) Str::uuid(),
+            'value' => 'Pour',
+        ])->assertStatus(200);
+    }
+
+    public function test_form_block_in_non_survey_content_stays_anonymous(): void
+    {
+        $content = StudioContentFactory::new()->published()->create([
+            'type' => 'article',
+            'blocks' => [[
+                'id' => 'block-1',
+                'type' => 'choice',
+                'zoneId' => 'zone-a',
+                'config' => ['title' => 'Question ?', 'formOptions' => ['A', 'B']],
+            ]],
+        ]);
+
+        $this->postJson("/api/studio/content/public/{$content->slug}/blocks/block-1/response", [
+            'respondent_token' => (string) Str::uuid(),
+            'value' => 'A',
+        ])->assertStatus(200);
     }
 
     public function test_submissions_are_throttled(): void

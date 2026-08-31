@@ -2,8 +2,10 @@
 
 namespace App\Domain\Content\Actions;
 
+use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\Content\Support\StudioContentBlocks;
 use App\Domain\Content\Support\StudioContentListing;
+use App\Domain\Content\Support\SurveyListingAggregates;
 use App\Models\StudioContent;
 use App\Models\User\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -41,6 +43,14 @@ class ListPublicStudioCatalogAction
         $sort = $this->sanitizeSort($request->query('sort'));
         $perPage = max(1, min(48, (int) ($request->query('per_page') ?? 9)));
 
+        $isSurvey = $type === 'survey';
+        $surveyKind = $isSurvey ? $this->sanitizeSurveyKind($request->query('survey_kind')) : null;
+        $surveyStatus = $isSurvey ? $this->sanitizeSurveyStatus($request->query('status')) : null;
+        $notParticipated = $isSurvey && filter_var($request->query('not_participated'), FILTER_VALIDATE_BOOLEAN);
+
+        $viewer = $request->user('sanctum');
+        $respondentToken = $this->sanitizeToken($request->query('respondent_token'));
+
         $base = $this->publishedQuery($type, $channelId, $allowlist);
         $searched = $this->applySearch(clone $base, $search);
 
@@ -59,6 +69,27 @@ class ListPublicStudioCatalogAction
         if ($hasData) {
             $this->constrainHasData($filtered);
         }
+        if ($surveyKind) {
+            $filtered->where('survey_kind', $surveyKind);
+        }
+        if ($surveyStatus === 'ouvert') {
+            $filtered->where(fn (Builder $q) => $q->whereNull('response_deadline')->orWhere('response_deadline', '>=', now()));
+        } elseif ($surveyStatus === 'clos') {
+            $filtered->whereNotNull('response_deadline')->where('response_deadline', '<', now());
+        }
+        if ($notParticipated) {
+            $participatedAll = SurveyListingAggregates::participatedContentIds(
+                $viewer?->id,
+                $respondentToken,
+                (clone $filtered)->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            );
+            if ($participatedAll !== []) {
+                $filtered->whereNotIn('id', array_keys($participatedAll));
+            }
+        }
+        if ($sort === 'votes') {
+            $filtered->withCount('blockResponses');
+        }
         $this->applySort($filtered, $sort);
 
         $total = (clone $filtered)->count();
@@ -67,15 +98,30 @@ class ListPublicStudioCatalogAction
             ->limit($perPage)
             ->get();
 
-        $favoriteIds = $this->favoriteIds($request->user('sanctum'), $pageItems->pluck('id')->all());
+        $favoriteIds = $this->favoriteIds($viewer, $pageItems->pluck('id')->all());
+
+        $surveyAggregates = $isSurvey ? new SurveyListingAggregates($pageItems) : null;
+        $participatedIds = $isSurvey
+            ? SurveyListingAggregates::participatedContentIds(
+                $viewer?->id,
+                $respondentToken,
+                $pageItems->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            )
+            : [];
 
         $data = $pageItems
-            ->map(fn (StudioContent $c) => StudioContentListing::make($c, isset($favoriteIds[$c->id])))
+            ->map(fn (StudioContent $c) => StudioContentListing::make(
+                $c,
+                isset($favoriteIds[$c->id]),
+                $surveyAggregates?->for($c),
+                isset($participatedIds[(int) $c->id]),
+            ))
             ->values()
             ->all();
 
         $featured = null;
-        $hasUserFilters = $search !== '' || $category !== null || $format !== null || $hasData;
+        $hasUserFilters = $search !== '' || $category !== null || $format !== null || $hasData
+            || $surveyKind !== null || $surveyStatus !== null || $notParticipated;
         if (! $hasUserFilters && $data !== []) {
             $featured = $data[0];
         }
@@ -91,6 +137,7 @@ class ListPublicStudioCatalogAction
             'facets' => [
                 'categories' => $this->categoryFacets($searched, $allowlist),
                 'formats' => $this->formatFacets($searched),
+                'survey_kinds' => $isSurvey ? $this->surveyKindFacets($searched) : [],
             ],
             'stats' => $this->heroStats($type, $channelId, $allowlist),
             'featured' => $featured,
@@ -146,6 +193,13 @@ class ListPublicStudioCatalogAction
             return;
         }
 
+        if ($sort === 'votes') {
+            // « Les plus suivis » (sondages) : nombre de réponses, puis fraîcheur.
+            $query->orderByDesc('block_responses_count')->orderByDesc('updated_at')->orderByDesc('id');
+
+            return;
+        }
+
         // « Tendance » et « plus lus » : vues, puis fraîcheur (pas d'historique de vues par jour).
         $query->orderByDesc('views_count')->orderByDesc('updated_at')->orderByDesc('id');
     }
@@ -188,6 +242,30 @@ class ListPublicStudioCatalogAction
     /**
      * @return list<array{value: string, label: string, count: int}>
      */
+    private function surveyKindFacets(Builder $searched): array
+    {
+        $counts = (clone $searched)
+            ->selectRaw('survey_kind, COUNT(*) as aggregate')
+            ->groupBy('survey_kind')
+            ->pluck('aggregate', 'survey_kind');
+
+        $total = 0;
+        $facets = [];
+        foreach (SurveyKindEnum::cases() as $case) {
+            $count = (int) ($counts[$case->value] ?? 0);
+            $total += $count;
+            $facets[] = ['value' => $case->value, 'label' => $case->label(), 'count' => $count];
+        }
+
+        return [
+            ['value' => '', 'label' => 'Tous', 'count' => $total],
+            ...$facets,
+        ];
+    }
+
+    /**
+     * @return list<array{value: string, label: string, count: int}>
+     */
     private function formatFacets(Builder $searched): array
     {
         $rows = (clone $searched)->get(['categories']);
@@ -224,9 +302,15 @@ class ListPublicStudioCatalogAction
             $channels = (clone $query)->where('published_as', 'channel')->whereNotNull('channel_id')->distinct()->count('channel_id');
             $last = (clone $query)->orderByDesc('updated_at')->value('updated_at');
 
-            $charts = 0;
-            foreach ((clone $query)->get(['blocks', 'pages', 'sections']) as $content) {
-                $charts += StudioContentBlocks::chartCount(StudioContentBlocks::all($content));
+            // Pour les sondages, la métrique « graphiques » n'a pas de sens : on renvoie
+            // le nombre de pétitions actives (le front l'affiche sous ce libellé).
+            if ($type === 'survey') {
+                $charts = (clone $query)->where('survey_kind', SurveyKindEnum::Petition->value)->count();
+            } else {
+                $charts = 0;
+                foreach ((clone $query)->get(['blocks', 'pages', 'sections']) as $content) {
+                    $charts += StudioContentBlocks::chartCount(StudioContentBlocks::all($content));
+                }
             }
 
             return [
@@ -278,7 +362,22 @@ class ListPublicStudioCatalogAction
 
     private function sanitizeSort(mixed $raw): string
     {
-        return in_array($raw, ['trend', 'recent', 'views'], true) ? $raw : 'trend';
+        return in_array($raw, ['trend', 'recent', 'views', 'votes'], true) ? $raw : 'trend';
+    }
+
+    private function sanitizeSurveyKind(mixed $raw): ?string
+    {
+        return is_string($raw) && in_array($raw, SurveyKindEnum::values(), true) ? $raw : null;
+    }
+
+    private function sanitizeSurveyStatus(mixed $raw): ?string
+    {
+        return in_array($raw, ['ouvert', 'clos'], true) ? $raw : null;
+    }
+
+    private function sanitizeToken(mixed $raw): ?string
+    {
+        return is_string($raw) && $raw !== '' ? mb_substr($raw, 0, 100) : null;
     }
 
     private function sanitizeFormat(mixed $raw): ?string

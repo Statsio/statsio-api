@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Studio;
 use App\Http\Controllers\Controller;
 use App\Models\Studio\StudioBlockResponse;
 use App\Models\StudioContent;
+use App\Services\Identity\DiditApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
 class StudioBlockResponseController extends Controller
@@ -37,6 +39,8 @@ class StudioBlockResponseController extends Controller
     {
         $content = $this->findPublished($slug);
         $block = $this->findBlock($content, $blockId);
+
+        $this->assertCanRespond($request, $content);
 
         if ($content->response_deadline && now()->greaterThan($content->response_deadline)) {
             throw ValidationException::withMessages(['block_id' => ["Ce sondage n'accepte plus de réponses."]]);
@@ -69,6 +73,27 @@ class StudioBlockResponseController extends Controller
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Règles d'accès à la réponse :
+     * - Sondage (`type === 'survey'`) : compte connecté obligatoire, toujours.
+     * - En plus, sondage « à identité vérifiée » : session Didit approuvée requise
+     *   (ignoré si Didit n'est pas configuré — dégradation propre).
+     * - Formulaires embarqués dans un article / statsdata : réponse anonyme conservée.
+     */
+    private function assertCanRespond(Request $request, StudioContent $content): void
+    {
+        if ($content->type !== 'survey') {
+            return;
+        }
+
+        $user = $request->user('sanctum');
+        abort_if($user === null, 401, 'Connexion requise pour répondre à ce sondage.');
+
+        if ($content->requires_identity_verification && app(DiditApiClient::class)->isConfigured()) {
+            abort_unless($user->hasVerifiedIdentity(), 403, "Vérification d'identité requise pour répondre à ce sondage.");
+        }
+    }
 
     /**
      * Ajoute la répartition démographique des répondants (âge/sexe/profession/région) à
@@ -122,9 +147,9 @@ class StudioBlockResponseController extends Controller
     }
 
     /** @return array<int, array{key: string, label: string, count: int, percent: float}> */
-    private function bucketBy(\Illuminate\Support\Collection $profiles, \Closure $resolver): array
+    private function bucketBy(Collection $profiles, \Closure $resolver): array
     {
-        /** @var \Illuminate\Support\Collection<int, array{0: string, 1: string}> $pairs */
+        /** @var Collection<int, array{0: string, 1: string}> $pairs */
         $pairs = $profiles->map($resolver)->filter(fn ($v) => $v !== null);
         $total = $pairs->count();
 
@@ -133,7 +158,7 @@ class StudioBlockResponseController extends Controller
         }
 
         return $pairs->groupBy(fn (array $pair) => $pair[0])
-            ->map(fn (\Illuminate\Support\Collection $group, string $key) => [
+            ->map(fn (Collection $group, string $key) => [
                 'key' => $key,
                 'label' => (string) $group->first()[1],
                 'count' => $group->count(),
@@ -221,7 +246,7 @@ class StudioBlockResponseController extends Controller
         ];
     }
 
-    private function optionsAggregate(StudioContent $content, string $blockId, \Illuminate\Support\Collection $values, int $total): array
+    private function optionsAggregate(StudioContent $content, string $blockId, Collection $values, int $total): array
     {
         $block = $this->findBlock($content, $blockId);
         $options = $block['config']['formOptions'] ?? [];
