@@ -13,6 +13,8 @@ return new class extends Migration
         // `add_kind_and_verified_at_to_channel_profiles_table` (renommée depuis) :
         // la colonne + l'index `kind` y existent déjà. Ce renommage crée une
         // nouvelle entrée dans `migrations`, d'où le guard d'idempotence.
+        // Sans ce guard, un `migrate --force` échoue et bloque le démarrage
+        // (worker de queue inclus).
         if (Schema::hasColumn('channel_profiles', 'kind')) {
             return;
         }
