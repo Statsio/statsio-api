@@ -16,14 +16,17 @@ if [ "${RUN_SETUP:-false}" = "true" ]; then
   # en cours de route (set -e arrête le script avant d'atteindre le "touch" plus bas).
   rm -f "$READY_MARKER"
 
-  echo "Installing dependencies..."
-  export COMPOSER_HTTP2_DISABLE=1
-  composer install --no-interaction --optimize-autoloader --no-dev
-
-  echo "Fixing permissions..."
+  # Créé AVANT "composer install" : son hook post-autoload-dump lance
+  # package:discover + filament:upgrade, qui compilent des vues Blade et
+  # exigent que storage/framework/views existe déjà.
+  echo "Preparing storage directories..."
   mkdir -p /var/www/storage/framework/{cache,sessions,views}
   chown -R www-data:www-data /var/www/storage /var/www/bootstrap/cache
   chmod -R 775 /var/www/storage /var/www/bootstrap/cache
+
+  echo "Installing dependencies..."
+  export COMPOSER_HTTP2_DISABLE=1
+  composer install --no-interaction --optimize-autoloader --no-dev
 
   echo "Running migrations..."
   php artisan migrate --force
@@ -31,10 +34,14 @@ if [ "${RUN_SETUP:-false}" = "true" ]; then
   echo "Seeding admin user..."
   php artisan db:seed --class=Database\\Seeders\\AdminUserSeeder --force
 
+  echo "Publishing Filament assets..."
+  php artisan filament:assets:publish
+
   echo "Caching config..."
   php artisan config:cache
   php artisan route:cache
   php artisan view:cache
+  php artisan filament:optimize
 
   echo "Linking storage..."
   php artisan storage:link --force

@@ -73,6 +73,38 @@ class IdentityVerificationEndpointsTest extends TestCase
         Http::assertSent(fn ($r) => $r['callback'] === 'https://front.test/identity/callback?return=%2Fsondages%2Fmon-sondage');
     }
 
+    public function test_start_is_idempotent_when_didit_returns_an_existing_session(): void
+    {
+        // Session déjà en base mais sans `session_url` : la reprise ne la voit pas et un
+        // nouvel appel Didit renvoie le même `session_id` (dédup par `vendor_data`).
+        $user = User::factory()->create();
+        IdentityVerification::factory()->for($user)->create([
+            'didit_session_id' => 'sess-1',
+            'session_url' => null,
+            'status' => 'In Progress',
+        ]);
+
+        Http::fake([
+            'verification.didit.me/v3/session/' => Http::response([
+                'session_id' => 'sess-1',
+                'session_number' => 42,
+                'url' => 'https://verify.didit.me/en/session/abc',
+                'status' => 'In Progress',
+            ], 200),
+        ]);
+
+        $this->withToken($this->token($user))
+            ->postJson('/api/identity/verification/start')
+            ->assertOk()
+            ->assertJsonPath('data.url', 'https://verify.didit.me/en/session/abc');
+
+        $this->assertSame(1, IdentityVerification::where('didit_session_id', 'sess-1')->count());
+        $this->assertDatabaseHas('identity_verifications', [
+            'didit_session_id' => 'sess-1',
+            'session_url' => 'https://verify.didit.me/en/session/abc',
+        ]);
+    }
+
     public function test_start_short_circuits_when_already_verified(): void
     {
         Http::fake();
