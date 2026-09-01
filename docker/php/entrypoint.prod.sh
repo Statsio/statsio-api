@@ -34,14 +34,16 @@ if [ "${RUN_SETUP:-false}" = "true" ]; then
   echo "Seeding admin user..."
   php artisan db:seed --class=Database\\Seeders\\AdminUserSeeder --force
 
-  echo "Publishing Filament assets..."
-  php artisan filament:assets:publish
+  # Les assets Filament sont déjà (re)publiés par le hook composer `post-autoload-dump`
+  # (`filament:upgrade`) juste au-dessus — pas de commande dédiée ici (`filament:assets:publish`
+  # n'existe pas ; c'était la cause du crash au démarrage).
 
   echo "Caching config..."
   php artisan config:cache
   php artisan route:cache
   php artisan view:cache
-  php artisan filament:optimize
+  # Cache des composants Filament : pure optimisation, ne doit jamais bloquer un déploiement.
+  php artisan filament:optimize || echo "::warning::filament:optimize a échoué (non bloquant)"
 
   echo "Linking storage..."
   php artisan storage:link --force
