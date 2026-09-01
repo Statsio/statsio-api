@@ -103,8 +103,9 @@ User:
 - Login email/mot de passe + `->passwordReset()`. Bootstrap d'un accès :
   `php artisan app:make-admin-password {email}` ou le seeder `AdminUserSeeder`
   (`ADMIN_PASSWORD`).
-- Assets : régénérés par `filament:upgrade` (hook `post-autoload-dump`) et
-  `filament:assets:publish` dans `docker/php/entrypoint.prod.sh` ; ignorés par git.
+- Assets : régénérés par le hook composer `post-autoload-dump` (`filament:upgrade`, qui
+  publie aussi les assets) ; ignorés par git. `docker/php/entrypoint.prod.sh` ne relance
+  pas de commande d'assets dédiée (`filament:assets:publish` n'existe pas).
 
 ## Configuration
 
