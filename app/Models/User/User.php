@@ -6,6 +6,9 @@ use App\Models\Channel\Channel;
 use App\Models\Identity\IdentityVerification;
 use App\Models\StudioContent;
 use Database\Factories\UserFactory;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasName;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -16,13 +19,33 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser, HasName
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     protected static function newFactory(): UserFactory
     {
         return UserFactory::new();
+    }
+
+    /**
+     * Accès au back-office Filament (/admin) : réservé aux admins plateforme.
+     * Remplace l'ancien middleware `admin` (contrôle sur la colonne `is_admin`).
+     */
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return (bool) $this->is_admin;
+    }
+
+    /**
+     * Nom affiché dans Filament (menu utilisateur en haut à droite). Le modèle n'a
+     * pas de colonne `name` : on le reconstruit depuis le profil, avec repli sur l'email.
+     */
+    public function getFilamentName(): string
+    {
+        $name = trim(($this->profile?->first_name ?? '').' '.($this->profile?->last_name ?? ''));
+
+        return $name !== '' ? $name : $this->email;
     }
 
     /**

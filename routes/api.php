@@ -14,7 +14,8 @@ require __DIR__.'/api/medicaments.php';
 require __DIR__.'/api/maladies.php';
 require __DIR__.'/api/pays.php';
 require __DIR__.'/api/soins.php';
-require __DIR__.'/api/admin.php';
+// Le back-office admin est désormais servi par Filament (routes web /admin),
+// voir app/Providers/Filament/AdminPanelProvider.php.
 require __DIR__.'/api/content.php';
 require __DIR__.'/api/contact.php';
 require __DIR__.'/api/identity.php';

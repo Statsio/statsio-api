@@ -1,4 +1,4 @@
-FROM php:8.3-cli
+FROM php:8.4-cli
 
 # Install system dependencies
 RUN apt-get update && apt-get install --no-install-recommends -y \
@@ -9,9 +9,10 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     libonig-dev \
     libxml2-dev \
     libzip-dev \
+    libicu-dev \
     zip \
     unzip \
-    && docker-php-ext-install pdo pdo_pgsql pgsql mbstring exif pcntl bcmath gd zip \
+    && docker-php-ext-install pdo pdo_pgsql pgsql mbstring exif pcntl bcmath gd zip intl \
     && pecl install redis && docker-php-ext-enable redis \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && { \
@@ -42,15 +43,20 @@ RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist
 # Copy application files
 COPY . /var/www
 
-# Complete composer installation
-RUN composer dump-autoload --optimize
-
-# Create storage directories and set permissions
+# Create storage directories before dump-autoload : depuis Filament, package:discover
+# boote des providers qui compilent des vues Blade et exigent storage/framework/views.
 RUN mkdir -p storage/framework/{sessions,views,cache} \
     && mkdir -p storage/logs \
     && mkdir -p bootstrap/cache \
-    && chmod -R 775 storage bootstrap/cache \
-    && chown -R www-data:www-data storage bootstrap/cache
+    && chmod -R 775 storage bootstrap/cache
+
+# Complete composer installation. --no-scripts : package:discover est rejoué au
+# démarrage du conteneur (voir la commande `composer install` du service api), avec
+# le vrai .env et storage/ bind-mountés depuis l'hôte.
+RUN composer dump-autoload --optimize --no-scripts
+
+# Fix ownership for the runtime user
+RUN chown -R www-data:www-data storage bootstrap/cache
 
 EXPOSE 8080
 

@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('/studio/content/public', [StudioContentController::class, 'indexPublic']);
 Route::get('/studio/content/public/catalog', [StudioContentController::class, 'catalogPublic']);
 Route::get('/studio/content/public/mentions', [StudioContentController::class, 'mentionsPublic']);
+Route::get('/studio/content/public/search', [StudioContentController::class, 'searchPublic'])
+    ->middleware('throttle:60,1');
 Route::get('/studio/content/public/{slug}', [StudioContentController::class, 'showPublic']);
 Route::get('/studio/content/public/{slug}/datasets/{dataset}/query', [DatasetController::class, 'queryPublic']);
 
