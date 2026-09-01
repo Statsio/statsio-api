@@ -4,6 +4,7 @@ namespace App\Filament\Widgets;
 
 use App\Domain\Support\Enums\ContactMessageStatusEnum;
 use App\Models\Channel\Channel;
+use App\Models\StudioContent;
 use App\Models\Support\ContactMessage;
 use App\Models\Tv\TvChannel;
 use App\Models\User\User;
@@ -24,6 +25,13 @@ class AdminStatsOverview extends StatsOverviewWidget
             Stat::make('Admins', (string) User::where('is_admin', true)->count()),
 
             Stat::make('Chaînes éditoriales', (string) Channel::count()),
+
+            Stat::make('Contenus publiés', (string) StudioContent::where('status', 'published')->count())
+                ->description(
+                    'Articles '.StudioContent::where('type', 'article')->count().
+                    ' · Statsdata '.StudioContent::where('type', 'statsdata')->count().
+                    ' · Sondages '.StudioContent::where('type', 'survey')->count()
+                ),
 
             Stat::make('Chaînes TV', (string) TvChannel::count()),
 
