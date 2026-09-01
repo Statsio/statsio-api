@@ -6,15 +6,16 @@ API backend pour Statsio, une plateforme de data journalism. Fournit les endpoin
 
 ## Stack technique
 
-- Framework: Laravel 12
-- PHP: 8.2+
+- Framework: Laravel 13
+- PHP: 8.4 (images Docker dev + prod)
 - Base de données: PostgreSQL
-- Authentification: Laravel Sanctum + Google OAuth
+- Authentification: Laravel Sanctum + Google OAuth (API) ; session guard `web` (back-office)
 - Architecture: Domain-Driven Design (DDD)
 - Conteneurisation: Docker + Docker Compose
 - Queue: Database driver
 - Cache: Redis
 - Tests: PHPUnit
+- Back-office admin: Filament v5, panneau servi à `/admin` (routes web)
 
 ## Architecture du projet
 
@@ -87,6 +88,23 @@ User:
 - UserStatusEnum, GenderEnum
 - EducationLevelEnum, EmploymentStatusEnum
 - SocioProfessionalCategoryEnum
+
+## Back-office admin (Filament)
+
+- Panneau Filament v5 à `/admin` (routes web, guard session `web`), config dans
+  `app/Providers/Filament/AdminPanelProvider.php`.
+- Accès : `User` implémente `FilamentUser::canAccessPanel()` → renvoie `is_admin`
+  (colonne booléenne `users.is_admin`). Plus de middleware `admin` ni de contrôleurs
+  `Api/Admin/*` : l'ancien back-office REST a été supprimé.
+- Ressources dans `app/Filament/Resources/*` (Utilisateurs, Chaînes éditoriales,
+  Chaînes/Programmes/Diffusions/Catégories/Questions d'avis TV, Provenances de
+  sources, Messages de contact). La modération de chaîne réutilise
+  `App\Domain\Channel\Actions\ChannelAction`.
+- Login email/mot de passe + `->passwordReset()`. Bootstrap d'un accès :
+  `php artisan app:make-admin-password {email}` ou le seeder `AdminUserSeeder`
+  (`ADMIN_PASSWORD`).
+- Assets : régénérés par `filament:upgrade` (hook `post-autoload-dump`) et
+  `filament:assets:publish` dans `docker/php/entrypoint.prod.sh` ; ignorés par git.
 
 ## Configuration
 

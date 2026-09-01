@@ -1,18 +1,20 @@
 <?php
 
 use App\Console\Commands\MonitorHealthCommand;
+use App\Http\Middleware\LanguageMiddleware;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Http\Request;
-use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\Exceptions\PostTooLargeException;
-use Illuminate\Validation\ValidationException;
-use Illuminate\Auth\Access\AuthorizationException;
-use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-use Symfony\Component\HttpKernel\Exception\HttpException;
+use Illuminate\Http\Middleware\HandleCors;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -37,17 +39,16 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->use([
-            \Illuminate\Http\Middleware\HandleCors::class,
-            \App\Http\Middleware\LanguageMiddleware::class,
-        ]);
-
-        $middleware->alias([
-            'admin' => \App\Http\Middleware\AdminMiddleware::class,
+            HandleCors::class,
+            LanguageMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->shouldRenderJsonWhen(function () {
-            return true;
+        // L'API rend toujours du JSON ; le panneau d'administration Filament (routes web
+        // sous /admin) doit garder les réponses HTML de Laravel (redirection invité vers
+        // /admin/login, pages 403/419/404 stylées, redirections de validation).
+        $exceptions->shouldRenderJsonWhen(function (Request $request) {
+            return $request->is('api/*') || $request->expectsJson();
         });
 
         // Journalise en ERROR uniquement les vraies anomalies serveur (5xx), avec le contexte
@@ -82,16 +83,16 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         // Helper function pour formater les réponses d'erreur API
-        $formatApiError = function (string $messageKey, string $errorType, int $statusCode, ?Throwable $e = null) use ($exceptions) {
+        $formatApiError = function (string $messageKey, string $errorType, int $statusCode, ?Throwable $e = null) {
             $response = [
                 'message' => __($messageKey, ['code' => $statusCode]),
-                'error' => $errorType
+                'error' => $errorType,
             ];
 
             if (config('app.debug') && $e) {
                 $debug = [
                     'exception' => get_class($e),
-                    'message' => $e->getMessage()
+                    'message' => $e->getMessage(),
                 ];
 
                 // Ajouter file/line/trace pour les erreurs serveur
@@ -99,7 +100,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     $debug['file'] = $e->getFile();
                     $debug['line'] = $e->getLine();
 
-                    if ($statusCode === 500 && !($e instanceof HttpException)) {
+                    if ($statusCode === 500 && ! ($e instanceof HttpException)) {
                         $debug['trace'] = collect($e->getTrace())->map(function ($trace) {
                             return array_filter($trace, function ($key) {
                                 return in_array($key, ['file', 'line', 'function', 'class']);
@@ -136,17 +137,17 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         // 422 - Erreur de validation
-        $exceptions->render(function (ValidationException $e, Request $request) use ($formatApiError) {
+        $exceptions->render(function (ValidationException $e, Request $request) {
             if ($request->is('api/*')) {
                 $response = [
                     'message' => __('errors.validation_failed'),
-                    'errors' => $e->errors()
+                    'errors' => $e->errors(),
                 ];
 
                 if (config('app.debug')) {
                     $response['debug'] = [
                         'exception' => get_class($e),
-                        'message' => $e->getMessage()
+                        'message' => $e->getMessage(),
                     ];
                 }
 
@@ -165,7 +166,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (HttpException $e, Request $request) use ($formatApiError) {
             if ($request->is('api/*')) {
                 $statusCode = $e->getStatusCode();
-                $messageKey = match($statusCode) {
+                $messageKey = match ($statusCode) {
                     500 => 'errors.server_error',
                     503 => 'errors.service_unavailable',
                     429 => 'errors.too_many_requests',

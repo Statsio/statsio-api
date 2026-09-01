@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Domain\Channel\Enums\ChannelUserRoleEnum;
+use App\Domain\Content\Actions\GlobalSearchAction;
 use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
 use App\Domain\Content\Enums\SurveyKindEnum;
@@ -152,6 +153,14 @@ class StudioContentController extends Controller
         return response()->json([
             'success' => true,
             ...$action->execute($request),
+        ]);
+    }
+
+    public function searchPublic(Request $request, GlobalSearchAction $action): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            ...$action->execute((string) $request->query('q', ''), $request->user('sanctum')),
         ]);
     }
 

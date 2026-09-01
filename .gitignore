@@ -16,6 +16,11 @@
 /public/build
 /public/hot
 /public/storage
+# Assets Filament : régénérés par `filament:upgrade` (post-autoload-dump) et par
+# `filament:assets:publish` dans l'entrypoint prod.
+/public/css/filament
+/public/js/filament
+/public/fonts/filament
 /storage/*.key
 /storage/pail
 /vendor
