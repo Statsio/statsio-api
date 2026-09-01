@@ -4,11 +4,9 @@ namespace App\Models\Channel;
 
 use App\Domain\Channel\Enums\ChannelKindEnum;
 use App\Models\Media;
-use App\Models\StudioContent;
 use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\Auth;
 
@@ -31,9 +29,6 @@ class ChannelProfile extends Model
         'view_count',
         'custom_color_primary',
         'custom_color_secondary',
-        'featured_article_id',
-        'featured_statsdata_id',
-        'featured_survey_id',
     ];
 
     protected $casts = [
@@ -117,21 +112,6 @@ class ChannelProfile extends Model
     public function channelProfileLinks()
     {
         return $this->hasMany(ChannelProfileLink::class);
-    }
-
-    public function featuredArticle(): BelongsTo
-    {
-        return $this->belongsTo(StudioContent::class, 'featured_article_id');
-    }
-
-    public function featuredStatsdata(): BelongsTo
-    {
-        return $this->belongsTo(StudioContent::class, 'featured_statsdata_id');
-    }
-
-    public function featuredSurvey(): BelongsTo
-    {
-        return $this->belongsTo(StudioContent::class, 'featured_survey_id');
     }
 
     public function addMediaById(int $mediaId, string $collection): void

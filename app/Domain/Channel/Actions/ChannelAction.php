@@ -67,9 +67,6 @@ class ChannelAction
     {
         return Channel::with([
             'profile.channelCategories',
-            'profile.featuredArticle',
-            'profile.featuredStatsdata',
-            'profile.featuredSurvey',
             'channelBadges',
             'organization.principalChannel.profile',
         ])->find($id);

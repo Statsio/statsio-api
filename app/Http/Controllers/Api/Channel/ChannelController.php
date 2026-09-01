@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\Channel;
 use App\Domain\Channel\Actions\ChannelAction;
 use App\Domain\Channel\Actions\ChannelCatalogAction;
 use App\Domain\Channel\Actions\ChannelDataSourcesAction;
-use App\Domain\Channel\Actions\ChannelFeaturedContentAction;
 use App\Domain\Channel\Actions\ChannelInvitationAction;
 use App\Domain\Channel\Actions\ChannelStatsAction;
 use App\Domain\Channel\Actions\ToggleChannelFollowAction;
@@ -15,7 +14,6 @@ use App\Http\Requests\Channel\CreateChannelRequest;
 use App\Http\Requests\Channel\DeleteChannelRequest;
 use App\Http\Requests\Channel\InviteChannelMembersRequest;
 use App\Http\Requests\Channel\UpdateChannelRequest;
-use App\Http\Requests\Channel\UpdateFeaturedContentRequest;
 use App\Models\Channel\ChannelCategory;
 use App\Models\Channel\ChannelInvitation;
 use App\Models\Channel\ChannelUser;
@@ -29,7 +27,6 @@ class ChannelController extends Controller
         private ChannelAction $channelAction,
         private ChannelStatsAction $channelStatsAction,
         private ChannelDataSourcesAction $channelDataSourcesAction,
-        private ChannelFeaturedContentAction $channelFeaturedContentAction,
         private ToggleChannelFollowAction $toggleChannelFollowAction,
         private ChannelCatalogAction $channelCatalogAction,
         private ChannelInvitationAction $channelInvitationAction
@@ -97,51 +94,9 @@ class ChannelController extends Controller
             }
         }
 
-        if ($channel->profile) {
-            $channel->profile->setAttribute('featured', $this->channelFeaturedContentAction->getFeatured($channel->profile));
-        }
-
         return response()->json([
             'success' => true,
             'data' => $channel,
-        ]);
-    }
-
-    /**
-     * Contenu mis en avant par la chaîne (article / statsdata / sondage), lecture publique.
-     */
-    public function getFeaturedContent(int $id)
-    {
-        $channel = $this->channelAction->getChannelById($id);
-
-        if (! $channel || ! $channel->profile) {
-            return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
-        }
-
-        return response()->json([
-            'success' => true,
-            'data' => $this->channelFeaturedContentAction->getFeatured($channel->profile),
-        ]);
-    }
-
-    /**
-     * Met à jour le contenu mis en avant. Réservé aux owners/admins de la chaîne (voir
-     * UpdateFeaturedContentRequest::authorize()).
-     */
-    public function updateFeaturedContent(UpdateFeaturedContentRequest $request, int $id)
-    {
-        $channel = $this->channelAction->getChannelById($id);
-
-        if (! $channel || ! $channel->profile) {
-            return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
-        }
-
-        $profile = $this->channelFeaturedContentAction->updateFeatured($channel->profile, $request->featuredSlots());
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Mise en avant mise à jour.',
-            'data' => $this->channelFeaturedContentAction->getFeatured($profile),
         ]);
     }
 
