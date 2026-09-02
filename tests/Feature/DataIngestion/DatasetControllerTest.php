@@ -2,10 +2,10 @@
 
 namespace Tests\Feature\DataIngestion;
 
-use App\Models\DataIngestion\DataSource;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetColumn;
 use App\Models\DataIngestion\DatasetVersion;
+use App\Models\DataIngestion\DataSource;
 use App\Models\User\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -226,6 +226,37 @@ class DatasetControllerTest extends TestCase
         $this->assertSame(['France', 'Germany', 'Spain'], $values);
     }
 
+    public function test_query_distinct_from_a_joined_source(): void
+    {
+        $user = User::factory()->create();
+        $cities = $this->createMockDataset($user, ['id', 'city', 'region_code'], [
+            [1, 'Paris', 'IDF'],
+            [2, 'Lyon', 'ARA'],
+            [3, 'Nice', 'PACA'],
+        ], 'Cities');
+        $regions = $this->createMockDataset($user, ['code', 'zone'], [
+            ['IDF', 'Nord'],
+            ['ARA', 'Sud'],
+            ['PACA', 'Sud'],
+        ], 'Regions');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$cities->id}/query?".http_build_query([
+                'distinct' => '1',
+                'distinct_column' => 'zone@r',
+                'columns' => ['zone@r'],
+                'sources' => [
+                    ['id' => 'c', 'dataset_id' => (string) $cities->id],
+                    ['id' => 'r', 'dataset_id' => (string) $regions->id],
+                ],
+                'joins' => [['left_source' => 'c', 'left_column' => 'region_code', 'right_source' => 'r', 'right_column' => 'code', 'type' => 'inner']],
+            ])
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(['Nord', 'Sud'], collect($response->json('data.rows'))->pluck('zone@r')->all());
+    }
+
     public function test_query_aggregates_with_group_by(): void
     {
         $user = User::factory()->create();
@@ -267,6 +298,187 @@ class DatasetControllerTest extends TestCase
         $response->assertStatus(200);
         $paris = collect($response->json('data.rows'))->firstWhere('city', 'Paris');
         $this->assertSame('Alice', $paris['manager']);
+    }
+
+    public function test_query_symmetric_sources_join_by_source_id(): void
+    {
+        $user = User::factory()->create();
+        $cities = $this->createMockDataset($user, ['id', 'city', 'region_code'], [
+            [1, 'Paris', 'IDF'],
+            [2, 'Lyon', 'ARA'],
+            [3, 'Berlin', 'XX'],
+        ], 'Cities');
+        $regions = $this->createMockDataset($user, ['code', 'region_name', 'population'], [
+            ['IDF', 'Île-de-France', 12000000],
+            ['ARA', 'Auvergne-Rhône-Alpes', 8000000],
+        ], 'Regions');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$cities->id}/query?".http_build_query([
+                'sources' => [
+                    ['id' => (string) $cities->id, 'dataset_id' => (string) $cities->id],
+                    ['id' => (string) $regions->id, 'dataset_id' => (string) $regions->id],
+                ],
+                'joins' => [[
+                    'left_source' => (string) $cities->id, 'left_column' => 'region_code',
+                    'right_source' => (string) $regions->id, 'right_column' => 'code',
+                    'type' => 'left',
+                ]],
+                'columns' => ['city', 'region_name@'.$regions->id, 'population@'.$regions->id],
+            ])
+        );
+
+        $response->assertStatus(200);
+        // Colonne non homonyme ⇒ clé de ligne nue, column_map ramène la ref qualifiée.
+        $map = $response->json('data.column_map');
+        $regionKey = $map['region_name@'.$regions->id];
+        $this->assertSame('region_name', $regionKey);
+        $paris = collect($response->json('data.rows'))->firstWhere('city', 'Paris');
+        $this->assertSame('Île-de-France', $paris[$regionKey]);
+        // LEFT join : Berlin sans région correspondante reste présente, colonnes jointes nulles.
+        $berlin = collect($response->json('data.rows'))->firstWhere('city', 'Berlin');
+        $this->assertNull($berlin[$regionKey]);
+    }
+
+    public function test_query_chained_join_c_onto_b(): void
+    {
+        $user = User::factory()->create();
+        $a = $this->createMockDataset($user, ['id', 'label', 'b_key'], [[1, 'Un', 'k1'], [2, 'Deux', 'k2']], 'A');
+        $b = $this->createMockDataset($user, ['bk', 'c_key'], [['k1', 'c1'], ['k2', 'c2']], 'B');
+        $c = $this->createMockDataset($user, ['ck', 'target'], [['c1', 'Cible 1'], ['c2', 'Cible 2']], 'C');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$a->id}/query?".http_build_query([
+                'sources' => [
+                    ['id' => 'a', 'dataset_id' => (string) $a->id],
+                    ['id' => 'b', 'dataset_id' => (string) $b->id],
+                    ['id' => 'c', 'dataset_id' => (string) $c->id],
+                ],
+                'joins' => [
+                    ['left_source' => 'a', 'left_column' => 'b_key', 'right_source' => 'b', 'right_column' => 'bk', 'type' => 'inner'],
+                    ['left_source' => 'b', 'left_column' => 'c_key', 'right_source' => 'c', 'right_column' => 'ck', 'type' => 'inner'],
+                ],
+                'columns' => ['label', 'target@c'],
+            ])
+        );
+
+        $response->assertStatus(200);
+        $targetKey = $response->json('data.column_map.target@c');
+        $rows = collect($response->json('data.rows'))->keyBy('label');
+        $this->assertSame('Cible 1', $rows['Un'][$targetKey]);
+        $this->assertSame('Cible 2', $rows['Deux'][$targetKey]);
+    }
+
+    public function test_query_qualified_columns_alias_on_collision(): void
+    {
+        $user = User::factory()->create();
+        $a = $this->createMockDataset($user, ['id', 'name'], [[1, 'A-un'], [2, 'A-deux']], 'A');
+        $b = $this->createMockDataset($user, ['id', 'name'], [[1, 'B-un'], [2, 'B-deux']], 'B');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$a->id}/query?".http_build_query([
+                'sources' => [
+                    ['id' => 'a', 'dataset_id' => (string) $a->id],
+                    ['id' => 'b', 'dataset_id' => (string) $b->id],
+                ],
+                'joins' => [['left_source' => 'a', 'left_column' => 'id', 'right_source' => 'b', 'right_column' => 'id', 'type' => 'inner']],
+                'columns' => ['name', 'name@b'],
+            ])
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame('name@b', $response->json('data.column_map.name@b'));
+        $row = collect($response->json('data.rows'))->firstWhere('name', 'A-un');
+        $this->assertSame('B-un', $row['name@b']);
+    }
+
+    public function test_query_per_column_aggregates(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, ['country', 'sales', 'margin'], [
+            ['France', 100, 10],
+            ['France', 200, 40],
+            ['Germany', 50, 5],
+        ], 'Deals');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?".http_build_query([
+                'aggregates' => [
+                    ['column' => 'sales', 'fn' => 'sum'],
+                    ['column' => 'margin', 'fn' => 'avg'],
+                ],
+                'group_by' => ['country'],
+            ])
+        );
+
+        $response->assertStatus(200);
+        $rows = collect($response->json('data.rows'))->keyBy('country');
+        $this->assertSame(300, (int) $rows['France']['sales']);
+        $this->assertSame(25, (int) $rows['France']['margin']);
+    }
+
+    public function test_query_filter_on_joined_column(): void
+    {
+        $user = User::factory()->create();
+        $cities = $this->createMockDataset($user, ['id', 'city', 'region_code'], [
+            [1, 'Paris', 'IDF'],
+            [2, 'Lyon', 'ARA'],
+        ], 'Cities');
+        $regions = $this->createMockDataset($user, ['code', 'population'], [
+            ['IDF', 12000000],
+            ['ARA', 8000000],
+        ], 'Regions');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$cities->id}/query?".http_build_query([
+                'sources' => [
+                    ['id' => 'c', 'dataset_id' => (string) $cities->id],
+                    ['id' => 'r', 'dataset_id' => (string) $regions->id],
+                ],
+                'joins' => [['left_source' => 'c', 'left_column' => 'region_code', 'right_source' => 'r', 'right_column' => 'code', 'type' => 'inner']],
+                'filters' => [['column' => 'population@r', 'operator' => '>', 'value' => '10000000']],
+                'columns' => ['city'],
+            ])
+        );
+
+        $response->assertStatus(200);
+        $cities = collect($response->json('data.rows'))->pluck('city')->all();
+        $this->assertSame(['Paris'], $cities);
+    }
+
+    public function test_query_disconnected_join_graph_returns_422(): void
+    {
+        $user = User::factory()->create();
+        $a = $this->createMockDataset($user, ['id'], [[1]], 'A');
+        $b = $this->createMockDataset($user, ['id'], [[1]], 'B');
+
+        $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$a->id}/query?".http_build_query([
+                'sources' => [
+                    ['id' => 'a', 'dataset_id' => (string) $a->id],
+                    ['id' => 'b', 'dataset_id' => (string) $b->id],
+                ],
+                'joins' => [],
+            ])
+        )->assertStatus(422)->assertJsonPath('code', 'invalid_query_graph');
+    }
+
+    public function test_query_multi_source_rejects_unowned_dataset(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $a = $this->createMockDataset($user, ['id', 'k'], [[1, 'x']], 'A');
+        $secret = $this->createMockDataset($other, ['k', 'v'], [['x', 'secret']], 'Secret');
+
+        $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$a->id}/query?".http_build_query([
+                'sources' => [
+                    ['id' => 'a', 'dataset_id' => (string) $a->id],
+                    ['id' => 's', 'dataset_id' => (string) $secret->id],
+                ],
+                'joins' => [['left_source' => 'a', 'left_column' => 'k', 'right_source' => 's', 'right_column' => 'k', 'type' => 'inner']],
+            ])
+        )->assertStatus(422);
     }
 
     public function test_query_returns_404_for_unknown_dataset(): void

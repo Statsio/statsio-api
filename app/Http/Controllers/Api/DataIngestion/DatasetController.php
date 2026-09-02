@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers\Api\DataIngestion;
 
+use App\Domain\DataIngestion\Exceptions\InvalidQueryGraphException;
 use App\Domain\DataIngestion\Exceptions\LiveApiQueryException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedLiveQueryOperationException;
+use App\Domain\DataIngestion\Query\QueryGraph;
+use App\Domain\DataIngestion\Query\QueryResult;
 use App\Http\Controllers\Controller;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetVersion;
@@ -73,7 +76,7 @@ class DatasetController extends Controller
         $limit = min((int) $request->query('limit', 5), 100);
 
         try {
-            [$columns, $rows, $total] = $this->resolveRows($dataset, null, [], $limit);
+            $result = $this->resolveRows($dataset, null, [], $limit);
         } catch (UnsupportedLiveQueryOperationException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
         } catch (LiveApiQueryException $e) {
@@ -82,7 +85,7 @@ class DatasetController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => ['columns' => $columns, 'rows' => $rows, 'total' => $total],
+            'data' => ['columns' => $result->columns, 'rows' => $result->rows, 'total' => $result->total],
         ]);
     }
 
@@ -94,14 +97,14 @@ class DatasetController extends Controller
             return response()->json(['success' => false, 'message' => 'Non autorisé.'], 403);
         }
 
-        $p = $this->parseQueryParams($request);
-
         try {
+            $p = $this->parseQueryParams($request, $dataset->id);
+
             if ($p['distinct'] && count($p['columns']) === 1) {
-                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters']);
+                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters'], $p['graph'], $userId);
             }
 
-            [$allColumns, $rows, $total] = $this->resolveRows(
+            $result = $this->resolveRows(
                 $dataset,
                 count($p['columns']) ? $p['columns'] : null,
                 $p['filters'],
@@ -117,22 +120,20 @@ class DatasetController extends Controller
                 $p['aggregateColumns'],
                 $p['groupBy'],
                 $p['offset'],
+                $p['aggregateSpecs'],
+                $p['graph'],
             );
+        } catch (InvalidQueryGraphException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'invalid_query_graph'], 422);
         } catch (UnsupportedLiveQueryOperationException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
         } catch (LiveApiQueryException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], $e->httpStatus());
         }
 
-        $finalColumns = count($p['columns']) ? array_values(array_intersect($allColumns, $p['columns'])) : $allColumns;
-
         return response()->json([
             'success' => true,
-            'data' => [
-                'columns' => $finalColumns,
-                'rows' => $rows,
-                'total_rows' => $total,
-            ],
+            'data' => $this->formatQueryResult($result, $p['columns']),
         ]);
     }
 
@@ -152,9 +153,12 @@ class DatasetController extends Controller
             abort_unless($viewer !== null && $viewer->can('update', $content), 404);
         }
 
-        $docDatasetIds = collect($content->blocks ?? [])
+        $docDatasetIds = collect($this->collectContentBlocks($content))
             ->flatMap(function ($block) {
                 $ids = [$block['datasetId'] ?? null];
+                foreach ($block['sources'] ?? [] as $source) {
+                    $ids[] = $source['datasetId'] ?? null;
+                }
                 foreach ($block['joins'] ?? [] as $join) {
                     $ids[] = $join['datasetId'] ?? null;
                 }
@@ -177,14 +181,14 @@ class DatasetController extends Controller
             return response()->json(['success' => false, 'message' => 'Dataset non autorisé.'], 403);
         }
 
-        $p = $this->parseQueryParams($request);
-
         try {
+            $p = $this->parseQueryParams($request, $dataset->id);
+
             if ($p['distinct'] && count($p['columns']) === 1) {
-                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters']);
+                return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters'], $p['graph'], $content->user_id);
             }
 
-            [$allColumns, $rows, $total] = $this->resolveRows(
+            $result = $this->resolveRows(
                 $dataset,
                 count($p['columns']) ? $p['columns'] : null,
                 $p['filters'],
@@ -200,37 +204,101 @@ class DatasetController extends Controller
                 $p['aggregateColumns'],
                 $p['groupBy'],
                 $p['offset'],
+                $p['aggregateSpecs'],
+                $p['graph'],
             );
+        } catch (InvalidQueryGraphException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'invalid_query_graph'], 422);
         } catch (UnsupportedLiveQueryOperationException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'unsupported_live_operation'], 422);
         } catch (LiveApiQueryException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], $e->httpStatus());
         }
 
-        $finalColumns = count($p['columns']) ? array_values(array_intersect($allColumns, $p['columns'])) : $allColumns;
-
         return response()->json([
             'success' => true,
-            'data' => [
-                'columns' => $finalColumns,
-                'rows' => $rows,
-                'total_rows' => $total,
-            ],
+            'data' => $this->formatQueryResult($result, $p['columns']),
         ]);
     }
 
     /**
+     * Blocs d'un contenu — racine + pages + sections — pour l'autorisation des
+     * datasets référencés (superset : n'élargit qu'aux datasets réellement cités).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function collectContentBlocks(StudioContent $content): array
+    {
+        $groups = [
+            $content->blocks ?? [],
+            ...array_map(fn ($page) => $page['blocks'] ?? [], $content->pages ?? []),
+            ...array_map(fn ($section) => $section['blocks'] ?? [], $content->sections ?? []),
+        ];
+
+        $blocks = [];
+        foreach ($groups as $group) {
+            if (is_array($group)) {
+                foreach ($group as $block) {
+                    if (is_array($block)) {
+                        $blocks[] = $block;
+                    }
+                }
+            }
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * Met en forme la charge `data` d'une réponse query()/queryPublic().
+     *
+     * @param  array<int, string>  $requestedColumns
+     * @return array<string, mixed>
+     */
+    private function formatQueryResult(QueryResult $result, array $requestedColumns): array
+    {
+        $finalColumns = count($requestedColumns)
+            ? array_values(array_intersect($result->columns, $this->resolvedKeysFor($requestedColumns, $result->columnMap)))
+            : $result->columns;
+
+        $data = [
+            'columns' => $finalColumns,
+            'rows' => $result->rows,
+            'total_rows' => $result->total,
+        ];
+
+        if ($result->columnMap !== []) {
+            $data['column_map'] = $result->columnMap;
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param  array<int, string>  $refs
+     * @param  array<string, string>  $columnMap
+     * @return array<int, string>
+     */
+    private function resolvedKeysFor(array $refs, array $columnMap): array
+    {
+        return array_values(array_unique(array_map(fn ($ref) => $columnMap[$ref] ?? $ref, $refs)));
+    }
+
+    private const AGG_FUNCTIONS = ['sum', 'avg', 'count', 'min', 'max'];
+
+    /**
      * Parses and validates the query params shared by query() and queryPublic().
      *
-     * @return array{limit: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>}
+     * @return array{limit: int, offset: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>, aggregateSpecs: array<int, array{column: string, fn: string}>, graph: QueryGraph}
      */
-    private function parseQueryParams(Request $request): array
+    private function parseQueryParams(Request $request, int $primaryDatasetId): array
     {
         $limit = min((int) $request->query('limit', 500), 5000);
         $offset = max((int) $request->query('offset', 0), 0);
         $columns = $request->query('columns', []);
         $filters = $request->query('filters', []);
         $joins = $request->query('joins', []);
+        $sources = $request->query('sources', []);
         $searchQ = (string) $request->query('search_q', '');
         $searchCols = $request->query('search_columns', []);
         $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
@@ -240,39 +308,56 @@ class DatasetController extends Controller
         $aggregate = strtolower((string) $request->query('aggregate', ''));
         $aggregateColumns = $request->query('aggregate_columns', []);
         $groupBy = $request->query('group_by', []);
+        $aggregates = $request->query('aggregates', []);
 
-        if (! is_array($columns)) {
-            $columns = [];
+        foreach (['columns', 'filters', 'joins', 'sources', 'searchCols', 'aggregateColumns', 'groupBy', 'aggregates'] as $var) {
+            if (! is_array($$var)) {
+                $$var = [];
+            }
         }
-        if (! is_array($filters)) {
-            $filters = [];
+
+        // ─── Agrégats : format « une fonction par colonne » (aggregates[]) prioritaire
+        //     sur le format legacy uniforme (aggregate + aggregate_columns[]). ────────
+        $aggregateSpecs = [];
+        foreach ($aggregates as $spec) {
+            if (! is_array($spec)) {
+                continue;
+            }
+            $col = (string) ($spec['column'] ?? '');
+            $fn = strtolower((string) ($spec['fn'] ?? ''));
+            if ($col !== '' && in_array($fn, self::AGG_FUNCTIONS, true)) {
+                $aggregateSpecs[] = ['column' => $col, 'fn' => $fn];
+            }
         }
-        if (! is_array($joins)) {
-            $joins = [];
+
+        if ($aggregateSpecs === []) {
+            if (! in_array($aggregate, self::AGG_FUNCTIONS, true) || empty($aggregateColumns)) {
+                $aggregate = null;
+                $aggregateColumns = [];
+                $groupBy = [];
+            } else {
+                foreach ($aggregateColumns as $col) {
+                    $aggregateSpecs[] = ['column' => (string) $col, 'fn' => $aggregate];
+                }
+            }
+        } else {
+            // Chemin live scalaire (LiveDatasetQueryService) : garde une vue « uniforme »
+            // quand toutes les fonctions sont identiques et qu'il n'y a qu'une colonne.
+            $fns = array_unique(array_column($aggregateSpecs, 'fn'));
+            $aggregate = count($fns) === 1 ? $fns[array_key_first($fns)] : $aggregateSpecs[0]['fn'];
+            $aggregateColumns = array_values(array_unique(array_column($aggregateSpecs, 'column')));
         }
-        if (! is_array($searchCols)) {
-            $searchCols = [];
-        }
-        if (! is_array($aggregateColumns)) {
-            $aggregateColumns = [];
-        }
-        if (! is_array($groupBy)) {
-            $groupBy = [];
-        }
-        if (! in_array($aggregate, ['sum', 'avg', 'count', 'min', 'max'], true) || empty($aggregateColumns)) {
-            $aggregate = null;
-            $aggregateColumns = [];
-            $groupBy = [];
-        }
+
+        $graph = QueryGraph::fromRequest($sources, $joins, $primaryDatasetId);
 
         return [
             'limit' => $limit,
             'offset' => $offset,
-            'columns' => $columns,
-            'filters' => $filters,
-            'joins' => $joins,
+            'columns' => array_values($columns),
+            'filters' => array_values($filters),
+            'joins' => array_values($joins),
             'searchQ' => $searchQ,
-            'searchCols' => $searchCols,
+            'searchCols' => array_values($searchCols),
             'distinct' => $distinct,
             'distinctColumn' => $distinctColumn ?: null,
             'sortColumn' => $sortColumn ?: null,
@@ -280,15 +365,45 @@ class DatasetController extends Controller
             'aggregate' => $aggregate,
             'aggregateColumns' => array_values($aggregateColumns),
             'groupBy' => array_values($groupBy),
+            'aggregateSpecs' => $aggregateSpecs,
+            'graph' => $graph,
         ];
     }
 
     /**
      * @param  array<int, array{column: string, operator: string, value: string}>  $filters
      */
-    private function distinctResponse(Dataset $dataset, string $col, int $limit, string $search, array $filters = []): JsonResponse
+    private function distinctResponse(Dataset $dataset, string $col, int $limit, string $search, array $filters = [], ?QueryGraph $graph = null, int $userId = 0): JsonResponse
     {
-        $rows = $this->resolveDistinctValues($dataset, $col, $limit, $search, $filters);
+        if ($graph && $graph->isMultiSource() && ! $dataset->isLive()) {
+            // Colonne pilote (loop/param) issue d'une source jointe : on passe par le
+            // moteur multi-sources (jointures appliquées avant le DISTINCT).
+            $result = $this->resolveRows(
+                $dataset, [$col], $filters, $limit, [], $userId, $search, $search !== '' ? [$col] : [],
+                $col, $col, 'asc', null, [], [], 0, [], $graph,
+            );
+            $key = $result->columnMap[$col] ?? $col;
+            $rows = array_values(array_filter(array_unique(array_map(
+                fn ($r) => (string) ($r[$key] ?? ''),
+                $result->rows,
+            )), fn ($v) => $v !== ''));
+            sort($rows);
+            $rows = array_slice($rows, 0, $limit);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'columns' => [$col],
+                    'rows' => array_map(fn ($v) => [$col => $v], $rows),
+                    'total_rows' => count($rows),
+                ],
+            ]);
+        }
+
+        // Une ref qualifiée (`col@<sourceId>`) sur la source primaire se ramène au nom nu.
+        $resolvedCol = $graph ? $graph->resolveRef($col)['name'] : $col;
+
+        $rows = $this->resolveDistinctValues($dataset, $resolvedCol, $limit, $search, $filters);
 
         $response = [
             'success' => true,
@@ -309,28 +424,31 @@ class DatasetController extends Controller
     }
 
     /**
-     * Returns [columns, rows (as assoc arrays), total_row_count].
-     *
      * @param  array<int, array{column: string, operator: string, value: string}>  $filters
-     * @param  array<int, array{dataset_id: string, left_column: string, right_column: string, columns: array<string>, type: string}>  $joins
+     * @param  array<int, array>  $joins  ancien format (dataset_id) — passé tel quel au service live
+     * @param  array<int, array{column: string, fn: string}>  $aggregateSpecs
      */
-    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc', ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = [], int $offset = 0): array
+    private function resolveRows(Dataset $dataset, ?array $selectColumns, array $filters, int $limit, array $joins = [], int $userId = 0, string $searchQ = '', array $searchCols = [], ?string $distinctColumn = null, ?string $sortColumn = null, string $sortDirection = 'asc', ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = [], int $offset = 0, array $aggregateSpecs = [], ?QueryGraph $graph = null): QueryResult
     {
+        $graph ??= QueryGraph::fromRequest([], $joins, $dataset->id);
+
         if ($dataset->isLive()) {
             // La pagination serveur (offset) ne s'applique qu'aux datasets matérialisés.
-            return $this->liveQueryService->resolveRows(
+            [$cols, $rows, $total] = $this->liveQueryService->resolveRows(
                 $dataset, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols,
-                $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy,
+                $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy, $graph,
             );
+
+            return new QueryResult($cols, $rows, $total);
         }
 
         $version = $dataset->latestVersion;
 
         if (! $version?->parquet_storage_path) {
-            return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
+            return new QueryResult($dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0);
         }
 
-        $cacheKey = $this->buildQueryCacheKey('rows', $dataset, $version, $joins, [
+        $cacheKey = $this->buildQueryCacheKey('rows', $dataset, $version, $graph, [
             'columns' => $selectColumns,
             'filters' => $filters,
             'limit' => $limit,
@@ -340,245 +458,529 @@ class DatasetController extends Controller
             'distinctColumn' => $distinctColumn,
             'sortColumn' => $sortColumn,
             'sortDirection' => $sortDirection,
-            'aggregate' => $aggregate,
-            'aggregateColumns' => $aggregateColumns,
+            'aggregateSpecs' => $aggregateSpecs,
             'groupBy' => $groupBy,
             'offset' => $offset,
         ]);
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchParquetRows(
-            $dataset, $version, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols, $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy, $offset,
-        ));
+        return Cache::remember($cacheKey, self::CACHE_TTL, function () use (
+            $dataset, $version, $selectColumns, $filters, $limit, $userId, $searchQ, $searchCols,
+            $distinctColumn, $sortColumn, $sortDirection, $aggregateSpecs, $groupBy, $offset, $graph
+        ) {
+            if ($graph->isMultiSource()) {
+                return $this->fetchMultiSourceRows(
+                    $dataset, $version, $graph, $selectColumns, $filters, $limit, $userId, $searchQ, $searchCols,
+                    $distinctColumn, $sortColumn, $sortDirection, $aggregateSpecs, $groupBy, $offset,
+                );
+            }
+
+            [$cols, $rows, $total] = $this->fetchParquetRows(
+                $dataset, $version, $graph, $selectColumns, $filters, $limit, $userId, $searchQ, $searchCols,
+                $distinctColumn, $sortColumn, $sortDirection, $aggregateSpecs, $groupBy, $offset,
+            );
+
+            return new QueryResult($cols, $rows, $total);
+        });
     }
 
     /**
-     * Runs the actual DuckDB / mock-parquet query. Only called on a cache miss.
+     * Requête mono-source (aucune jointure). Le graphe sert uniquement à ramener
+     * une éventuelle ref qualifiée `col@<primaire>` à son nom nu.
+     *
+     * @param  array<int, array{column: string, fn: string}>  $aggregateSpecs
+     * @return array{0: array<int, string>, 1: array<int, array<string, mixed>>, 2: int}
      */
-    private function fetchParquetRows(Dataset $dataset, DatasetVersion $version, ?array $selectColumns, array $filters, int $limit, array $joins, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection, ?string $aggregate = null, array $aggregateColumns = [], array $groupBy = [], int $offset = 0): array
+    private function fetchParquetRows(Dataset $dataset, DatasetVersion $version, QueryGraph $graph, ?array $selectColumns, array $filters, int $limit, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection, array $aggregateSpecs = [], array $groupBy = [], int $offset = 0): array
     {
-        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
-        $storagePath = $version->parquet_storage_path;
+        $bare = fn (?string $ref): ?string => $ref === null || $ref === '' ? $ref : $graph->resolveRef($ref)['name'];
 
-        $raw = Storage::disk($datasetsDisk)->get($storagePath);
+        $selectColumns = $selectColumns !== null ? array_values(array_unique(array_map($bare, $selectColumns))) : null;
+        $filters = array_map(fn ($f) => [...$f, 'column' => $bare($f['column'] ?? '')], $filters);
+        $searchCols = array_map($bare, $searchCols);
+        $distinctColumn = $bare($distinctColumn);
+        $sortColumn = $bare($sortColumn);
+        $groupBy = array_map($bare, $groupBy);
+        $aggregateSpecs = array_map(fn ($s) => ['column' => $bare($s['column']), 'fn' => $s['fn']], $aggregateSpecs);
+
+        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
+        $raw = Storage::disk($datasetsDisk)->get($version->parquet_storage_path);
         if ($raw === null) {
             return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
         }
 
         $decoded = json_decode($raw, true);
 
-        // Mock parquet: { "__mock__": true, "schema": [...], "data": [[...], ...] }
+        // ─── Mock parquet ───────────────────────────────────────────────────
         if (is_array($decoded) && isset($decoded['__mock__'])) {
             $allColumns = $decoded['schema'] ?? [];
-            $allRows = $decoded['data'] ?? [];
-
-            // 1. Filter
             $rows = [];
-            foreach ($allRows as $row) {
+            foreach ($decoded['data'] ?? [] as $row) {
                 $assoc = array_combine($allColumns, $row);
-                if (! $this->matchesFilters($assoc, $filters)) {
-                    continue;
+                if ($this->matchesFilters($assoc, $filters) && $this->matchesSearchQ($assoc, $searchQ, $searchCols)) {
+                    $rows[] = $assoc;
                 }
-                if (! $this->matchesSearchQ($assoc, $searchQ, $searchCols)) {
-                    continue;
-                }
-                $rows[] = $assoc;
             }
 
-            // 2. Sort (before distinct so we pick the "best" row per group)
-            if ($sortColumn) {
-                usort($rows, function ($a, $b) use ($sortColumn, $sortDirection) {
-                    $av = $a[$sortColumn] ?? null;
-                    $bv = $b[$sortColumn] ?? null;
-                    $cmp = is_numeric($av) && is_numeric($bv)
-                        ? ($av <=> $bv)
-                        : strcmp((string) $av, (string) $bv);
-
-                    return $sortDirection === 'desc' ? -$cmp : $cmp;
-                });
-            }
-
-            // 3. Distinct (keep first occurrence per unique column value)
-            if ($distinctColumn) {
-                $seen = [];
-                $rows = array_values(array_filter($rows, function ($r) use ($distinctColumn, &$seen) {
-                    $val = (string) ($r[$distinctColumn] ?? '');
-                    if (isset($seen[$val])) {
-                        return false;
-                    }
-                    $seen[$val] = true;
-
-                    return true;
-                }));
-            }
-
+            $rows = $this->sortMockRows($rows, $sortColumn, $sortDirection);
+            $rows = $this->distinctMockRows($rows, $distinctColumn);
             $totalAfterFilter = count($rows);
 
-            if ($aggregate !== null && ! empty($aggregateColumns)) {
-                // Aggregation runs over every matching (joined) row, not a page of them —
-                // so joins are applied before grouping and the row-level limit is skipped.
-                foreach ($joins as $join) {
-                    $rows = $this->applyMockJoin($rows, $allColumns, $join, $userId);
-                    $joinCols = (array) ($join['columns'] ?? []);
-                    foreach ($joinCols as $jc) {
-                        if (! in_array($jc, $allColumns)) {
-                            $allColumns[] = $jc;
-                        }
-                    }
-                }
-
-                $rows = $this->aggregateRows($rows, $aggregate, $aggregateColumns, $groupBy);
-                $allColumns = array_values(array_unique(array_merge($groupBy, $aggregateColumns)));
+            if ($aggregateSpecs !== []) {
+                $rows = $this->aggregateRows($rows, $aggregateSpecs, $groupBy);
+                $allColumns = array_values(array_unique(array_merge($groupBy, array_column($aggregateSpecs, 'column'))));
                 $totalAfterFilter = count($rows);
                 $rows = array_slice($rows, 0, $limit);
-
-                if ($selectColumns) {
-                    $rows = array_map(
-                        fn ($r) => array_intersect_key($r, array_flip($selectColumns)),
-                        $rows,
-                    );
-                }
-
-                return [$allColumns, $rows, $totalAfterFilter];
+            } else {
+                $rows = array_slice($rows, $offset, $limit);
             }
 
-            // 4. Pagination (offset + limit) — s'applique aux lignes non agrégées.
-            $rows = array_slice($rows, $offset, $limit);
-
-            // Apply each join using a hash join
-            foreach ($joins as $join) {
-                $rows = $this->applyMockJoin($rows, $allColumns, $join, $userId);
-                $joinCols = (array) ($join['columns'] ?? []);
-                foreach ($joinCols as $jc) {
-                    if (! in_array($jc, $allColumns)) {
-                        $allColumns[] = $jc;
-                    }
-                }
-            }
-
-            // Select columns after join so joined columns are included
             if ($selectColumns) {
-                $rows = array_map(
-                    fn ($r) => array_intersect_key($r, array_flip($selectColumns)),
-                    $rows,
-                );
+                $rows = array_map(fn ($r) => array_intersect_key($r, array_flip($selectColumns)), $rows);
             }
 
             return [$allColumns, $rows, $totalAfterFilter];
         }
 
-        // Real Parquet via DuckDB CLI — ensure local file
+        // ─── Real Parquet via DuckDB CLI ────────────────────────────────────
         $localParquet = tempnam(sys_get_temp_dir(), 'statsio_');
         file_put_contents($localParquet, $raw);
         $escapedPath = escapeshellarg($localParquet);
+        $q = fn (string $c) => '"'.str_replace('"', '""', $c).'"';
 
-        $orderClause = $sortColumn
-            ? ' ORDER BY "'.str_replace('"', '""', $sortColumn).'" '.strtoupper($sortDirection)
-            : '';
+        $orderClause = $sortColumn ? ' ORDER BY '.$q($sortColumn).' '.strtoupper($sortDirection) : '';
+        $where = $this->appendSearchClause($this->buildDuckDbWhere($filters), $searchQ, $searchCols);
+        $colClause = $selectColumns ? implode(', ', array_map($q, $selectColumns)) : '*';
 
-        if (! empty($joins)) {
-            // Build JOIN SQL with DuckDB
-            $colClause = 't0.*';
-
-            $joinSql = '';
-            foreach ($joins as $idx => $join) {
-                $joinDataset = Dataset::where('id', (int) ($join['dataset_id'] ?? 0))
-                    ->where('user_id', $userId)
-                    ->first();
-                if (! $joinDataset) {
-                    continue;
-                }
-
-                $joinVersion = $joinDataset->latestVersion;
-                if (! $joinVersion?->parquet_storage_path) {
-                    continue;
-                }
-
-                $joinRaw = Storage::disk($datasetsDisk)->get($joinVersion->parquet_storage_path);
-                if ($joinRaw === null) {
-                    continue;
-                }
-                $joinPath = tempnam(sys_get_temp_dir(), 'statsio_');
-                file_put_contents($joinPath, $joinRaw);
-
-                $alias = 't'.($idx + 1);
-                $jType = strtoupper(in_array($join['type'] ?? '', ['inner', 'left']) ? $join['type'] : 'left');
-                $leftCol = '"'.str_replace('"', '""', $join['left_column'] ?? '').'"';
-                $rightCol = '"'.str_replace('"', '""', $join['right_column'] ?? '').'"';
-                $joinCols = (array) ($join['columns'] ?? []);
-
-                foreach ($joinCols as $jc) {
-                    $colClause .= ', '.$alias.'."'.str_replace('"', '""', $jc).'"';
-                }
-
-                $joinSql .= " {$jType} JOIN read_parquet(".escapeshellarg($joinPath).") {$alias}";
-                $joinSql .= " ON t0.{$leftCol} = {$alias}.{$rightCol}";
-            }
-
-            $where = $this->buildDuckDbWhere($filters, 't0');
-            $where = $this->appendSearchClause($where, $searchQ, $searchCols, 't0');
-
-            if ($distinctColumn) {
-                $escapedDistinct = '"'.str_replace('"', '""', $distinctColumn).'"';
-                $innerOrder = $sortColumn
-                    ? ' ORDER BY '.$escapedDistinct.', "'.str_replace('"', '""', $sortColumn).'" '.strtoupper($sortDirection)
-                    : ' ORDER BY '.$escapedDistinct;
-                // Use t0.* in inner query so all columns (sort, distinct) are available in outer SELECT
-                $inner = "SELECT DISTINCT ON ({$escapedDistinct}) {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$innerOrder}";
-                $outerCols = $selectColumns
-                    ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
-                    : '*';
-                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause}";
-            } else {
-                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}) t0{$joinSql}{$where}{$orderClause}";
-            }
+        if ($distinctColumn) {
+            $innerOrder = $sortColumn
+                ? ' ORDER BY '.$q($distinctColumn).', '.$q($sortColumn).' '.strtoupper($sortDirection)
+                : ' ORDER BY '.$q($distinctColumn);
+            $inner = "SELECT DISTINCT ON ({$q($distinctColumn)}) * FROM read_parquet({$escapedPath}){$where}{$innerOrder}";
+            $sql = "SELECT {$colClause} FROM ({$inner}) sub{$orderClause}";
         } else {
-            $colClause = $selectColumns
-                ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
-                : '*';
-
-            $where = $this->buildDuckDbWhere($filters);
-            $where = $this->appendSearchClause($where, $searchQ, $searchCols);
-
-            if ($distinctColumn) {
-                $escapedDistinct = '"'.str_replace('"', '""', $distinctColumn).'"';
-                $innerOrder = $sortColumn
-                    ? ' ORDER BY '.$escapedDistinct.', "'.str_replace('"', '""', $sortColumn).'" '.strtoupper($sortDirection)
-                    : ' ORDER BY '.$escapedDistinct;
-                // Use * in inner query so sort/distinct columns are available to the outer SELECT
-                $inner = "SELECT DISTINCT ON ({$escapedDistinct}) * FROM read_parquet({$escapedPath}){$where}{$innerOrder}";
-                $outerCols = $selectColumns
-                    ? implode(', ', array_map(fn ($c) => '"'.str_replace('"', '""', $c).'"', $selectColumns))
-                    : '*';
-                $sql = "SELECT {$outerCols} FROM ({$inner}) sub{$orderClause}";
-            } else {
-                $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where}{$orderClause}";
-            }
+            $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where}{$orderClause}";
         }
 
-        if ($aggregate !== null && ! empty($aggregateColumns)) {
-            $sql = $this->wrapAggregateSql($sql, $aggregate, $aggregateColumns, $groupBy)." LIMIT {$limit}";
+        if ($aggregateSpecs !== []) {
+            $sql = $this->wrapAggregateSql($sql, $aggregateSpecs, $groupBy)." LIMIT {$limit}";
         } else {
             $sql .= " LIMIT {$limit}".($offset > 0 ? " OFFSET {$offset}" : '');
         }
 
-        $output = shell_exec('duckdb -json -c '.escapeshellarg($sql).' 2>/dev/null');
-
-        if ($output) {
-            $jsonRows = json_decode($output, true);
-            if (is_array($jsonRows) && count($jsonRows) > 0) {
-                $allColumns = array_keys($jsonRows[0]);
-                if (! empty($joins) && $selectColumns) {
-                    $jsonRows = array_map(
-                        fn ($r) => array_intersect_key($r, array_flip($selectColumns)),
-                        $jsonRows,
-                    );
-                }
-
-                return [$allColumns, $jsonRows, $dataset->row_count ?? count($jsonRows)];
-            }
+        $jsonRows = $this->runDuckDb($sql);
+        if ($jsonRows !== []) {
+            return [array_keys($jsonRows[0]), $jsonRows, $dataset->row_count ?? count($jsonRows)];
         }
 
         return [$dataset->columns->pluck('name')->toArray(), [], $dataset->row_count ?? 0];
+    }
+
+    /**
+     * Requête multi-sources : jointures entre N sources selon le graphe du bloc,
+     * colonnes référencées `name` (primaire) ou `name@<sourceId>`, agrégats par
+     * colonne. Renvoie aussi la table de correspondance ref → clé de ligne.
+     *
+     * @param  array<int, array{column: string, fn: string}>  $aggregateSpecs
+     */
+    private function fetchMultiSourceRows(Dataset $dataset, DatasetVersion $version, QueryGraph $graph, ?array $selectColumns, array $filters, int $limit, int $userId, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection, array $aggregateSpecs, array $groupBy, int $offset): QueryResult
+    {
+        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
+
+        // 1. Charger chaque source (dataset + parquet décodé), en vérifiant l'accès.
+        $loaded = [];   // sourceId => ['dataset'=>Dataset, 'schema'=>string[], 'decoded'=>array|null, 'raw'=>string]
+        foreach ($graph->sources() as $src) {
+            $ds = Dataset::where('id', $src['dataset_id'])
+                ->where(fn ($q) => $q->where('user_id', $userId)
+                    ->orWhereHas('dataSource.users', fn ($u) => $u->where('user_id', $userId)))
+                ->first();
+            if (! $ds) {
+                throw new InvalidQueryGraphException("Source inaccessible : {$graph->labelFor($src['id'])}.");
+            }
+            $v = $ds->latestVersion;
+            $raw = $v?->parquet_storage_path ? Storage::disk($datasetsDisk)->get($v->parquet_storage_path) : null;
+            if ($raw === null) {
+                throw new InvalidQueryGraphException("Source non prête : {$graph->labelFor($src['id'])}.");
+            }
+            $decoded = json_decode($raw, true);
+            $isMock = is_array($decoded) && isset($decoded['__mock__']);
+            $loaded[$src['id']] = [
+                'schema' => $isMock ? ($decoded['schema'] ?? []) : $ds->columns->pluck('name')->toArray(),
+                'decoded' => $isMock ? $decoded : null,
+                'raw' => $raw,
+            ];
+        }
+
+        // 2. Plan de colonnes : ref `name@<sourceId>` => clé de ligne (nue si pas de collision).
+        [$plan, $columnMap] = $this->buildColumnPlan($graph, fn ($id) => $loaded[$id]['schema']);
+
+        $refToKey = function (?string $ref) use ($graph, $plan): ?string {
+            if ($ref === null || $ref === '') {
+                return $ref;
+            }
+            $r = $graph->resolveRef($ref);
+
+            return $plan[$r['source_id']][$r['name']] ?? $r['name'];
+        };
+
+        $allMock = ! in_array(null, array_column($loaded, 'decoded'), true);
+
+        if (! $allMock) {
+            return $this->fetchMultiSourceRowsReal(
+                $dataset, $graph, $loaded, $plan, $columnMap, $selectColumns, $filters, $limit,
+                $searchQ, $searchCols, $distinctColumn, $sortColumn, $sortDirection, $aggregateSpecs, $groupBy, $offset,
+            );
+        }
+
+        // 3. Lignes de la primaire, puis jointures dans l'ordre topologique.
+        $primaryId = $graph->primarySourceId();
+        $rows = array_map(
+            fn ($r) => array_combine($loaded[$primaryId]['schema'], $r),
+            $loaded[$primaryId]['decoded']['data'] ?? [],
+        );
+
+        foreach ($graph->orderedJoins() as $edge) {
+            $toId = $edge['to_source'];
+            $toSchema = $loaded[$toId]['schema'];
+            $joinRows = array_map(
+                fn ($r) => array_combine($toSchema, $r),
+                $loaded[$toId]['decoded']['data'] ?? [],
+            );
+            $fromKey = $plan[$this->sourceIdForAlias($graph, $edge['from_alias'])][$edge['from_column']]
+                ?? $edge['from_column'];
+            $toKeyMap = [];
+            foreach ($toSchema as $col) {
+                $toKeyMap[$col] = $plan[$toId][$col];
+            }
+            $rows = $this->hashJoinRows($rows, $fromKey, $joinRows, $edge['to_column'], $toKeyMap, $edge['type']);
+        }
+
+        // 4. Filtres / recherche / tri / distinct — sur les clés de ligne résolues.
+        $mFilters = array_map(fn ($f) => [...$f, 'column' => $refToKey($f['column'] ?? '')], $filters);
+        $mSearchCols = array_map($refToKey, $searchCols);
+        $rows = array_values(array_filter(
+            $rows,
+            fn ($r) => $this->matchesFilters($r, $mFilters) && $this->matchesSearchQ($r, $searchQ, $mSearchCols),
+        ));
+        $rows = $this->sortMockRows($rows, $refToKey($sortColumn), $sortDirection);
+        $rows = $this->distinctMockRows($rows, $refToKey($distinctColumn));
+        $total = count($rows);
+
+        // 5. Agrégation par colonne OU pagination.
+        if ($aggregateSpecs !== []) {
+            $specs = array_map(fn ($s) => ['column' => $refToKey($s['column']), 'fn' => $s['fn']], $aggregateSpecs);
+            $groupKeys = array_map($refToKey, $groupBy);
+            $rows = $this->aggregateRows($rows, $specs, $groupKeys);
+            $total = count($rows);
+            $rows = array_slice($rows, 0, $limit);
+            $outColumns = array_values(array_unique(array_merge($groupKeys, array_column($specs, 'column'))));
+        } else {
+            $rows = array_slice($rows, $offset, $limit);
+            $outColumns = $rows !== [] ? array_keys($rows[0]) : $this->defaultProjectionKeys($graph, $plan);
+        }
+
+        // 6. Projection finale vers les refs demandées.
+        if ($selectColumns !== null && $selectColumns !== []) {
+            $keys = array_values(array_unique(array_map($refToKey, $selectColumns)));
+            $rows = array_map(fn ($r) => $this->pickKeys($r, $keys), $rows);
+            $outColumns = $keys;
+        } elseif ($aggregateSpecs === []) {
+            $keys = $this->defaultProjectionKeys($graph, $plan);
+            $rows = array_map(fn ($r) => $this->pickKeys($r, $keys), $rows);
+            $outColumns = $keys;
+        }
+
+        return new QueryResult($outColumns, array_values($rows), $total, $columnMap);
+    }
+
+    /**
+     * Chemin DuckDB réel du multi-sources. Écrit chaque parquet en fichier temp,
+     * assemble le FROM + JOINs dans l'ordre topologique, projette avec alias sur
+     * collision de nom.
+     *
+     * @param  array<string, array{schema: array<string>, decoded: ?array, raw: string}>  $loaded
+     * @param  array<string, array<string, string>>  $plan
+     * @param  array<string, string>  $columnMap
+     * @param  array<int, array{column: string, fn: string}>  $aggregateSpecs
+     */
+    private function fetchMultiSourceRowsReal(Dataset $dataset, QueryGraph $graph, array $loaded, array $plan, array $columnMap, ?array $selectColumns, array $filters, int $limit, string $searchQ, array $searchCols, ?string $distinctColumn, ?string $sortColumn, string $sortDirection, array $aggregateSpecs, array $groupBy, int $offset): QueryResult
+    {
+        $q = fn (string $c) => '"'.str_replace('"', '""', $c).'"';
+        $paths = [];
+        foreach ($loaded as $id => $entry) {
+            $tmp = tempnam(sys_get_temp_dir(), 'statsio_');
+            file_put_contents($tmp, $entry['raw']);
+            $paths[$id] = $tmp;
+        }
+
+        $primaryId = $graph->primarySourceId();
+        $primaryAlias = $graph->aliasFor($primaryId);
+        $from = 'read_parquet('.escapeshellarg($paths[$primaryId]).") {$primaryAlias}";
+        foreach ($graph->orderedJoins() as $edge) {
+            $type = strtoupper($edge['type']);
+            $from .= " {$type} JOIN read_parquet(".escapeshellarg($paths[$edge['to_source']]).") {$edge['to_alias']}"
+                ." ON {$edge['from_alias']}.{$q($edge['from_column'])} = {$edge['to_alias']}.{$q($edge['to_column'])}";
+        }
+
+        // Projection : chaque (source, colonne) => alias."name" [AS "name@sourceId"]
+        $projParts = [];
+        foreach ($graph->sources() as $src) {
+            $alias = $graph->aliasFor($src['id']);
+            foreach ($loaded[$src['id']]['schema'] as $col) {
+                $key = $plan[$src['id']][$col];
+                $projParts[] = $key === $col
+                    ? "{$alias}.{$q($col)}"
+                    : "{$alias}.{$q($col)} AS {$q($key)}";
+            }
+        }
+        $projection = implode(', ', $projParts);
+
+        $sqlRef = function (?string $ref) use ($graph, $q): ?string {
+            if ($ref === null || $ref === '') {
+                return null;
+            }
+            $r = $graph->resolveRef($ref);
+
+            return "{$r['alias']}.{$q($r['name'])}";
+        };
+
+        $where = '';
+        $clauses = [];
+        foreach ($filters as $f) {
+            $col = $sqlRef($f['column'] ?? '');
+            if ($col === null) {
+                continue;
+            }
+            $clauses[] = $this->duckDbFilterClause($col, $f['operator'] ?? '=', (string) ($f['value'] ?? ''));
+        }
+        if ($searchQ !== '' && $searchCols !== []) {
+            $val = "'".str_replace("'", "''", $searchQ)."'";
+            $or = array_filter(array_map(fn ($c) => ($x = $sqlRef($c)) ? "LOWER({$x}::VARCHAR) LIKE LOWER(CONCAT('%', {$val}, '%'))" : null, $searchCols));
+            if ($or) {
+                $clauses[] = '('.implode(' OR ', $or).')';
+            }
+        }
+        if ($clauses) {
+            $where = ' WHERE '.implode(' AND ', $clauses);
+        }
+
+        $sortSql = $sqlRef($sortColumn);
+        $orderClause = $sortSql ? " ORDER BY {$sortSql} ".strtoupper($sortDirection) : '';
+        $distinctSql = $sqlRef($distinctColumn);
+
+        if ($distinctSql) {
+            $innerOrder = $sortSql ? " ORDER BY {$distinctSql}, {$sortSql} ".strtoupper($sortDirection) : " ORDER BY {$distinctSql}";
+            $inner = "SELECT DISTINCT ON ({$distinctSql}) {$projection} FROM {$from}{$where}{$innerOrder}";
+            $sql = "SELECT * FROM ({$inner}) sub{$orderClause}";
+        } else {
+            $sql = "SELECT {$projection} FROM {$from}{$where}{$orderClause}";
+        }
+
+        $refToKey = function (string $ref) use ($graph, $plan): string {
+            $r = $graph->resolveRef($ref);
+
+            return $plan[$r['source_id']][$r['name']] ?? $r['name'];
+        };
+
+        if ($aggregateSpecs !== []) {
+            $specs = array_map(fn ($s) => ['column' => $refToKey($s['column']), 'fn' => $s['fn']], $aggregateSpecs);
+            $groupKeys = array_map($refToKey, $groupBy);
+            $sql = $this->wrapAggregateSql($sql, $specs, $groupKeys)." LIMIT {$limit}";
+        } else {
+            $sql .= " LIMIT {$limit}".($offset > 0 ? " OFFSET {$offset}" : '');
+        }
+
+        $jsonRows = $this->runDuckDb($sql);
+
+        if ($jsonRows !== [] && $selectColumns) {
+            $keys = array_values(array_unique(array_map($refToKey, $selectColumns)));
+            $jsonRows = array_map(fn ($r) => $this->pickKeys($r, $keys), $jsonRows);
+        }
+
+        $cols = $jsonRows !== [] ? array_keys($jsonRows[0]) : $this->defaultProjectionKeys($graph, $plan);
+
+        return new QueryResult($cols, $jsonRows, $dataset->row_count ?? count($jsonRows), $columnMap);
+    }
+
+    /**
+     * @param  callable(string): array<string>  $schemaFor  sourceId => noms de colonnes
+     * @return array{0: array<string, array<string, string>>, 1: array<string, string>}
+     *                                                                                  [plan (sourceId => (colName => rowKey)), columnMap (ref => rowKey)]
+     */
+    private function buildColumnPlan(QueryGraph $graph, callable $schemaFor): array
+    {
+        $plan = [];
+        $columnMap = [];
+        $taken = [];
+
+        foreach ($graph->sources() as $src) {
+            $sid = $src['id'];
+            $plan[$sid] = [];
+            foreach ($schemaFor($sid) as $col) {
+                if (! isset($taken[$col])) {
+                    $taken[$col] = true;
+                    $key = $col;
+                } else {
+                    $key = $col.'@'.$sid;
+                }
+                $plan[$sid][$col] = $key;
+                $columnMap[$col.'@'.$sid] = $key;
+                if ($sid === $graph->primarySourceId()) {
+                    $columnMap[$col] = $key;
+                }
+            }
+        }
+
+        return [$plan, $columnMap];
+    }
+
+    private function sourceIdForAlias(QueryGraph $graph, string $alias): string
+    {
+        foreach ($graph->sources() as $src) {
+            if ($graph->aliasFor($src['id']) === $alias) {
+                return $src['id'];
+            }
+        }
+
+        return $graph->primarySourceId();
+    }
+
+    /** @return array<int, string> */
+    private function defaultProjectionKeys(QueryGraph $graph, array $plan): array
+    {
+        $primaryId = $graph->primarySourceId();
+        $keys = array_values($plan[$primaryId] ?? []);
+        foreach ($graph->legacyProjection() as $p) {
+            $k = $plan[$p['source_id']][$p['column']] ?? null;
+            if ($k !== null && ! in_array($k, $keys, true)) {
+                $keys[] = $k;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @param  array<int, string>  $keys
+     * @return array<string, mixed>
+     */
+    private function pickKeys(array $row, array $keys): array
+    {
+        $out = [];
+        foreach ($keys as $k) {
+            $out[$k] = $row[$k] ?? null;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $joinRows
+     * @param  array<string, string>  $toKeyMap  colonne native de la source jointe => clé de ligne cible
+     * @return array<int, array<string, mixed>>
+     */
+    private function hashJoinRows(array $rows, string $fromKey, array $joinRows, string $toColumn, array $toKeyMap, string $type): array
+    {
+        $index = [];
+        foreach ($joinRows as $jr) {
+            $k = (string) ($jr[$toColumn] ?? '');
+            if ($k !== '' && ! isset($index[$k])) {
+                $index[$k] = $jr;
+            }
+        }
+
+        $nullRow = array_fill_keys(array_values($toKeyMap), null);
+        $isInner = $type === 'inner';
+        $out = [];
+        foreach ($rows as $row) {
+            $match = $index[(string) ($row[$fromKey] ?? '')] ?? null;
+            if ($match === null) {
+                if (! $isInner) {
+                    $out[] = array_merge($row, $nullRow);
+                }
+
+                continue;
+            }
+            $merged = $row;
+            foreach ($toKeyMap as $native => $rowKey) {
+                $merged[$rowKey] = $match[$native] ?? null;
+            }
+            $out[] = $merged;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function sortMockRows(array $rows, ?string $sortColumn, string $sortDirection): array
+    {
+        if (! $sortColumn) {
+            return $rows;
+        }
+        usort($rows, function ($a, $b) use ($sortColumn, $sortDirection) {
+            $av = $a[$sortColumn] ?? null;
+            $bv = $b[$sortColumn] ?? null;
+            $cmp = is_numeric($av) && is_numeric($bv) ? ($av <=> $bv) : strcmp((string) $av, (string) $bv);
+
+            return $sortDirection === 'desc' ? -$cmp : $cmp;
+        });
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function distinctMockRows(array $rows, ?string $distinctColumn): array
+    {
+        if (! $distinctColumn) {
+            return $rows;
+        }
+        $seen = [];
+
+        return array_values(array_filter($rows, function ($r) use ($distinctColumn, &$seen) {
+            $val = (string) ($r[$distinctColumn] ?? '');
+            if (isset($seen[$val])) {
+                return false;
+            }
+            $seen[$val] = true;
+
+            return true;
+        }));
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function runDuckDb(string $sql): array
+    {
+        $output = shell_exec('duckdb -json -c '.escapeshellarg($sql).' 2>/dev/null');
+        if (! $output) {
+            return [];
+        }
+        $rows = json_decode($output, true);
+
+        return is_array($rows) ? $rows : [];
+    }
+
+    private function duckDbFilterClause(string $col, string $op, string $rawValue): string
+    {
+        $val = "'".str_replace("'", "''", $rawValue)."'";
+
+        return match ($op) {
+            '=' => "{$col} = {$val}",
+            '!=' => "{$col} != {$val}",
+            '>' => "TRY_CAST({$col} AS DOUBLE) > TRY_CAST({$val} AS DOUBLE)",
+            '>=' => "TRY_CAST({$col} AS DOUBLE) >= TRY_CAST({$val} AS DOUBLE)",
+            '<' => "TRY_CAST({$col} AS DOUBLE) < TRY_CAST({$val} AS DOUBLE)",
+            '<=' => "TRY_CAST({$col} AS DOUBLE) <= TRY_CAST({$val} AS DOUBLE)",
+            'contains' => "LOWER({$col}) LIKE LOWER(CONCAT('%', {$val}, '%'))",
+            'not_contains' => "LOWER({$col}) NOT LIKE LOWER(CONCAT('%', {$val}, '%'))",
+            default => '1=1',
+        };
     }
 
     /**
@@ -591,13 +993,19 @@ class DatasetController extends Controller
      * @param  array<string>  $aggregateColumns
      * @param  array<string>  $groupBy
      */
-    private function wrapAggregateSql(string $innerSql, string $aggregate, array $aggregateColumns, array $groupBy): string
+    private function wrapAggregateSql(string $innerSql, array $aggregateSpecs, array $groupBy): string
     {
-        $fn = strtoupper($aggregate);
         $quote = fn (string $c) => '"'.str_replace('"', '""', $c).'"';
 
         $selectParts = array_map($quote, $groupBy);
-        foreach ($aggregateColumns as $col) {
+        $seen = [];
+        foreach ($aggregateSpecs as $spec) {
+            $col = $spec['column'];
+            if (isset($seen[$col])) {
+                continue; // une seule fonction par colonne côté SQL (alias unique)
+            }
+            $seen[$col] = true;
+            $fn = strtoupper($spec['fn']);
             $escaped = $quote($col);
             // Les colonnes texte type "10,000+" (compteurs scrapés) ne sont pas castables
             // telles quelles : on retire virgules et "+" final avant le TRY_CAST.
@@ -624,8 +1032,14 @@ class DatasetController extends Controller
      * @param  array<string>  $groupBy
      * @return array<int, array<string, mixed>>
      */
-    private function aggregateRows(array $rows, string $aggregate, array $aggregateColumns, array $groupBy): array
+    private function aggregateRows(array $rows, array $aggregateSpecs, array $groupBy): array
     {
+        // Une seule fonction par colonne (aligné sur wrapAggregateSql) : dernière gagne.
+        $fnByColumn = [];
+        foreach ($aggregateSpecs as $spec) {
+            $fnByColumn[$spec['column']] = $spec['fn'];
+        }
+
         $groups = [];
         foreach ($rows as $row) {
             $key = implode("\0", array_map(fn ($c) => (string) ($row[$c] ?? ''), $groupBy));
@@ -637,7 +1051,7 @@ class DatasetController extends Controller
                 ];
             }
             $groups[$key]['rowCount']++;
-            foreach ($aggregateColumns as $col) {
+            foreach ($fnByColumn as $col => $fn) {
                 $groups[$key]['values'][$col][] = $row[$col] ?? null;
             }
         }
@@ -645,8 +1059,8 @@ class DatasetController extends Controller
         $result = [];
         foreach ($groups as $group) {
             $out = $group['keyValues'];
-            foreach ($aggregateColumns as $col) {
-                if ($aggregate === 'count') {
+            foreach ($fnByColumn as $col => $fn) {
+                if ($fn === 'count') {
                     $out[$col] = $group['rowCount'];
 
                     continue;
@@ -655,7 +1069,7 @@ class DatasetController extends Controller
                     array_map(fn ($v) => NumericValueParser::parse($v), $group['values'][$col] ?? []),
                     fn ($v) => $v !== null,
                 ));
-                $out[$col] = match ($aggregate) {
+                $out[$col] = match ($fn) {
                     'sum' => array_sum($vals),
                     'avg' => count($vals) ? array_sum($vals) / count($vals) : 0,
                     'min' => count($vals) ? min($vals) : null,
@@ -664,78 +1078,6 @@ class DatasetController extends Controller
                 };
             }
             $result[] = $out;
-        }
-
-        return $result;
-    }
-
-    /**
-     * Hash join for mock parquet datasets.
-     *
-     * @param  array<int, array<string, mixed>>  $primaryRows
-     * @param  array<string>  $primaryColumns
-     * @param  array{dataset_id: string, left_column: string, right_column: string, columns: array<string>, type: string}  $join
-     */
-    private function applyMockJoin(array $primaryRows, array $primaryColumns, array $join, int $userId): array
-    {
-        $joinDataset = Dataset::where('id', (int) ($join['dataset_id'] ?? 0))
-            ->where('user_id', $userId)
-            ->first();
-
-        if (! $joinDataset) {
-            return $primaryRows;
-        }
-
-        $joinVersion = $joinDataset->latestVersion;
-        if (! $joinVersion?->parquet_storage_path) {
-            return $primaryRows;
-        }
-
-        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
-        $joinRaw = Storage::disk($datasetsDisk)->get($joinVersion->parquet_storage_path);
-        if ($joinRaw === null) {
-            return $primaryRows;
-        }
-        $joinDecoded = json_decode($joinRaw, true);
-
-        if (! is_array($joinDecoded) || ! isset($joinDecoded['__mock__'])) {
-            return $primaryRows;
-        }
-
-        $jSchema = $joinDecoded['schema'] ?? [];
-        $leftCol = (string) ($join['left_column'] ?? '');
-        $rightCol = (string) ($join['right_column'] ?? '');
-        $joinCols = (array) ($join['columns'] ?? []);
-        $isInner = ($join['type'] ?? 'left') === 'inner';
-
-        // Build hash index: rightColumn value → first matching row (1:1 join)
-        $index = [];
-        foreach ($joinDecoded['data'] ?? [] as $jRow) {
-            $jAssoc = array_combine($jSchema, $jRow);
-            $key = (string) ($jAssoc[$rightCol] ?? '');
-            if ($key !== '' && ! isset($index[$key])) {
-                $index[$key] = $jAssoc;
-            }
-        }
-
-        $nullRow = array_fill_keys($joinCols, null);
-        $result = [];
-
-        foreach ($primaryRows as $row) {
-            $key = (string) ($row[$leftCol] ?? '');
-            $match = $index[$key] ?? null;
-
-            if ($match === null) {
-                if (! $isInner) {
-                    $result[] = array_merge($row, $nullRow);
-                }
-            } else {
-                $merged = $row;
-                foreach ($joinCols as $jc) {
-                    $merged[$jc] = $match[$jc] ?? null;
-                }
-                $result[] = $merged;
-            }
         }
 
         return $result;
@@ -843,17 +1185,17 @@ class DatasetController extends Controller
      * checksums) so the key changes — and the cache naturally invalidates —
      * whenever any involved dataset is re-ingested.
      *
-     * @param  array<int, array{dataset_id: string}>  $joins
+     * @param  QueryGraph|array<int, mixed>  $graph  graphe multi-sources, ou [] pour les valeurs distinctes
      */
-    private function buildQueryCacheKey(string $kind, Dataset $dataset, DatasetVersion $version, array $joins, array $params): string
+    private function buildQueryCacheKey(string $kind, Dataset $dataset, DatasetVersion $version, QueryGraph|array $graph, array $params): string
     {
-        $joinDatasetIds = array_values(array_unique(array_filter(array_map(
-            fn ($join) => (int) ($join['dataset_id'] ?? 0),
-            $joins,
-        ))));
+        $graphSignature = $graph instanceof QueryGraph ? $graph->cacheSignature() : $graph;
+        $secondaryDatasetIds = $graph instanceof QueryGraph
+            ? array_values(array_filter($graph->datasetIds(), fn ($id) => $id !== $dataset->id))
+            : [];
 
-        $joinChecksums = $joinDatasetIds
-            ? DatasetVersion::whereIn('dataset_id', $joinDatasetIds)
+        $joinChecksums = $secondaryDatasetIds
+            ? DatasetVersion::whereIn('dataset_id', $secondaryDatasetIds)
                 ->orderByDesc('version_number')
                 ->get(['dataset_id', 'checksum'])
                 ->unique('dataset_id')
@@ -862,7 +1204,7 @@ class DatasetController extends Controller
                 ->toArray()
             : [];
 
-        $paramsHash = md5(json_encode([$params, $joins, $joinChecksums]));
+        $paramsHash = md5(json_encode([$params, $graphSignature, $joinChecksums]));
         $versionKey = $version->checksum ?? "v{$version->id}";
 
         return "datasets.query.{$kind}.{$dataset->id}.{$versionKey}.{$paramsHash}";

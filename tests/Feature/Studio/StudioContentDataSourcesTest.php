@@ -99,4 +99,28 @@ class StudioContentDataSourcesTest extends TestCase
         $this->assertSame(1, $data[(string) $a->id]['used_by_count']);
         $this->assertSame($content->title, $data[(string) $a->id]['used_by'][0]['title']);
     }
+
+    public function test_includes_datasets_referenced_via_a_block_sources_array(): void
+    {
+        [$user, $token] = $this->actingAsUser();
+
+        $a = $this->makeDataset($user, 'dataset-a');
+        $b = $this->makeDataset($user, 'dataset-b');
+
+        $content = StudioContentFactory::new()->create([
+            'user_id' => $user->id,
+            'blocks' => [[
+                'type' => 'bar',
+                'datasetId' => (string) $a->id,
+                'sources' => [
+                    ['id' => (string) $a->id, 'datasetId' => (string) $a->id],
+                    ['id' => (string) $b->id, 'datasetId' => (string) $b->id],
+                ],
+            ]],
+        ]);
+
+        $this->withToken($token)->getJson("/api/studio/content/{$content->slug}/data-sources")
+            ->assertStatus(200)
+            ->assertJsonCount(2, 'data');
+    }
 }
