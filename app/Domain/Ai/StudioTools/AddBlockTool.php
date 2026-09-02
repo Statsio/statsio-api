@@ -159,6 +159,15 @@ class AddBlockTool implements StudioAgentTool
                 $referenced[] = $filter['column'];
             }
         }
+        foreach ((array) ($fieldMapping['pieSegments'] ?? []) as $seg) {
+            if (is_array($seg) && isset($seg['column']) && is_string($seg['column'])) {
+                $referenced[] = $seg['column'];
+            }
+        }
+
+        // Une réf de colonne calculée (`calc:<id>`) ou qualifiée (`col@<source>`)
+        // n'est pas une colonne brute du dataset — ne pas la confronter au schéma.
+        $referenced = array_filter($referenced, fn ($r) => ! str_starts_with($r, 'calc:') && ! str_contains($r, '@'));
 
         return array_values(array_unique(array_diff($referenced, $columns)));
     }
