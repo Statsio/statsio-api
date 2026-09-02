@@ -7,6 +7,7 @@ use App\Domain\Content\Actions\GlobalSearchAction;
 use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
 use App\Domain\Content\Enums\SurveyKindEnum;
+use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\User\Actions\RecordContentViewAction;
 use App\Models\Channel\ChannelUser;
 use App\Models\DataIngestion\Dataset;
@@ -542,12 +543,12 @@ class StudioContentController extends Controller
      */
     private function datasetIdsFor(array $block): array
     {
-        $ids = [$block['datasetId'] ?? null];
-        foreach ($block['joins'] ?? [] as $join) {
-            $ids[] = $join['datasetId'] ?? null;
-        }
+        $ids = ContentDatasetSources::blockDatasetIds($block);
         foreach ($block['fieldMapping']['searchSources'] ?? [] as $source) {
             $ids[] = $source['datasetId'] ?? null;
+        }
+        foreach ($block['fieldMapping']['searchJoins'] ?? [] as $join) {
+            $ids[] = $join['datasetId'] ?? null;
         }
 
         return array_values(array_unique(array_map('strval', array_filter($ids))));
@@ -664,9 +665,13 @@ class StudioContentController extends Controller
         }
 
         $blocks = $content->blocks ?? [];
-        $datasetIds = array_values(array_unique(array_filter(
-            array_map(fn ($b) => $b['datasetId'] ?? null, $blocks)
-        )));
+        $datasetIds = [];
+        foreach ($blocks as $b) {
+            if (is_array($b)) {
+                array_push($datasetIds, ...ContentDatasetSources::blockDatasetIds($b));
+            }
+        }
+        $datasetIds = array_values(array_unique($datasetIds));
 
         $datasets = [];
         if (! empty($datasetIds)) {

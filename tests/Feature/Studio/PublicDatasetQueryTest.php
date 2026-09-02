@@ -90,4 +90,24 @@ class PublicDatasetQueryTest extends TestCase
             ->assertStatus(200)
             ->assertJsonPath('success', true);
     }
+
+    public function test_query_public_authorizes_dataset_via_sources_array(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createDataset($user);
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $user->id,
+            'blocks' => [[
+                'datasetId' => '999999',
+                'sources' => [
+                    ['id' => '999999', 'datasetId' => '999999'],
+                    ['id' => (string) $dataset->id, 'datasetId' => (string) $dataset->id],
+                ],
+            ]],
+        ]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}/datasets/{$dataset->id}/query")
+            ->assertStatus(200)
+            ->assertJsonPath('success', true);
+    }
 }
