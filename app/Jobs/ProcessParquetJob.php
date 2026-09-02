@@ -11,9 +11,10 @@ use Illuminate\Queue\SerializesModels;
 
 class ProcessParquetJob implements ShouldQueue
 {
-    use Queueable, InteractsWithQueue, SerializesModels;
+    use InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 2;
+
     public int $timeout = 120;
 
     public function __construct(
@@ -31,7 +32,7 @@ class ProcessParquetJob implements ShouldQueue
     {
         if ($this->dataSource->status->value !== 'failed') {
             $this->dataSource->markAsFailed(
-                "L'ingestion Parquet a échoué : " . $exception->getMessage()
+                "L'ingestion Parquet a échoué : ".$exception->getMessage()
             );
             $this->dataSource->dataset?->markAsFailed();
         }

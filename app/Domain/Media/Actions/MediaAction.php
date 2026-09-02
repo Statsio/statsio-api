@@ -17,7 +17,7 @@ class MediaAction
     public function upload(UploadedFile $file, string $directory = 'media'): Media
     {
         $extension = $file->getClientOriginalExtension();
-        $filename = Str::uuid() . '.' . $extension;
+        $filename = Str::uuid().'.'.$extension;
 
         $path = $file->storeAs($directory, $filename, $this->disk());
 

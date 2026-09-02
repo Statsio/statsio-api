@@ -21,9 +21,9 @@ class MediaController extends Controller
         try {
             $file = $request->file('file');
             $directory = $request->input('directory', 'media');
-            
+
             $media = $this->mediaAction->upload($file, $directory);
-            
+
             return response()->json([
                 'success' => true,
                 'data' => [
@@ -31,13 +31,13 @@ class MediaController extends Controller
                     'path' => $media->path,
                     'type' => $media->type,
                     'url' => $this->mediaAction->getUrl($media),
-                ]
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de l\'upload du fichier',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -47,9 +47,9 @@ class MediaController extends Controller
         try {
             $files = $request->file('files');
             $directory = $request->input('directory', 'media');
-            
+
             $mediaItems = $this->mediaAction->uploadMultiple($files, $directory);
-            
+
             $data = collect($mediaItems)->map(function ($media) {
                 return [
                     'id' => $media->id,
@@ -61,13 +61,13 @@ class MediaController extends Controller
 
             return response()->json([
                 'success' => true,
-                'data' => $data
+                'data' => $data,
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de l\'upload des fichiers',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -76,16 +76,16 @@ class MediaController extends Controller
     {
         try {
             $this->mediaAction->delete($media);
-            
+
             return response()->json([
                 'success' => true,
-                'message' => 'Média supprimé avec succès'
+                'message' => 'Média supprimé avec succès',
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la suppression du média',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -101,7 +101,7 @@ class MediaController extends Controller
                 'url' => $this->mediaAction->getUrl($media),
                 'created_at' => $media->created_at,
                 'updated_at' => $media->updated_at,
-            ]
+            ],
         ]);
     }
 

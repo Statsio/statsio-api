@@ -1,8 +1,9 @@
 <?php
+
 namespace App\Http\Controllers\Api\Auth;
 
-use App\Http\Controllers\Controller;
 use App\Domain\Auth\Actions\LogoutAction;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 
 class LogoutController extends Controller
@@ -12,9 +13,7 @@ class LogoutController extends Controller
         $action->execute($request->user());
 
         return response()->json([
-            'message' => __('auth.logout_success')
+            'message' => __('auth.logout_success'),
         ]);
     }
 }
-
-?>

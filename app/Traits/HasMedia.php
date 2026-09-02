@@ -4,8 +4,8 @@ namespace App\Traits;
 
 use App\Domain\Media\Actions\MediaAction;
 use App\Models\Media;
-use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Http\UploadedFile;
 
 trait HasMedia
@@ -38,7 +38,7 @@ trait HasMedia
         return collect($mediaItems);
     }
 
-    public function getMedia(string $collection = null): Collection
+    public function getMedia(?string $collection = null): Collection
     {
         $query = $this->media();
 
@@ -49,7 +49,7 @@ trait HasMedia
         return $query->latest()->get();
     }
 
-    public function getFirstMedia(string $collection = null): ?Media
+    public function getFirstMedia(?string $collection = null): ?Media
     {
         return $this->getMedia($collection)->first();
     }
@@ -72,6 +72,7 @@ trait HasMedia
     {
         if ($this->media()->where('id', $media->id)->exists()) {
             $mediaAction = app(MediaAction::class);
+
             return $mediaAction->delete($media);
         }
 
@@ -81,10 +82,11 @@ trait HasMedia
     public function getMediaUrl(Media $media): string
     {
         $mediaAction = app(MediaAction::class);
+
         return $mediaAction->getUrl($media);
     }
 
-    public function getFirstMediaUrl(string $collection = null): ?string
+    public function getFirstMediaUrl(?string $collection = null): ?string
     {
         $media = $this->getFirstMedia($collection);
 

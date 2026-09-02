@@ -49,22 +49,22 @@ class GetChannelPopularProgramsAction
         return $rows
             ->map(function ($row) use ($programs, $ratings) {
                 $program = $programs->get($row->program_id);
-                if (!$program) {
+                if (! $program) {
                     return null;
                 }
 
                 $category = $program->categories->first();
-                $rating   = $ratings[$row->program_id] ?? null;
+                $rating = $ratings[$row->program_id] ?? null;
 
                 return [
-                    'broadcastId'   => (int) $row->latest_broadcast_id,
-                    'programId'     => (int) $row->program_id,
-                    'title'         => $program->title,
-                    'category'      => $category->name ?? $program->type,
+                    'broadcastId' => (int) $row->latest_broadcast_id,
+                    'programId' => (int) $row->program_id,
+                    'title' => $program->title,
+                    'category' => $category->name ?? $program->type,
                     'categoryColor' => $category->color ?? null,
-                    'imageUrl'      => $program->image_url,
-                    'score'         => (int) round($row->avg_viewers),
-                    'rating'        => $rating !== null ? round((float) $rating, 1) : null,
+                    'imageUrl' => $program->image_url,
+                    'score' => (int) round($row->avg_viewers),
+                    'rating' => $rating !== null ? round((float) $rating, 1) : null,
                 ];
             })
             ->filter()

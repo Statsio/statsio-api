@@ -7,7 +7,7 @@ use App\Domain\DataIngestion\Enums\DatasetStatusEnum;
 final class DatasetDTO
 {
     /**
-     * @param array<int, array{name: string, type: string, nullable: bool}> $columns
+     * @param  array<int, array{name: string, type: string, nullable: bool}>  $columns
      */
     public function __construct(
         public readonly int $id,

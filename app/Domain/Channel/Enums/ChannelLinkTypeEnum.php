@@ -29,7 +29,7 @@ enum ChannelLinkTypeEnum: string
      */
     public function getDisplayName(): string
     {
-        return match($this) {
+        return match ($this) {
             self::WEBSITE => 'Site Web',
             self::TWITTER => 'Twitter',
             self::INSTAGRAM => 'Instagram',
@@ -55,7 +55,7 @@ enum ChannelLinkTypeEnum: string
      */
     public function getIcon(): string
     {
-        return match($this) {
+        return match ($this) {
             self::WEBSITE => 'globe',
             self::TWITTER => 'twitter',
             self::INSTAGRAM => 'instagram',
@@ -81,7 +81,7 @@ enum ChannelLinkTypeEnum: string
      */
     public function getUrlPattern(): ?string
     {
-        return match($this) {
+        return match ($this) {
             self::EMAIL => '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
             self::PHONE => '^[\+]?[1-9][\d]{0,15}$',
             self::WEBSITE, self::TWITTER, self::INSTAGRAM, self::YOUTUBE, self::TIKTOK,
@@ -96,7 +96,7 @@ enum ChannelLinkTypeEnum: string
      */
     public function requiresHttps(): bool
     {
-        return match($this) {
+        return match ($this) {
             self::EMAIL, self::PHONE, self::OTHER => false,
             default => true,
         };

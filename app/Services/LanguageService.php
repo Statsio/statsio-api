@@ -43,7 +43,7 @@ class LanguageService
      */
     public function setLanguage(string $locale): bool
     {
-        if (!in_array($locale, self::SUPPORTED_LANGUAGES)) {
+        if (! in_array($locale, self::SUPPORTED_LANGUAGES)) {
             return false;
         }
 
@@ -92,7 +92,7 @@ class LanguageService
     {
         $acceptLanguage = request()->header('Accept-Language');
 
-        if (!$acceptLanguage) {
+        if (! $acceptLanguage) {
             return null;
         }
 

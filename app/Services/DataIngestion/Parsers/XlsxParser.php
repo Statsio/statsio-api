@@ -13,10 +13,10 @@ class XlsxParser implements FileParserInterface
     /**
      * @param  $sheetName  Feuille à utiliser (nom exact) — feuille active par défaut si absente/inconnue.
      * @param  $headerRow  Numéro de ligne (1-indexé, dans la feuille sélectionnée) contenant les
-     *                     en-têtes de colonnes — ligne 1 par défaut. Utile pour les exports avec
-     *                     titre/lignes de garde avant le vrai tableau (rapports institutionnels).
+     *                    en-têtes de colonnes — ligne 1 par défaut. Utile pour les exports avec
+     *                    titre/lignes de garde avant le vrai tableau (rapports institutionnels).
      * @param  $excludedRows  Numéros de ligne (1-indexés, dans la feuille sélectionnée) à ignorer —
-     *                        sous la ligne d'en-têtes (notes de bas de tableau, lignes d'unités...).
+     *                       sous la ligne d'en-têtes (notes de bas de tableau, lignes d'unités...).
      */
     public function parse(
         string $absolutePath,

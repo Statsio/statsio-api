@@ -13,9 +13,9 @@ class StoreBroadcastsFromEpgAction
      * Parse JSON EPG entries for a specific date and upsert programs + broadcasts into DB.
      *
      * @param  array<array{title: string, desc: string, start_date: string}>  $entries
-     *         Entries from epg.pw JSON API, spanning ~2-3 days.
+     *                                                                                  Entries from epg.pw JSON API, spanning ~2-3 days.
      * @param  string  $channelSlug  Internal channel slug (e.g. 'tf1')
-     * @param  string  $date         Y-m-d in Europe/Paris timezone
+     * @param  string  $date  Y-m-d in Europe/Paris timezone
      * @return int Number of broadcasts stored
      */
     public function execute(array $entries, string $channelSlug, string $date): int
@@ -27,9 +27,9 @@ class StoreBroadcastsFromEpgAction
         $tz = new DateTimeZone('Europe/Paris');
 
         // Sort chronologically (API usually returns sorted, but ensure it)
-        usort($entries, fn($a, $b) => strcmp($a['start_date'], $b['start_date']));
+        usort($entries, fn ($a, $b) => strcmp($a['start_date'], $b['start_date']));
 
-        $n     = count($entries);
+        $n = count($entries);
         $count = 0;
 
         for ($i = 0; $i < $n; $i++) {
@@ -50,28 +50,28 @@ class StoreBroadcastsFromEpgAction
             }
 
             $title = trim($entries[$i]['title'] ?: 'Programme');
-            $desc  = trim($entries[$i]['desc'] ?? '') ?: null;
+            $desc = trim($entries[$i]['desc'] ?? '') ?: null;
 
             $program = TvProgram::firstOrCreate(
                 ['title' => $title, 'tv_channel_id' => $channelSlug],
                 ['type' => null, 'description' => $desc],
             );
 
-            if (!$program->wasRecentlyCreated && $program->description === null && $desc !== null) {
+            if (! $program->wasRecentlyCreated && $program->description === null && $desc !== null) {
                 $program->update(['description' => $desc]);
             }
 
             $startUtc = (clone $start)->setTimezone(new DateTimeZone('UTC'));
-            $endUtc   = (clone $end)->setTimezone(new DateTimeZone('UTC'));
+            $endUtc = (clone $end)->setTimezone(new DateTimeZone('UTC'));
 
             TvBroadcast::updateOrCreate(
                 [
                     'tv_channel_id' => $channelSlug,
-                    'start_at'      => $startUtc->format('Y-m-d H:i:sO'),
+                    'start_at' => $startUtc->format('Y-m-d H:i:sO'),
                 ],
                 [
                     'program_id' => $program->id,
-                    'end_at'     => $endUtc->format('Y-m-d H:i:sO'),
+                    'end_at' => $endUtc->format('Y-m-d H:i:sO'),
                 ],
             );
 

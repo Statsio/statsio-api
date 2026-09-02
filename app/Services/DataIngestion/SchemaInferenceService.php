@@ -8,6 +8,7 @@ use App\Domain\DataIngestion\Enums\ColumnTypeEnum;
 class SchemaInferenceService
 {
     private const SAMPLE_SIZE = 200;
+
     private const SAMPLE_VALUES_COUNT = 5;
 
     private const DATE_PATTERNS = [
@@ -82,10 +83,11 @@ class SchemaInferenceService
     private function allMatch(array $values, callable $predicate): bool
     {
         foreach ($values as $value) {
-            if (!$predicate($value)) {
+            if (! $predicate($value)) {
                 return false;
             }
         }
+
         return true;
     }
 
@@ -97,6 +99,7 @@ class SchemaInferenceService
     private function isFloat(string $value): bool
     {
         $normalized = str_replace(',', '.', trim($value));
+
         return is_numeric($normalized) && str_contains($normalized, '.');
     }
 
@@ -113,6 +116,7 @@ class SchemaInferenceService
                 return true;
             }
         }
+
         return false;
     }
 
@@ -124,12 +128,14 @@ class SchemaInferenceService
                 return true;
             }
         }
+
         return false;
     }
 
     private function collectSamples(array $values): array
     {
         $unique = array_unique(array_values($values));
+
         return array_slice($unique, 0, self::SAMPLE_VALUES_COUNT);
     }
 }

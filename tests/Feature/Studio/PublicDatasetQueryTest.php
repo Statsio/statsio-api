@@ -131,4 +131,27 @@ class PublicDatasetQueryTest extends TestCase
             ->assertStatus(200)
             ->assertJsonPath('success', true);
     }
+
+    public function test_query_public_accepts_multi_word_search_for_a_migrated_search_block(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createDataset($user);
+        // Bloc recherche migré sur le modèle graphe : source dans `sources`,
+        // colonnes recherchées dans `fieldMapping.searchColumns`.
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $user->id,
+            'blocks' => [[
+                'type' => 'search',
+                'datasetId' => (string) $dataset->id,
+                'sources' => [['id' => (string) $dataset->id, 'datasetId' => (string) $dataset->id]],
+                'fieldMapping' => ['searchColumns' => ['prenom', 'nom']],
+            ]],
+        ]);
+
+        $this->getJson(
+            "/api/studio/content/public/{$content->slug}/datasets/{$dataset->id}/query"
+            .'?search_q='.rawurlencode('jean dupond')
+            .'&search_columns[0]=prenom&search_columns[1]=nom'
+        )->assertStatus(200)->assertJsonPath('success', true);
+    }
 }

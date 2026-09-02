@@ -15,7 +15,7 @@ class TvBroadcastReview extends Model
     protected $fillable = ['programme_id', 'broadcast_id', 'user_id', 'rating', 'comment'];
 
     protected $casts = [
-        'rating'     => 'integer',
+        'rating' => 'integer',
         'created_at' => 'datetime',
     ];
 

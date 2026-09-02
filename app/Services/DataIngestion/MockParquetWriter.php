@@ -19,7 +19,7 @@ class MockParquetWriter implements ParquetWriterInterface
     {
         $directory = dirname($destinationPath);
 
-        if (!is_dir($directory) && !mkdir($directory, 0755, true)) {
+        if (! is_dir($directory) && ! mkdir($directory, 0755, true)) {
             throw new ParquetConversionException("Impossible de créer le répertoire : {$directory}");
         }
 

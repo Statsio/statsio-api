@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\StudioContents\Support;
 
+use App\Domain\Content\Enums\ContentCoverageEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Models\Channel\Channel;
 use Filament\Forms\Components\Component;
@@ -40,15 +41,6 @@ class StudioContentSchema
                     ])
                     ->default('draft')
                     ->required(),
-                Select::make('visibility')
-                    ->label('Visibilité')
-                    ->options([
-                        'public' => 'Public',
-                        'protege' => 'Protégé',
-                        'private' => 'Privé',
-                    ])
-                    ->default('private')
-                    ->required(),
 
                 TagsInput::make('categories')
                     ->label('Catégories')
@@ -81,13 +73,9 @@ class StudioContentSchema
         }
 
         return [
-            Select::make('coverage_type')
+            Select::make('coverage')
                 ->label('Couverture géographique')
-                ->options([
-                    'monde' => 'Monde',
-                    'pays' => 'Pays',
-                    'ville' => 'Ville',
-                ]),
+                ->options(ContentCoverageEnum::options()),
         ];
     }
 

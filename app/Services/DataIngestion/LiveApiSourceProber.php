@@ -2,6 +2,7 @@
 
 namespace App\Services\DataIngestion;
 
+use App\Domain\DataIngestion\DTOs\ParsedFileDTO;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Services\DataIngestion\LiveQuery\FilterCapabilityProbe;
 use App\Services\DataIngestion\LiveQuery\SourceCapabilityEvaluator;
@@ -40,7 +41,7 @@ class LiveApiSourceProber
      *                                                                                    ApiStructureDetector::detect() juste avant cet appel — réutilisée telle quelle si la requête de
      *                                                                                    première page serait de toute façon identique (aucun paramètre de pagination à ajouter), pour
      *                                                                                    économiser un aller-retour HTTP complet sur le budget de temps serré du endpoint de détection.
-     * @return array{schema: array, parsed: \App\Domain\DataIngestion\DTOs\ParsedFileDTO, query_mapping: array, capabilities: array, row_count_hint: mixed, sample_body: array, response_time_ms: int}
+     * @return array{schema: array, parsed: ParsedFileDTO, query_mapping: array, capabilities: array, row_count_hint: mixed, sample_body: array, response_time_ms: int}
      *
      * @throws ApiSourceFetchException
      */

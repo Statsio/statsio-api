@@ -9,6 +9,7 @@ use Illuminate\Console\Command;
 class LinkOrphanChannels extends Command
 {
     protected $signature = 'channels:link-orphans {--user= : User ID to assign as owner (defaults to first user)}';
+
     protected $description = 'Link channels that have no owner in channel_users to a user';
 
     public function handle(): int
@@ -18,22 +19,25 @@ class LinkOrphanChannels extends Command
 
         if ($orphans->isEmpty()) {
             $this->info('No orphan channels found.');
+
             return 0;
         }
 
         $userId = $this->option('user');
 
-        if (!$userId) {
+        if (! $userId) {
             $user = User::first();
-            if (!$user) {
+            if (! $user) {
                 $this->error('No users found in database.');
+
                 return 1;
             }
             $userId = $user->id;
         } else {
             $user = User::find($userId);
-            if (!$user) {
+            if (! $user) {
                 $this->error("User #{$userId} not found.");
+
                 return 1;
             }
         }
@@ -61,6 +65,7 @@ class LinkOrphanChannels extends Command
         }
 
         $this->info('Done.');
+
         return 0;
     }
 }

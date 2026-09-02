@@ -2,6 +2,8 @@
 
 namespace App\Services\DataIngestion\LiveQuery;
 
+use App\Domain\DataIngestion\Enums\ColumnTypeEnum;
+
 /**
  * Évalue, à partir de tout ce qui a déjà été détecté pendant le sondage d'une
  * source API (schéma enrichi de rôles sémantiques, filtres détectés,
@@ -27,7 +29,7 @@ class SourceCapabilityEvaluator
     private const ALWAYS_INCOMPATIBLE_CHART_TYPES = ['pivot', 'jointure'];
 
     /**
-     * @param  array<string, array{type: \App\Domain\DataIngestion\Enums\ColumnTypeEnum, semantic_role: string}>  $schema
+     * @param  array<string, array{type: ColumnTypeEnum, semantic_role: string}>  $schema
      * @param  array<string, mixed>  $queryMapping
      * @param  array<string, mixed>  $pagination
      * @return array{
