@@ -46,10 +46,28 @@ class NumericValueParserTest extends TestCase
     public function test_returns_null_for_unparseable_string(): void
     {
         $this->assertNull(NumericValueParser::parse('not a number'));
+        $this->assertNull(NumericValueParser::parse('N/A'));
+        $this->assertNull(NumericValueParser::parse('2020-01-01'));
     }
 
     public function test_returns_null_when_multiple_decimal_points(): void
     {
         $this->assertNull(NumericValueParser::parse('1.2.3'));
+    }
+
+    public function test_strips_units_and_symbols(): void
+    {
+        $this->assertSame(90.0, NumericValueParser::parse('90%'));
+        $this->assertSame(47.8, NumericValueParser::parse('  47,8 % '));
+        $this->assertSame(1234.0, NumericValueParser::parse('1 234'));
+        $this->assertSame(1234.56, NumericValueParser::parse('1 234,56 €'));
+        $this->assertSame(-3.5, NumericValueParser::parse('-3,5'));
+    }
+
+    public function test_disambiguates_decimal_comma_from_thousands(): void
+    {
+        $this->assertSame(12.5, NumericValueParser::parse('12,5'));
+        $this->assertSame(1234.0, NumericValueParser::parse('1,234'));
+        $this->assertSame(1234.56, NumericValueParser::parse('1,234.56'));
     }
 }

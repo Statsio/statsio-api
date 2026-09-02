@@ -23,6 +23,40 @@ class StudioBlockCatalog
     private const AGGREGATES = ['sum', 'avg', 'count', 'min', 'max'];
 
     /**
+     * Champ commun aux blocs de données : colonnes calculées (combinaisons
+     * arithmétiques par ligne, avant agrégation), référencées `"calc:<id>"`.
+     *
+     * @return array<string,mixed>
+     */
+    private function calcColumnsField(): array
+    {
+        return [
+            'calcColumns' => [
+                'role' => 'any',
+                'list' => true,
+                'required' => false,
+                'description' => 'Colonnes calculées : [{ id, label, operands: [{ column | value, op?: +|-|*|/ }] }]. '
+                    .'Réf `"calc:<id>"` utilisable comme xAxis / yAxes / series / part de camembert / colonne de filtre. '
+                    .'Ex. calc `t` = Admis + Présents, puis yAxes:["calc:t"] + aggregate:"avg".',
+            ],
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function perColumnAggregatesField(): array
+    {
+        return [
+            'aggregates' => [
+                'role' => 'any',
+                'list' => true,
+                'required' => false,
+                'description' => 'Fonction d\'agrégat PAR colonne de valeur : [{ column, fn }] (fn parmi sum|avg|count|min|max). '
+                    .'Prioritaire sur `aggregate` (fonction unique).',
+            ],
+        ];
+    }
+
+    /**
      * @return array<string,array<string,mixed>>
      */
     public function all(): array
@@ -43,11 +77,13 @@ class StudioBlockCatalog
                 'requiresDataset' => true,
                 'fieldMapping' => [
                     'xAxis' => ['role' => 'dimension', 'required' => true, 'description' => 'Colonne catégorielle (abscisse).'],
-                    'yAxes' => ['role' => 'measure', 'list' => true, 'required' => true, 'description' => 'Une ou plusieurs colonnes numériques.'],
+                    'yAxes' => ['role' => 'measure', 'list' => true, 'required' => true, 'description' => 'Une ou plusieurs colonnes numériques (séries).'],
                     'series' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne de regroupement en séries.'],
                     'aggregate' => ['enum' => self::AGGREGATES, 'required' => false, 'default' => 'sum'],
+                    ...$this->perColumnAggregatesField(),
+                    ...$this->calcColumnsField(),
                 ],
-                'config' => ['stacked', 'showLegend', 'colors', 'seriesLimit', 'logScale', 'orientation', 'barStyle', 'showValueLabels', 'trendLabel', 'trendDirection', 'format', 'prefix', 'suffix', 'markRules', 'referenceExpression', 'referenceLabel'],
+                'config' => ['stacked', 'showLegend', 'colors', 'seriesLimit', 'logScale', 'orientation', 'barStyle', 'showValueLabels', 'sortColumn', 'sortDirection', 'trendLabel', 'trendDirection', 'format', 'prefix', 'suffix', 'markRules', 'referenceExpression', 'referenceLabel'],
             ],
             'line' => [
                 'category' => 'charts',
@@ -57,24 +93,36 @@ class StudioBlockCatalog
                 'requiresDataset' => true,
                 'fieldMapping' => [
                     'xAxis' => ['role' => 'dimension', 'required' => true, 'description' => 'Colonne d\'axe (souvent temporelle).'],
-                    'yAxes' => ['role' => 'measure', 'list' => true, 'required' => true, 'description' => 'Une ou plusieurs colonnes numériques.'],
+                    'yAxes' => ['role' => 'measure', 'list' => true, 'required' => true, 'description' => 'Une ou plusieurs colonnes numériques (séries).'],
                     'series' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne de regroupement en séries.'],
                     'aggregate' => ['enum' => self::AGGREGATES, 'required' => false, 'default' => 'sum'],
+                    ...$this->perColumnAggregatesField(),
+                    ...$this->calcColumnsField(),
                 ],
-                'config' => ['smooth', 'showLegend', 'colors', 'seriesLimit', 'logScale', 'showValueLabels', 'trendLabel', 'trendDirection', 'trendExpression', 'lineFill', 'referenceExpression', 'referenceLabel', 'format', 'prefix', 'suffix'],
+                'config' => ['smooth', 'showLegend', 'colors', 'seriesLimit', 'logScale', 'showValueLabels', 'sortColumn', 'sortDirection', 'trendLabel', 'trendDirection', 'trendExpression', 'lineFill', 'referenceExpression', 'referenceLabel', 'format', 'prefix', 'suffix'],
             ],
             'pie' => [
                 'category' => 'charts',
                 'label' => 'Camembert',
-                'description' => 'Répartition proportionnelle d\'une mesure par catégorie.',
+                'description' => 'Répartition proportionnelle. DEUX modes (config.pieMode) : '
+                    .'"column" (défaut) = une part par valeur distincte de fieldMapping.label, mesurée par fieldMapping.value ; '
+                    .'"segments" = parts calculées explicites via fieldMapping.pieSegments.',
                 'contentTypes' => self::ALL_TYPES,
                 'requiresDataset' => true,
                 'fieldMapping' => [
-                    'label' => ['role' => 'dimension', 'required' => true, 'description' => 'Colonne des parts.'],
-                    'value' => ['role' => 'measure', 'required' => true, 'description' => 'Colonne numérique agrégée.'],
+                    'label' => ['role' => 'dimension', 'required' => false, 'description' => 'Mode "column" : colonne des parts.'],
+                    'value' => ['role' => 'measure', 'required' => false, 'description' => 'Mode "column" : colonne numérique agrégée.'],
                     'aggregate' => ['enum' => self::AGGREGATES, 'required' => false, 'default' => 'sum'],
+                    'pieSegments' => [
+                        'role' => 'any',
+                        'list' => true,
+                        'required' => false,
+                        'description' => 'Mode "segments" : [{ fn, column, label? }]. fn parmi sum|avg|count|min|max|remainder '
+                            .'("remainder" = SUM(column) − somme des autres parts, ex. « Non admis »). column accepte une réf "calc:<id>".',
+                    ],
+                    ...$this->calcColumnsField(),
                 ],
-                'config' => ['showLegend', 'colors', 'format', 'prefix', 'suffix'],
+                'config' => ['pieMode', 'showLegend', 'colors', 'format', 'prefix', 'suffix'],
             ],
 
             // ─── Données ────────────────────────────────────────────────────
@@ -100,11 +148,21 @@ class StudioBlockCatalog
                 'contentTypes' => self::ALL_TYPES,
                 'requiresDataset' => true,
                 'fieldMapping' => [
-                    'valueColumn' => ['role' => 'measure', 'required' => true, 'description' => 'Colonne numérique de la valeur principale.'],
+                    'kpiValue' => [
+                        'role' => 'any',
+                        'list' => true,
+                        'required' => false,
+                        'description' => 'Valeur = combinaison d\'agrégats : [{ fn, column, op? }] (fn parmi '
+                            .'sum|avg|count|min|max, op parmi +|-|*|/ relie au terme précédent). '
+                            .'Ex. [{fn:"max",column:"prix"},{op:"-",fn:"min",column:"prix"}] = MAX(prix) − MIN(prix). '
+                            .'column accepte "calc:<id>". Prioritaire sur valueColumn / config.valueExpression.',
+                    ],
+                    'valueColumn' => ['role' => 'measure', 'required' => false, 'description' => 'Legacy : colonne unique (préférer kpiValue).'],
                     'aggregate' => ['enum' => self::AGGREGATES, 'required' => false, 'default' => 'sum'],
                     'comparisonColumn' => ['role' => 'measure', 'required' => false, 'description' => 'Colonne de la valeur de comparaison.'],
+                    ...$this->calcColumnsField(),
                 ],
-                'config' => ['format', 'prefix', 'suffix', 'comparisonFormat', 'trendLabel', 'trendDirection', 'valueExpression'],
+                'config' => ['format', 'prefix', 'suffix', 'comparisonFormat', 'comparisonLabel', 'trendLabel', 'trendDirection', 'valueExpression'],
                 'supportsComparisonFilters' => true,
             ],
             'record' => [
