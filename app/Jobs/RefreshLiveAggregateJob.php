@@ -19,7 +19,7 @@ use Illuminate\Queue\SerializesModels;
  */
 class RefreshLiveAggregateJob implements ShouldQueue
 {
-    use Queueable, InteractsWithQueue, SerializesModels;
+    use InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 1; // pas de retry : la valeur déjà en cache reste valable, on retentera au prochain appel utilisateur
 

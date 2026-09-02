@@ -287,14 +287,15 @@ class ChannelCatalogAction
         $item = $this->formatItem($channel, $aggregates);
 
         $posts = StudioContent::query()
+            ->with('publishedVersion')
             ->where('channel_id', $channel->id)
             ->where('published_as', 'channel')
             ->where('status', 'published')
             ->orderByDesc('updated_at')
             ->limit(3)
-            ->get(['title', 'type', 'updated_at'])
-            ->map(fn ($c) => [
-                'title' => $c->title,
+            ->get()
+            ->map(fn (StudioContent $c) => [
+                'title' => $c->publishedVersion?->title ?? $c->title,
                 'type' => $c->type,
                 'updated_at' => $c->updated_at?->toIso8601String(),
             ])

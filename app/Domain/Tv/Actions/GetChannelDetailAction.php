@@ -38,15 +38,15 @@ class GetChannelDetailAction
             && TvChannelFollow::where('channel_id', $slug)->where('user_id', $userId)->exists();
 
         return [
-            'slug'             => $channel->slug,
-            'displayName'      => $channel->display_name,
-            'number'           => $channel->number,
-            'logoUrl'          => $channel->logo_url,
-            'description'      => $channel->description,
-            'avgScore'         => $avgViewers !== null ? (int) round($avgViewers) : null,
+            'slug' => $channel->slug,
+            'displayName' => $channel->display_name,
+            'number' => $channel->number,
+            'logoUrl' => $channel->logo_url,
+            'description' => $channel->description,
+            'avgScore' => $avgViewers !== null ? (int) round($avgViewers) : null,
             'weekProgramCount' => $weekProgramCount,
-            'followersCount'   => $followersCount,
-            'isFollowing'      => $isFollowing,
+            'followersCount' => $followersCount,
+            'isFollowing' => $isFollowing,
         ];
     }
 }

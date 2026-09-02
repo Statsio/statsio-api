@@ -16,9 +16,10 @@ use Illuminate\Queue\SerializesModels;
  */
 class RefreshApiDataSourceJob implements ShouldQueue
 {
-    use Queueable, InteractsWithQueue, SerializesModels;
+    use InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 1;
+
     public int $timeout = 60;
 
     public function __construct(

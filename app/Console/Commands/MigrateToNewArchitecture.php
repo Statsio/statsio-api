@@ -46,6 +46,7 @@ class MigrateToNewArchitecture extends Command
             foreach ($sourcesResult['errors'] as $error) {
                 $this->error("  - {$error}");
             }
+
             return Command::FAILURE;
         }
 
@@ -62,6 +63,7 @@ class MigrateToNewArchitecture extends Command
             foreach ($blocksResult['errors'] as $error) {
                 $this->error("  - {$error}");
             }
+
             return Command::FAILURE;
         }
 

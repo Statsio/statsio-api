@@ -10,6 +10,7 @@ use App\Jobs\RefreshLiveAggregateJob;
 use App\Models\DataIngestion\Dataset;
 use App\Services\DataIngestion\NumericValueParser;
 use App\Services\DataIngestion\PaginatedApiFetcher;
+use App\Support\TokenizedSearch;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
@@ -22,6 +23,8 @@ use Illuminate\Support\Str;
  */
 class LiveDatasetQueryService
 {
+    use TokenizedSearch;
+
     public function __construct(
         private readonly LiveQueryMappingResolver $resolver,
         private readonly LiveApiQueryClient $client,
@@ -336,6 +339,13 @@ class LiveDatasetQueryService
             return [$this->collectColumns([], $dataset), [], 0];
         }
 
+        // Recherche multi-mots : l'API upstream ne filtre que sur le terme complet
+        // (pré-filtre). On sur-collecte puis on post-filtre côté serveur pour ne
+        // garder que les lignes où CHAQUE mot apparaît dans l'une des colonnes.
+        $tokens = $this->searchTokens($searchQ);
+        $collectCap = count($tokens) > 1 ? $limit * 3 : $limit;
+        $filterColumns = array_values(array_filter(array_keys($searchColumnParams), fn ($c) => $c !== '*'));
+
         if (isset($searchColumnParams['*'])) {
             // Use the global search param
             $globalSearchParam = $searchColumnParams['*'];
@@ -363,10 +373,21 @@ class LiveDatasetQueryService
                     }
                     $seen[$key] = true;
                     $merged[] = $row;
-                    if (count($merged) >= $limit) {
+                    if (count($merged) >= $collectCap) {
                         break 2;
                     }
                 }
+            }
+        }
+
+        if (count($tokens) > 1 && $filterColumns !== []) {
+            $cols = $filterColumns ?: array_keys($merged[0] ?? []);
+            $merged = array_values(array_filter(
+                $merged,
+                fn ($row) => $this->rowMatchesAllTokens($row, $searchQ, $cols),
+            ));
+            if (count($merged) > $limit) {
+                $merged = array_slice($merged, 0, $limit);
             }
         }
 

@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Domain\Auth\Actions;
 
 use App\Models\Auth\RefreshToken;
@@ -10,7 +11,7 @@ class LogoutAction
     {
         $currentAccessToken = $user->currentAccessToken();
 
-        if (!$currentAccessToken) {
+        if (! $currentAccessToken) {
             return;
         }
 

@@ -63,6 +63,17 @@ return [
             // de lignes — voir LiveDatasetQueryService::computeAggregate().
             'aggregate_cache_ttl_seconds' => (int) env('LIVE_QUERY_AGGREGATE_CACHE_TTL_SECONDS', 300),
         ],
+
+        // Exploration du catalogue data.gouv.fr depuis le wizard « Ajouter une source »
+        // (DataGouvCatalogClient) : recherche de jeux de données + résolution des
+        // ressources requêtables via l'API tabulaire.
+        'data_gouv' => [
+            'catalog_base_url' => env('DATA_GOUV_CATALOG_BASE_URL', 'https://www.data.gouv.fr/api/1'),
+            'tabular_api_base_url' => env('DATA_GOUV_TABULAR_API_BASE_URL', 'https://tabular-api.data.gouv.fr/api'),
+            'site_base_url' => env('DATA_GOUV_SITE_BASE_URL', 'https://www.data.gouv.fr'),
+            'timeout_seconds' => (int) env('DATA_GOUV_TIMEOUT_SECONDS', 8),
+            'cache_ttl_seconds' => (int) env('DATA_GOUV_CACHE_TTL_SECONDS', 600),
+        ],
     ],
 
     'media' => [

@@ -4,8 +4,8 @@ namespace App\Models\Tv;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class TvBroadcast extends Model
 {
@@ -13,7 +13,7 @@ class TvBroadcast extends Model
 
     protected $casts = [
         'start_at' => 'datetime',
-        'end_at'   => 'datetime',
+        'end_at' => 'datetime',
     ];
 
     public function program(): BelongsTo

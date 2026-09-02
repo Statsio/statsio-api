@@ -15,7 +15,7 @@ class UploadMediaRequest extends FormRequest
     {
         return [
             'file' => 'required|file|max:10240', // max 10MB
-            'directory' => 'sometimes|string|max:255'
+            'directory' => 'sometimes|string|max:255',
         ];
     }
 

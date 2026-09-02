@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 class FetchEpgAction
 {
     private const API_URL = 'https://epg.pw/api/epg.json';
+
     private const CACHE_TTL = 21600; // 6h
 
     /**
@@ -21,7 +22,7 @@ class FetchEpgAction
         return Cache::remember("tv.epg.channel.{$epgChannelId}", self::CACHE_TTL, function () use ($epgChannelId) {
             $response = Http::timeout(15)->get(self::API_URL, ['channel_id' => $epgChannelId]);
 
-            if (!$response->ok()) {
+            if (! $response->ok()) {
                 return [];
             }
 

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api\Channel;
 
 use App\Http\Controllers\Controller;
 use App\Models\Channel\ChannelProfile;
-use Illuminate\Http\Request;
 
 class ChannelValidationController extends Controller
 {
@@ -16,8 +15,8 @@ class ChannelValidationController extends Controller
         $exists = ChannelProfile::where('handle', $handle)->exists();
 
         return response()->json([
-            'available' => !$exists,
-            'handle' => $handle
+            'available' => ! $exists,
+            'handle' => $handle,
         ]);
     }
 }

@@ -142,6 +142,21 @@ class StudioContentControllerTest extends TestCase
         $this->assertDatabaseHas('studio_contents', ['id' => $content->id, 'title' => 'Titre mis à jour']);
     }
 
+    public function test_update_persists_card_block_id_and_returns_it(): void
+    {
+        $content = StudioContentFactory::new()->create(['user_id' => $this->user->id]);
+
+        $this->withToken($this->token)->patchJson("/api/studio/content/{$content->slug}", [
+            'card_block_id' => 'chart-42',
+        ])->assertStatus(200)->assertJsonPath('data.card_block_id', 'chart-42');
+
+        $this->assertDatabaseHas('studio_contents', ['id' => $content->id, 'card_block_id' => 'chart-42']);
+
+        $this->withToken($this->token)->patchJson("/api/studio/content/{$content->slug}", [
+            'card_block_id' => null,
+        ])->assertStatus(200)->assertJsonPath('data.card_block_id', null);
+    }
+
     public function test_authenticated_user_can_change_own_content_slug(): void
     {
         $content = StudioContentFactory::new()->create(['user_id' => $this->user->id]);

@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers\Api\StatsData;
 
+use App\Domain\DataIngestion\Enums\ColumnTypeEnum;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DataIngestion\DetectApiStructureRequest;
 use App\Services\DataIngestion\ApiStructureDetector;
 use App\Services\DataIngestion\HttpProbeService;
 use App\Services\DataIngestion\LiveApiSourceProber;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -57,7 +59,7 @@ class StatsDataSourceController extends Controller
      * capacités analytiques — voir ApiStructureDetector/LiveApiSourceProber.
      * Purement calculatoire, aucune écriture DB.
      */
-    public function detectStructure(DetectApiStructureRequest $request): \Illuminate\Http\JsonResponse
+    public function detectStructure(DetectApiStructureRequest $request): JsonResponse
     {
         $url = $request->validated('url');
         $headers = $request->validated('headers') ?? [];
@@ -136,7 +138,7 @@ class StatsDataSourceController extends Controller
     }
 
     /**
-     * @param  array<string, array{type: \App\Domain\DataIngestion\Enums\ColumnTypeEnum, nullable: bool, sample_values: array, semantic_role?: string}>  $schema
+     * @param  array<string, array{type: ColumnTypeEnum, nullable: bool, sample_values: array, semantic_role?: string}>  $schema
      */
     private function formatSchema(array $schema): array
     {

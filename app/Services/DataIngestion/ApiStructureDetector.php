@@ -95,6 +95,7 @@ class ApiStructureDetector
                 $startedAt = microtime(true);
                 try {
                     $page = $this->httpProbe->fetchPage($url, $method, $headers, $query, $timeout);
+
                     return [$method, $page, $this->elapsedMs($startedAt)];
                 } catch (\Throwable) {
                     // Continue to next query/method if this one fails

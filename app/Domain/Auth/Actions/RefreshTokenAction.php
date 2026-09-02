@@ -20,12 +20,12 @@ class RefreshTokenAction
             ->first();
 
         if (
-            !$refreshToken
+            ! $refreshToken
             || $refreshToken->revoked_at
             || $refreshToken->expires_at->isPast()
-            || !$refreshToken->user
+            || ! $refreshToken->user
         ) {
-            throw new InvalidRefreshTokenException();
+            throw new InvalidRefreshTokenException;
         }
 
         $refreshToken->update([

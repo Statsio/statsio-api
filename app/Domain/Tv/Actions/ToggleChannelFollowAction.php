@@ -25,7 +25,7 @@ class ToggleChannelFollowAction
         }
 
         return [
-            'isFollowing'    => $isFollowing,
+            'isFollowing' => $isFollowing,
             'followersCount' => TvChannelFollow::where('channel_id', $slug)->count(),
         ];
     }

@@ -1,9 +1,10 @@
 <?php
+
 namespace App\Http\Controllers\Api\Auth;
 
-use App\Http\Controllers\Controller;
 use App\Domain\Auth\Actions\LoginAction;
 use App\Domain\Auth\Exceptions\InvalidCredentialsException;
+use App\Http\Controllers\Controller;
 use App\Rules\TurnstileToken;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -30,8 +31,8 @@ class LoginController extends Controller
                 'success' => false,
                 'message' => __('errors.validation_failed'),
                 'data' => [
-                    'errors' => $validator->errors()
-                ]
+                    'errors' => $validator->errors(),
+                ],
             ], 422);
         }
 
@@ -39,6 +40,7 @@ class LoginController extends Controller
 
         try {
             $token = $action->execute($data['email'], $data['password']);
+
             return response()->json([
                 'success' => true,
                 'message' => __('auth.login_success'),
@@ -48,7 +50,7 @@ class LoginController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-                'data' => null
+                'data' => null,
             ], 401);
         }
     }

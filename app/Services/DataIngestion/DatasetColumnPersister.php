@@ -2,6 +2,7 @@
 
 namespace App\Services\DataIngestion;
 
+use App\Domain\DataIngestion\Enums\ColumnTypeEnum;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetColumn;
 
@@ -15,7 +16,7 @@ use App\Models\DataIngestion\DatasetColumn;
 class DatasetColumnPersister
 {
     /**
-     * @param  array<string, array{type: \App\Domain\DataIngestion\Enums\ColumnTypeEnum, nullable: bool, sample_values: array}>  $schema
+     * @param  array<string, array{type: ColumnTypeEnum, nullable: bool, sample_values: array}>  $schema
      * @param  string[]  $headers
      */
     public function persist(Dataset $dataset, array $schema, array $headers): void

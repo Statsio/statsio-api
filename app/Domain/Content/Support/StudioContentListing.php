@@ -32,6 +32,9 @@ class StudioContentListing
         ?array $survey = null,
         bool $hasParticipated = false,
     ): array {
+        // Les cartes de listing reflètent la version PUBLIÉE, pas le brouillon en cours.
+        $content->applyPublishedPayload();
+
         $blocks = StudioContentBlocks::all($content);
         $categories = array_values(array_filter(
             is_array($content->categories) ? $content->categories : [],
@@ -124,7 +127,7 @@ class StudioContentListing
     /** Relations à charger avant make(). */
     public static function eagerLoads(): array
     {
-        return ['user.profile', 'channel.profile', 'media'];
+        return ['user.profile', 'channel.profile', 'media', 'publishedVersion'];
     }
 
     private static function publisherName(StudioContent $content, bool $isChannel): string

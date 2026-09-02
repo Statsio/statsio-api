@@ -3,6 +3,7 @@
 namespace App\Services\DataIngestion\Contracts;
 
 use App\Domain\DataIngestion\DTOs\ParsedFileDTO;
+use App\Domain\DataIngestion\Exceptions\FileParsingException;
 
 interface FileParserInterface
 {
@@ -15,7 +16,7 @@ interface FileParserInterface
      *
      * @param  ?int[]  $excludedRows
      *
-     * @throws \App\Domain\DataIngestion\Exceptions\FileParsingException
+     * @throws FileParsingException
      */
     public function parse(
         string $absolutePath,

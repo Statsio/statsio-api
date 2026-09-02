@@ -2,9 +2,11 @@
 
 namespace App\Services\DataIngestion;
 
-use App\Models\DataIngestion\DataSource;
+use App\Domain\DataIngestion\Exceptions\FileParsingException;
+use App\Domain\DataIngestion\Exceptions\ParquetConversionException;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetVersion;
+use App\Models\DataIngestion\DataSource;
 use App\Services\DataIngestion\Contracts\ParquetWriterInterface;
 use App\Services\DataIngestion\Parsers\JsonLinesParser;
 use Illuminate\Support\Facades\DB;
@@ -28,8 +30,8 @@ class DataIngestionOrchestrator
      * Exécute le pipeline complet pour une DataSource donnée :
      * parse → inférence schema → écriture Parquet locale → upload R2 → persistance en base.
      *
-     * @throws \App\Domain\DataIngestion\Exceptions\FileParsingException
-     * @throws \App\Domain\DataIngestion\Exceptions\ParquetConversionException
+     * @throws FileParsingException
+     * @throws ParquetConversionException
      * @throws \Throwable
      */
     public function process(DataSource $dataSource): Dataset
@@ -45,7 +47,7 @@ class DataIngestionOrchestrator
             // générique utilisé pour un upload de fichier .json classique.
             $absolutePath = Storage::path($dataSource->raw_storage_path);
             $parser = $dataSource->source_kind === 'api'
-                ? new JsonLinesParser()
+                ? new JsonLinesParser
                 : $this->parserFactory->make($dataSource->type);
             $parsed = $parser->parse($absolutePath, $this->maxRows, $dataSource->sheet_name, $dataSource->header_row, $dataSource->excluded_rows);
             $dataSource->dataset?->updateProgress(25);
@@ -56,7 +58,7 @@ class DataIngestionOrchestrator
 
             // 3. Write Parquet to local temp path
             $r2Path = $this->buildR2Path($dataSource);
-            $localTempPath = storage_path('app/temp/' . $r2Path);
+            $localTempPath = storage_path('app/temp/'.$r2Path);
             $this->ensureDirectory(dirname($localTempPath));
             $this->parquetWriter->write($parsed, $localTempPath);
             $dataSource->dataset?->updateProgress(60);
@@ -78,25 +80,25 @@ class DataIngestionOrchestrator
             $dataset = DB::transaction(function () use ($dataSource, $parsed, $schema, $r2Path, $fileSizeBytes, $checksum) {
                 $dataset = $dataSource->dataset ?? Dataset::make([
                     'data_source_id' => $dataSource->id,
-                    'user_id'        => $dataSource->user_id,
+                    'user_id' => $dataSource->user_id,
                 ]);
                 $dataset->fill([
-                    'name'         => $dataSource->name,
+                    'name' => $dataSource->name,
                     'parquet_path' => $r2Path,
-                    'row_count'    => $parsed->rowCount,
-                    'status'       => 'ready',
-                    'progress'     => 100,
+                    'row_count' => $parsed->rowCount,
+                    'status' => 'ready',
+                    'progress' => 100,
                 ])->save();
 
                 $this->columnPersister->persist($dataset, $schema, $parsed->headers);
 
                 DatasetVersion::create([
-                    'dataset_id'           => $dataset->id,
-                    'version_number'       => 1,
+                    'dataset_id' => $dataset->id,
+                    'version_number' => 1,
                     'parquet_storage_path' => $r2Path,
-                    'file_size_bytes'      => $fileSizeBytes,
-                    'row_count'            => $parsed->rowCount,
-                    'checksum'             => $checksum,
+                    'file_size_bytes' => $fileSizeBytes,
+                    'row_count' => $parsed->rowCount,
+                    'checksum' => $checksum,
                 ]);
 
                 return $dataset;
@@ -127,12 +129,13 @@ class DataIngestionOrchestrator
     private function buildR2Path(DataSource $dataSource): string
     {
         $uuid = Str::uuid();
+
         return "datasets/{$dataSource->user_id}/{$uuid}/v1.parquet";
     }
 
     private function ensureDirectory(string $dir): void
     {
-        if (!is_dir($dir)) {
+        if (! is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
     }
