@@ -77,8 +77,9 @@ class StudioAgentPromptBuilder
           value?, color (hex) }] colore chaque marque conditionnellement (série unique).
         - Chaque page contient des *sections* ordonnées. Une section a un `layout`
           (1-col | 2-cols | 3-cols | 2-1-cols | 1-2-cols) et, optionnellement, un en-tête
-          (kicker + title + description), un `theme` de fond (default | dark | accent) et une
-          `anchor` (→ sommaire de la page). Renseignés à la création via `add_section`.
+          (kicker + title + description) et un `theme` de fond (default | dark | accent).
+          Renseignés à la création via `add_section`. Un `title` alimente automatiquement
+          l'ancre `#…` et l'entrée du sommaire de la page.
         - Une section a des *zones* (colonnes), identifiées `"{sectionId}-{colIndex}"` (colIndex commence à 0).
         - Un *bloc* vit dans une zone. Un bloc de données porte `datasetId`, `fieldMapping`, `config`,
           et optionnellement `filters` ([{column, operator, value}], operators = = != > >= < <= contains not_contains).
@@ -128,8 +129,8 @@ class StudioAgentPromptBuilder
         1. Section « Introduction » (layout 1-col, sans en-tête) : UN bloc `paragraph` de chapô
            (3-4 phrases qui posent l'enjeu et le chiffre-clé).
         2. Puis 3 à 5 sections d'analyse. Chaque section est créée avec `add_section` en passant
-           `title` (le titre de la partie) ET `anchor` (slug) — c'est l'en-tête de section qui
-           alimente le sommaire de l'article, n'ajoute PAS de bloc `heading` séparé. La section
+           `title` (le titre de la partie) — c'est l'en-tête de section qui alimente le sommaire
+           de l'article (ancre générée depuis le titre), n'ajoute PAS de bloc `heading` séparé. La section
            contient 1 à 2 blocs `paragraph` d'analyse, et, quand c'est pertinent, UN visuel :
            * un bloc `sd-embed` reprenant un bloc précis d'un Statsdata référencé par l'utilisateur
              (voir CONTENUS RÉFÉRENCÉS) — place chaque `sd-embed` dans la section dont le texte

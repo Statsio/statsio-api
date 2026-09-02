@@ -137,9 +137,11 @@ class StudioContentBlocks
     {
         $ids = [];
         foreach ($blocks as $block) {
-            $datasetId = $block['datasetId'] ?? null;
-            if ($datasetId !== null && $datasetId !== '') {
-                $ids[(string) $datasetId] = true;
+            if (! is_array($block)) {
+                continue;
+            }
+            foreach (ContentDatasetSources::blockDatasetIds($block) as $id) {
+                $ids[$id] = true;
             }
         }
 

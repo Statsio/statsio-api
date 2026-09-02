@@ -154,6 +154,27 @@ class LiveDatasetQueryTest extends TestCase
         $response->assertStatus(422)->assertJsonPath('code', 'unsupported_live_operation');
     }
 
+    public function test_multiple_sources_on_a_live_dataset_query_is_rejected(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $this->fakeWaterQualityApi();
+        $datasetId = $this->createLiveDataSource($user, $token);
+
+        $response = $this->withToken($token)->getJson(
+            "/api/datasets/{$datasetId}/query?".http_build_query([
+                'sources' => [
+                    ['id' => 'a', 'dataset_id' => (string) $datasetId],
+                    ['id' => 'b', 'dataset_id' => '999'],
+                ],
+                'joins' => [['left_source' => 'a', 'left_column' => 'x', 'right_source' => 'b', 'right_column' => 'y', 'type' => 'left']],
+            ])
+        );
+
+        $response->assertStatus(422)->assertJsonPath('code', 'unsupported_live_operation');
+    }
+
     public function test_aggregate_without_group_by_streams_all_pages_and_computes_a_real_average(): void
     {
         $user = User::factory()->create();
