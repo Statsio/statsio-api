@@ -22,7 +22,7 @@ class VerifyEmailAction
             ->first();
 
         if (! $token || $token->isExpired()) {
-            throw new InvalidVerificationCodeException();
+            throw new InvalidVerificationCodeException;
         }
 
         $user->update(['email_verified_at' => now()]);

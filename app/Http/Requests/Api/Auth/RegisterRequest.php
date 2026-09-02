@@ -3,8 +3,11 @@
 namespace App\Http\Requests\Api\Auth;
 
 use App\Rules\TurnstileToken;
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class RegisterRequest extends FormRequest
 {
@@ -19,17 +22,17 @@ class RegisterRequest extends FormRequest
     /**
      * Handle a failed validation attempt.
      */
-    protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator)
+    protected function failedValidation(Validator $validator)
     {
         $message = __('errors.validation_failed');
 
         $response = response()->json([
             'success' => false,
             'errors' => $validator->errors(),
-            'message' => $message
+            'message' => $message,
         ], 422);
 
-        throw new \Illuminate\Validation\ValidationException($validator, $response);
+        throw new ValidationException($validator, $response);
     }
 
     /**
@@ -38,7 +41,7 @@ class RegisterRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         // Si les données viennent des paramètres query string (pour compatibilité)
-        if ($this->query('email') && !$this->input('email')) {
+        if ($this->query('email') && ! $this->input('email')) {
             $this->merge([
                 'first_name' => $this->query('first_name'),
                 'last_name' => $this->query('last_name'),
@@ -52,7 +55,7 @@ class RegisterRequest extends FormRequest
     /**
      * Get the validation rules that apply to the request.
      *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {

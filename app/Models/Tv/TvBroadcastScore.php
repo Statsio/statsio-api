@@ -15,7 +15,7 @@ class TvBroadcastScore extends Model
     protected $fillable = ['broadcast_id', 'question_id', 'user_id', 'score'];
 
     protected $casts = [
-        'score'      => 'integer',
+        'score' => 'integer',
         'created_at' => 'datetime',
     ];
 

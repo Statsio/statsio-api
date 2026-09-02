@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Domain\Auth\Actions;
 
 use App\Mail\Auth\RegistrationConfirmedMailable;

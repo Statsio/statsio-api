@@ -13,8 +13,8 @@ class TvReviewQuestion extends Model
 
     protected $casts = [
         'category_slugs' => 'array',
-        'is_active'      => 'boolean',
-        'sort_order'     => 'integer',
+        'is_active' => 'boolean',
+        'sort_order' => 'integer',
     ];
 
     public function scores(): HasMany

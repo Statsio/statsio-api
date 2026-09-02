@@ -185,6 +185,63 @@ class DatasetControllerTest extends TestCase
         $this->assertSame('Paris', $response->json('data.rows.0.city'));
     }
 
+    public function test_query_search_is_multi_word_and_order_agnostic(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, ['id', 'first', 'last'], [
+            [1, 'Jean', 'Dupond'],
+            [2, 'Jean', 'Martin'],
+            [3, 'Marie', 'Dupond'],
+        ]);
+        $token = $user->createToken('t')->plainTextToken;
+
+        // « jean dupond » : chaque mot doit apparaître dans first OU last → 1 ligne.
+        $this->withToken($token)->getJson(
+            "/api/datasets/{$dataset->id}/query?search_q=".rawurlencode('jean dupond')
+            .'&search_columns[0]=first&search_columns[1]=last'
+        )->assertStatus(200)->assertJsonPath('data.total_rows', 1)
+            ->assertJsonPath('data.rows.0.last', 'Dupond');
+
+        // L'ordre des mots n'importe pas.
+        $this->withToken($token)->getJson(
+            "/api/datasets/{$dataset->id}/query?search_q=".rawurlencode('dupond jean')
+            .'&search_columns[0]=first&search_columns[1]=last'
+        )->assertStatus(200)->assertJsonPath('data.total_rows', 1)
+            ->assertJsonPath('data.rows.0.first', 'Jean');
+
+        // Un seul mot → comportement « contient » classique.
+        $this->withToken($token)->getJson(
+            "/api/datasets/{$dataset->id}/query?search_q=jean"
+            .'&search_columns[0]=first&search_columns[1]=last'
+        )->assertStatus(200)->assertJsonPath('data.total_rows', 2);
+    }
+
+    public function test_query_search_combines_identity_and_alt_column_groups_with_or(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, ['id', 'first', 'last', 'email'], [
+            [1, 'Jean', 'Dupond', 'jd@example.fr'],
+            [2, 'Marie', 'Martin', 'mm@example.fr'],
+        ]);
+        $token = $user->createToken('t')->plainTextToken;
+        $q = fn (string $term) => "/api/datasets/{$dataset->id}/query?search_q=".rawurlencode($term)
+            .'&search_columns[0]=first&search_columns[1]=last&search_alt_columns[0]=email';
+
+        // Retrouvé par le nom (groupe identité).
+        $this->withToken($token)->getJson($q('jean dupond'))
+            ->assertStatus(200)->assertJsonPath('data.total_rows', 1)
+            ->assertJsonPath('data.rows.0.first', 'Jean');
+
+        // Retrouvé par l'email (groupe complémentaire).
+        $this->withToken($token)->getJson($q('jd@example'))
+            ->assertStatus(200)->assertJsonPath('data.total_rows', 1)
+            ->assertJsonPath('data.rows.0.last', 'Dupond');
+
+        // « jean mm@example » : aucun groupe ne contient les deux mots → 0.
+        $this->withToken($token)->getJson($q('jean mm@example'))
+            ->assertStatus(200)->assertJsonPath('data.total_rows', 0);
+    }
+
     public function test_query_sorts_descending(): void
     {
         $user = User::factory()->create();

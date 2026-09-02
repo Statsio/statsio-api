@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Domain\Auth\Exceptions;
 
 use Exception;
@@ -10,5 +11,3 @@ class InvalidCredentialsException extends Exception
         parent::__construct(__('errors.invalid_credentials'));
     }
 }
-
-?>

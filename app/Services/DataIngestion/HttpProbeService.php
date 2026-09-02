@@ -15,7 +15,7 @@ class HttpProbeService
 
     public function __construct(?SsrfGuard $ssrfGuard = null)
     {
-        $this->ssrfGuard = $ssrfGuard ?? new SsrfGuard();
+        $this->ssrfGuard = $ssrfGuard ?? new SsrfGuard;
     }
 
     /**

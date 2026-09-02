@@ -19,7 +19,7 @@ class JsonParser implements FileParserInterface
         $decoded = json_decode($content, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            throw new FileParsingException(basename($absolutePath), 'JSON invalide : ' . json_last_error_msg());
+            throw new FileParsingException(basename($absolutePath), 'JSON invalide : '.json_last_error_msg());
         }
 
         // Support root-level array or { "data": [...] } wrapper
@@ -56,11 +56,11 @@ class JsonParser implements FileParserInterface
         // Collect all unique keys as headers (union of all records)
         $headers = [];
         foreach ($records as $record) {
-            if (!is_array($record)) {
+            if (! is_array($record)) {
                 throw new FileParsingException($label, 'Chaque enregistrement JSON doit être un objet');
             }
             foreach (array_keys($record) as $key) {
-                if (!in_array($key, $headers, true)) {
+                if (! in_array($key, $headers, true)) {
                     $headers[] = $key;
                 }
             }

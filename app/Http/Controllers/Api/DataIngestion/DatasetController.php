@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\DataIngestion;
 
+use App\Domain\Content\Support\CardPreviewSpec;
+use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\DataIngestion\Exceptions\InvalidQueryGraphException;
 use App\Domain\DataIngestion\Exceptions\LiveApiQueryException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedLiveQueryOperationException;
@@ -13,6 +15,7 @@ use App\Models\DataIngestion\DatasetVersion;
 use App\Models\StudioContent;
 use App\Services\DataIngestion\LiveQuery\LiveDatasetQueryService;
 use App\Services\DataIngestion\NumericValueParser;
+use App\Support\TokenizedSearch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -20,12 +23,22 @@ use Illuminate\Support\Facades\Storage;
 
 class DatasetController extends Controller
 {
+    use TokenizedSearch;
+
     /**
      * TTL for cached parquet query/preview/distinct-values responses.
      * Cache keys embed the dataset version checksum, so a re-ingested dataset
      * busts its cache automatically — the TTL only bounds worst-case staleness.
      */
     private const CACHE_TTL = 900; // 15 minutes
+
+    /**
+     * TTL de l'aperçu de carte (mini-graphe du catalogue). La clé de cache dérive
+     * de la config du bloc + de la version du dataset, donc une modification du
+     * Statsdata ou un refresh de source la bust automatiquement ; le TTL ne borne
+     * que le pire cas.
+     */
+    private const CACHE_TTL_CARD_PREVIEW = 3600; // 1 heure
 
     /**
      * Colonnes calculées de la requête courante (combinaisons arithmétiques injectées
@@ -35,6 +48,16 @@ class DatasetController extends Controller
      * @var array<int, array{id: string, operands: array<int, array{op?: string, column?: string, value?: float}>}>
      */
     private array $calcSpecs = [];
+
+    /**
+     * Bloc recherche : colonnes de recherche secondaires (« OU »). Portée requête,
+     * comme {@see $calcSpecs} — évite de threader un 2ᵉ tableau dans toute la chaîne
+     * `resolveRows`. Un résultat matche si toute la requête est retrouvée dans le
+     * groupe identité (`search_columns`) OU dans ce groupe.
+     *
+     * @var array<int, string>
+     */
+    private array $searchAltCols = [];
 
     public function __construct(
         private readonly LiveDatasetQueryService $liveQueryService,
@@ -164,6 +187,9 @@ class DatasetController extends Controller
         if ($content->status !== 'published') {
             $viewer = $request->user('sanctum');
             abort_unless($viewer !== null && $viewer->can('update', $content), 404);
+        } else {
+            // Les filtres/params résolus doivent correspondre à la version en ligne.
+            $content->applyPublishedPayload();
         }
 
         $docDatasetIds = collect($this->collectContentBlocks($content))
@@ -236,6 +262,131 @@ class DatasetController extends Controller
             'success' => true,
             'data' => $this->formatQueryResult($result, $p['columns']),
         ]);
+    }
+
+    /**
+     * Aperçu du mini-graphe de la carte de catalogue d'un Statsdata : reprend le
+     * bloc graphique choisi par le créateur (`card_block_id`) ou le premier
+     * graphique dans l'ordre de lecture, exécute sa requête via le même moteur que
+     * `queryPublic()` et renvoie des séries compactes (≤ 24 points, ≤ 3 séries).
+     *
+     * Publié = lisible par tous ; brouillon = éditeur uniquement (aperçu live des
+     * réglages). Cache 1 h, clé dérivée de la config du bloc + de la version du
+     * dataset (auto-bustée à chaque édition / refresh de source). `?block_id=`
+     * force un bloc précis (aperçu live du sélecteur de réglages).
+     */
+    public function cardPreviewPublic(Request $request, string $slug): JsonResponse
+    {
+        $content = StudioContent::where(function ($q) use ($slug) {
+            $q->where('slug', $slug);
+            if (is_numeric($slug)) {
+                $q->orWhere('id', (int) $slug);
+            }
+        })->firstOrFail();
+
+        if ($content->status !== 'published') {
+            $viewer = $request->user('sanctum');
+            abort_unless($viewer !== null && $viewer->can('update', $content), 404);
+        } else {
+            $content->applyPublishedPayload();
+        }
+
+        $blockIdOverride = (string) $request->query('block_id', '') ?: null;
+        $block = CardPreviewSpec::resolveBlock($content, $blockIdOverride);
+        $kind = match ($block['type'] ?? null) {
+            'pie' => 'pie',
+            'bar' => 'bar',
+            default => 'line',
+        };
+        $emptyPayload = [
+            'block_id' => (string) ($block['id'] ?? ''),
+            'kind' => $kind,
+            'labels' => [],
+            'series' => [],
+            'empty' => true,
+        ];
+
+        if ($block === null) {
+            return response()->json(['success' => true, 'data' => $emptyPayload]);
+        }
+
+        $datasetId = CardPreviewSpec::primaryDatasetId($block);
+        $dataset = $datasetId !== null
+            ? Dataset::with(['dataSource', 'latestVersion'])->find((int) $datasetId)
+            : null;
+
+        if ($dataset === null
+            || ! in_array((string) $dataset->id, ContentDatasetSources::blockDatasetIds($block), true)) {
+            return response()->json(['success' => true, 'data' => $emptyPayload]);
+        }
+
+        $versionKey = ($dataset->latestVersion?->id ?? '0').'|'
+            .($dataset->dataSource?->last_refreshed_at?->timestamp ?? '0');
+        $cacheKey = 'studio.card-preview.'.md5((string) json_encode([
+            $content->id,
+            $block['id'] ?? null,
+            $block['config'] ?? null,
+            $block['fieldMapping'] ?? null,
+            $block['filters'] ?? null,
+            $block['sources'] ?? null,
+            $block['joins'] ?? null,
+            $versionKey,
+        ]));
+
+        $data = Cache::get($cacheKey);
+        if (! is_array($data)) {
+            $data = $this->computeCardPreview($block, $dataset, $content->user_id);
+            if (is_array($data)) {
+                Cache::put($cacheKey, $data, self::CACHE_TTL_CARD_PREVIEW);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => is_array($data) ? $data : $emptyPayload,
+        ]);
+    }
+
+    /**
+     * Exécute la requête d'un bloc graphique et la met en forme en aperçu de carte.
+     * Renvoie `null` sur échec (données non résolues, requête invalide…) — l'appelant
+     * ne met alors rien en cache et retombe sur le visuel synthétique.
+     *
+     * @param  array<string, mixed>  $block
+     * @return array<string, mixed>|null
+     */
+    private function computeCardPreview(array $block, Dataset $dataset, int $userId): ?array
+    {
+        try {
+            $sub = Request::create('/', 'GET', CardPreviewSpec::queryParams($block));
+            $p = $this->parseQueryParams($sub, $dataset->id);
+
+            $result = $this->resolveRows(
+                $dataset,
+                count($p['columns']) ? $p['columns'] : null,
+                $p['filters'],
+                $p['limit'],
+                $p['joins'],
+                $userId,
+                $p['searchQ'],
+                $p['searchCols'],
+                $p['distinctColumn'],
+                $p['sortColumn'],
+                $p['sortDirection'],
+                $p['aggregate'],
+                $p['aggregateColumns'],
+                $p['groupBy'],
+                $p['offset'],
+                $p['aggregateSpecs'],
+                $p['graph'],
+            );
+
+            return CardPreviewSpec::shape($block, $result);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return null;
+        }
     }
 
     /**
@@ -318,6 +469,7 @@ class DatasetController extends Controller
         $sources = $request->query('sources', []);
         $searchQ = (string) $request->query('search_q', '');
         $searchCols = $request->query('search_columns', []);
+        $searchAltCols = $request->query('search_alt_columns', []);
         $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
         $facet = filter_var($request->query('facet', false), FILTER_VALIDATE_BOOLEAN);
         $facetLimit = min(max((int) $request->query('facet_limit', 50), 1), 200);
@@ -330,11 +482,13 @@ class DatasetController extends Controller
         $groupBy = $request->query('group_by', []);
         $aggregates = $request->query('aggregates', []);
 
-        foreach (['columns', 'filters', 'joins', 'sources', 'searchCols', 'aggregateColumns', 'groupBy', 'aggregates'] as $var) {
+        foreach (['columns', 'filters', 'joins', 'sources', 'searchCols', 'searchAltCols', 'aggregateColumns', 'groupBy', 'aggregates'] as $var) {
             if (! is_array($$var)) {
                 $$var = [];
             }
         }
+
+        $this->searchAltCols = array_values($searchAltCols);
 
         // ─── Agrégats : format « une fonction par colonne » (aggregates[]) prioritaire
         //     sur le format legacy uniforme (aggregate + aggregate_columns[]). ────────
@@ -749,6 +903,7 @@ class DatasetController extends Controller
         $selectColumns = $selectColumns !== null ? array_values(array_unique(array_map($bare, $selectColumns))) : null;
         $filters = array_map(fn ($f) => [...$f, 'column' => $bare($f['column'] ?? '')], $filters);
         $searchCols = array_map($bare, $searchCols);
+        $searchAltCols = array_map($bare, $this->searchAltCols);
         $distinctColumn = $bare($distinctColumn);
         $sortColumn = $bare($sortColumn);
         $groupBy = array_map($bare, $groupBy);
@@ -769,7 +924,7 @@ class DatasetController extends Controller
             $rows = $this->applyCalcColumns($rows, $bare);
             $rows = array_values(array_filter(
                 $rows,
-                fn ($assoc) => $this->matchesFilters($assoc, $filters) && $this->matchesSearchQ($assoc, $searchQ, $searchCols),
+                fn ($assoc) => $this->matchesFilters($assoc, $filters) && $this->matchesSearchQ($assoc, $searchQ, $searchCols, $searchAltCols),
             ));
 
             $rows = $this->sortMockRows($rows, $sortColumn, $sortDirection);
@@ -805,7 +960,7 @@ class DatasetController extends Controller
         $orderClause = $sortColumn
             ? ' ORDER BY '.$this->duckDbNumericExpr($q($sortColumn))." {$sortDir} NULLS LAST, ".$q($sortColumn)." {$sortDir}"
             : '';
-        $where = $this->appendSearchClause($this->buildDuckDbWhere($filters), $searchQ, $searchCols);
+        $where = $this->appendSearchClause($this->buildDuckDbWhere($filters), $searchQ, $searchCols, $searchAltCols);
         $colClause = $selectColumns ? implode(', ', array_map($q, $selectColumns)) : '*';
 
         // Colonnes calculées : injectées comme colonnes de la sous-requête → utilisables
@@ -928,9 +1083,10 @@ class DatasetController extends Controller
         // 4. Filtres / recherche / tri / distinct — sur les clés de ligne résolues.
         $mFilters = array_map(fn ($f) => [...$f, 'column' => $refToKey($f['column'] ?? '')], $filters);
         $mSearchCols = array_map($refToKey, $searchCols);
+        $mAltCols = array_map($refToKey, $this->searchAltCols);
         $rows = array_values(array_filter(
             $rows,
-            fn ($r) => $this->matchesFilters($r, $mFilters) && $this->matchesSearchQ($r, $searchQ, $mSearchCols),
+            fn ($r) => $this->matchesFilters($r, $mFilters) && $this->matchesSearchQ($r, $searchQ, $mSearchCols, $mAltCols),
         ));
         $rows = $this->sortMockRows($rows, $refToKey($sortColumn), $sortDirection);
         $rows = $this->distinctMockRows($rows, $refToKey($distinctColumn));
@@ -1048,11 +1204,10 @@ class DatasetController extends Controller
             }
             $clauses[] = $this->duckDbFilterClause($col, $f['operator'] ?? '=', (string) ($f['value'] ?? ''));
         }
-        if ($searchQ !== '' && $searchCols !== []) {
-            $val = "'".str_replace("'", "''", $searchQ)."'";
-            $or = array_filter(array_map(fn ($c) => ($x = $sqlRef($c)) ? "LOWER({$x}::VARCHAR) LIKE LOWER(CONCAT('%', {$val}, '%'))" : null, $searchCols));
-            if ($or) {
-                $clauses[] = '('.implode(' OR ', $or).')';
+        if ($searchQ !== '' && ($searchCols !== [] || $this->searchAltCols !== [])) {
+            $tokenClause = $this->buildSearchSql($searchCols, $this->searchAltCols, $searchQ, $sqlRef);
+            if ($tokenClause !== null) {
+                $clauses[] = '('.$tokenClause.')';
             }
         }
         if ($clauses) {
@@ -1838,36 +1993,25 @@ class DatasetController extends Controller
         return $value === '' ? [] : [$value];
     }
 
-    private function matchesSearchQ(array $row, string $searchQ, array $searchCols): bool
+    private function matchesSearchQ(array $row, string $searchQ, array $searchCols, array $searchAltCols = []): bool
     {
-        if ($searchQ === '' || empty($searchCols)) {
-            return true;
-        }
-        $needle = mb_strtolower($searchQ);
-        foreach ($searchCols as $col) {
-            if (mb_stripos((string) ($row[$col] ?? ''), $needle) !== false) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->rowMatchesSearch($row, $searchQ, $searchCols, $searchAltCols);
     }
 
-    private function appendSearchClause(string $where, string $searchQ, array $searchCols, string $tableAlias = ''): string
+    private function appendSearchClause(string $where, string $searchQ, array $searchCols, array $searchAltCols = [], string $tableAlias = ''): string
     {
-        if ($searchQ === '' || empty($searchCols)) {
+        $prefix = $tableAlias ? "{$tableAlias}." : '';
+        $clause = $this->buildSearchSql(
+            $searchCols,
+            $searchAltCols,
+            $searchQ,
+            fn ($col) => $prefix.'"'.str_replace('"', '""', $col).'"',
+        );
+        if ($clause === null) {
             return $where;
         }
-        $prefix = $tableAlias ? "{$tableAlias}." : '';
-        $val = "'".str_replace("'", "''", $searchQ)."'";
-        $clauses = array_map(function ($col) use ($prefix, $val) {
-            $c = $prefix.'"'.str_replace('"', '""', $col).'"';
 
-            return "LOWER({$c}::VARCHAR) LIKE LOWER(CONCAT('%', {$val}, '%'))";
-        }, $searchCols);
-        $clause = '('.implode(' OR ', $clauses).')';
-
-        return $where === '' ? " WHERE {$clause}" : "{$where} AND {$clause}";
+        return $where === '' ? " WHERE ({$clause})" : "{$where} AND ({$clause})";
     }
 
     private function buildDuckDbWhere(array $filters, string $tableAlias = ''): string

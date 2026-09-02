@@ -1,8 +1,9 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;
 use App\Domain\HealthCheck\Actions\CheckHealthAction;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 
 class HealthCheckController extends Controller

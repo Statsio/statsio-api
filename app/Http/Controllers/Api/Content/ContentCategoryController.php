@@ -14,7 +14,7 @@ class ContentCategoryController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $categories,
+            'data' => $categories,
         ]);
     }
 }

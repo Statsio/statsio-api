@@ -2,8 +2,8 @@
 
 namespace App\Domain\User\Actions;
 
-use App\Models\User\User;
 use App\Domain\User\Enums\UserStatusEnum;
+use App\Models\User\User;
 
 class AnonymizeAction
 {
@@ -24,7 +24,7 @@ class AnonymizeAction
 
         // 3️⃣ Anonymiser le compte principal
         $user->update([
-            'email' => 'deleted_' . $user->id . '@statsio.fr', // email unique
+            'email' => 'deleted_'.$user->id.'@statsio.fr', // email unique
             'password' => null, // impossible de se reconnecter
             'status' => UserStatusEnum::ANONYMIZED->value,
             'anonymized_at' => now(),

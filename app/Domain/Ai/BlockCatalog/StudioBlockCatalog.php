@@ -42,6 +42,24 @@ class StudioBlockCatalog
         ];
     }
 
+    /**
+     * Libellé d'affichage par colonne (`{ ref: libellé }`) — en-têtes de tableau,
+     * légendes bar/line, titres d'axes.
+     *
+     * @return array<string,mixed>
+     */
+    private function columnLabelsField(): array
+    {
+        return [
+            'columnLabels' => [
+                'role' => 'labelMap',
+                'required' => false,
+                'description' => 'Libellé d\'affichage par réf de colonne : { "<ref>": "<libellé>" }. '
+                    .'Remplace le nom brut dans la légende / le titre d\'axe.',
+            ],
+        ];
+    }
+
     /** @return array<string,mixed> */
     private function perColumnAggregatesField(): array
     {
@@ -79,6 +97,7 @@ class StudioBlockCatalog
                     'xAxis' => ['role' => 'dimension', 'required' => true, 'description' => 'Colonne catégorielle (abscisse).'],
                     'yAxes' => ['role' => 'measure', 'list' => true, 'required' => true, 'description' => 'Une ou plusieurs colonnes numériques (séries).'],
                     'series' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne de regroupement en séries.'],
+                    ...$this->columnLabelsField(),
                     'aggregate' => ['enum' => self::AGGREGATES, 'required' => false, 'default' => 'sum'],
                     ...$this->perColumnAggregatesField(),
                     ...$this->calcColumnsField(),
@@ -95,6 +114,7 @@ class StudioBlockCatalog
                     'xAxis' => ['role' => 'dimension', 'required' => true, 'description' => 'Colonne d\'axe (souvent temporelle).'],
                     'yAxes' => ['role' => 'measure', 'list' => true, 'required' => true, 'description' => 'Une ou plusieurs colonnes numériques (séries).'],
                     'series' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne de regroupement en séries.'],
+                    ...$this->columnLabelsField(),
                     'aggregate' => ['enum' => self::AGGREGATES, 'required' => false, 'default' => 'sum'],
                     ...$this->perColumnAggregatesField(),
                     ...$this->calcColumnsField(),

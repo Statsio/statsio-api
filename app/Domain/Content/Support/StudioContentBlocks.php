@@ -46,6 +46,47 @@ class StudioContentBlocks
     }
 
     /**
+     * Blocs du contenu dans l'ordre de lecture : parcours des sections (ordre du
+     * tableau `sections`) → colonnes → blocs de la zone `"{sectionId}-{col}"`.
+     * Repli : ordre brut du tableau `blocks`.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function ordered(StudioContent $content): array
+    {
+        $blocks = array_values(array_filter($content->blocks ?? [], 'is_array'));
+        $sections = array_values(array_filter($content->sections ?? [], 'is_array'));
+        if (empty($sections)) {
+            return $blocks;
+        }
+
+        $byZone = [];
+        foreach ($blocks as $block) {
+            $byZone[$block['zoneId'] ?? ''][] = $block;
+        }
+
+        $ordered = [];
+        $seen = [];
+        foreach ($sections as $section) {
+            $sectionId = $section['id'] ?? '';
+            for ($col = 0; $col < 4; $col++) {
+                foreach ($byZone["{$sectionId}-{$col}"] ?? [] as $block) {
+                    $ordered[] = $block;
+                    $seen[$block['id'] ?? ''] = true;
+                }
+            }
+        }
+        // Blocs orphelins (zone inconnue, enfants de script…) : à la fin, ordre brut.
+        foreach ($blocks as $block) {
+            if (! isset($seen[$block['id'] ?? ''])) {
+                $ordered[] = $block;
+            }
+        }
+
+        return $ordered;
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $blocks
      */
     public static function readingMinutes(array $blocks): int

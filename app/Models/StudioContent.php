@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Channel\Channel;
 use App\Models\Studio\StudioBlockResponse;
+use App\Models\Studio\StudioContentVersion;
 use App\Models\User\User;
 use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,18 +26,21 @@ class StudioContent extends Model
         'petition_target',
         'description',
         'status',
-        'visibility',
         'slug',
         'pages',
         'blocks',
         'sections',
         'categories',
         'emoji',
-        'coverage_type',
-        'coverage_data',
+        'card_block_id',
+        'coverage',
         'published_as',
         'channel_id',
         'response_deadline',
+        'published_version_id',
+        'published_version',
+        'first_published_at',
+        'last_published_at',
     ];
 
     protected $casts = [
@@ -44,9 +48,11 @@ class StudioContent extends Model
         'blocks' => 'array',
         'sections' => 'array',
         'categories' => 'array',
-        'coverage_data' => 'array',
         'views_count' => 'integer',
+        'published_version' => 'integer',
         'response_deadline' => 'datetime',
+        'first_published_at' => 'datetime',
+        'last_published_at' => 'datetime',
         'requires_identity_verification' => 'boolean',
         'petition_goal' => 'integer',
     ];
@@ -73,5 +79,64 @@ class StudioContent extends Model
     public function blockResponses(): HasMany
     {
         return $this->hasMany(StudioBlockResponse::class);
+    }
+
+    /**
+     * Toutes les versions publiées de ce contenu (v1, v2, …).
+     */
+    public function versions(): HasMany
+    {
+        return $this->hasMany(StudioContentVersion::class);
+    }
+
+    /**
+     * La version actuellement en ligne — ce que voient les visiteurs.
+     */
+    public function publishedVersion(): BelongsTo
+    {
+        return $this->belongsTo(StudioContentVersion::class, 'published_version_id');
+    }
+
+    /**
+     * Le contenu a-t-il au moins une version publiée en ligne ?
+     */
+    public function isPublished(): bool
+    {
+        return $this->status === 'published' && $this->published_version_id !== null;
+    }
+
+    /**
+     * Surcharge les attributs éditoriaux du modèle avec ceux de la version publiée
+     * (titre, description, couverture, catégories, pages/sections/blocs). Sert de
+     * point de passage unique pour toutes les lectures publiques : `format()`,
+     * `StudioContentListing`, `StudioContentBlocks`, `DatasetController::queryPublic`…
+     * voient alors la version en ligne sans changement de signature.
+     *
+     * Ne jamais `save()` un modèle après cet appel — `syncOriginal()` masque
+     * volontairement la surcharge pour `isDirty()`.
+     */
+    public function applyPublishedPayload(): static
+    {
+        $version = $this->relationLoaded('publishedVersion')
+            ? $this->publishedVersion
+            : $this->publishedVersion()->first();
+
+        if ($version === null) {
+            return $this;
+        }
+
+        $this->forceFill([
+            'title' => $version->title,
+            'description' => $version->description,
+            'coverage' => $version->coverage,
+            'emoji' => $version->emoji,
+            'categories' => $version->categories ?? [],
+            'pages' => $version->pages ?? [],
+            'sections' => $version->sections ?? [],
+            'blocks' => $version->blocks ?? [],
+        ]);
+        $this->syncOriginal();
+
+        return $this;
     }
 }

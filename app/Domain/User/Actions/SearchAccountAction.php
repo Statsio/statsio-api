@@ -79,7 +79,6 @@ class SearchAccountAction
             ->get()
             ->map(fn (StudioContent $c) => StudioContentSummary::make($c) + [
                 'status' => $c->status ?? 'draft',
-                'visibility' => $c->visibility ?? 'private',
             ])
             ->all();
 

@@ -29,16 +29,6 @@ class StudioContentTable
                         default => (string) $state,
                     })
                     ->color(fn (?string $state): string => $state === 'published' ? 'success' : 'gray'),
-                TextColumn::make('visibility')
-                    ->label('Visibilité')
-                    ->badge()
-                    ->formatStateUsing(fn (?string $state): string => match ($state) {
-                        'public' => 'Public',
-                        'protege' => 'Protégé',
-                        'private' => 'Privé',
-                        default => (string) $state,
-                    })
-                    ->color(fn (?string $state): string => $state === 'public' ? 'info' : 'gray'),
                 TextColumn::make('owner')
                     ->label('Publié par')
                     ->getStateUsing(function (StudioContent $record): string {
@@ -68,13 +58,6 @@ class StudioContentTable
                     ->options([
                         'draft' => 'Brouillon',
                         'published' => 'Publié',
-                    ]),
-                SelectFilter::make('visibility')
-                    ->label('Visibilité')
-                    ->options([
-                        'public' => 'Public',
-                        'protege' => 'Protégé',
-                        'private' => 'Privé',
                     ]),
             ])
             ->recordActions([
