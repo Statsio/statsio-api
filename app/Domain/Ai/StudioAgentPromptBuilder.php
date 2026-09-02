@@ -82,7 +82,18 @@ class StudioAgentPromptBuilder
           l'ancre `#…` et l'entrée du sommaire de la page.
         - Une section a des *zones* (colonnes), identifiées `"{sectionId}-{colIndex}"` (colIndex commence à 0).
         - Un *bloc* vit dans une zone. Un bloc de données porte `datasetId`, `fieldMapping`, `config`,
-          et optionnellement `filters` ([{column, operator, value}], operators = = != > >= < <= contains not_contains).
+          et optionnellement `filters` ([{column, operator, value}], operators = = != > >= < <= contains not_contains in not_in ;
+          pour `in`/`not_in`, `value` est un tableau JSON de chaînes, ex. `"[\"2024\",\"2025\"]"`).
+        - `fieldMapping.calcColumns` : colonnes calculées (combinaisons arithmétiques par ligne, avant agrégation),
+          `[{id, label, operands: [{column|value, op?: +|-|*|/}]}]`. Référencées `"calc:<id>"` partout où une colonne
+          est attendue (xAxis, yAxes, pieSegments[].column, series, config.sortColumn, filtre). Ex. `calc:x = Admis + Présents`
+          puis yAxes:["calc:x"] + aggregate:"avg".
+        - Agrégat par colonne : `fieldMapping.aggregates` = `[{column, fn}]` (fn parmi sum|avg|count|min|max), prioritaire
+          sur `aggregate` (fonction unique). Tri d'un graphique : `config.sortColumn` + `config.sortDirection` (asc|desc).
+        - KPI : `fieldMapping.kpiValue` = `[{fn, column, op?}]` combine des agrégats (`MAX(x) - MIN(x)`, `SUM(a) / SUM(b)`).
+          Prioritaire sur `valueColumn`.
+        - Camembert : `config.pieMode` = "column" (label+value) ou "segments" ; en mode segments,
+          `fieldMapping.pieSegments` = `[{fn, column, label?}]`, fn ajoute "remainder" (= complément des autres parts).
         - Blocs CONTENEURS (catégorie script), enfants ajoutés via `add_block` avec `loop_ref` = leur ref :
           * `loop` : répète ses enfants pour chaque valeur distincte de `fieldMapping.loopColumn`.
             Les enfants insèrent la valeur courante via `{{item}}` (ou `{{<loopVar>}}`).

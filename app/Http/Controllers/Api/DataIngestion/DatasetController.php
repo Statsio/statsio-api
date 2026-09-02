@@ -27,6 +27,15 @@ class DatasetController extends Controller
      */
     private const CACHE_TTL = 900; // 15 minutes
 
+    /**
+     * Colonnes calculées de la requête courante (combinaisons arithmétiques injectées
+     * dans la projection avant agrégation). Portée requête — le contrôleur est résolu
+     * à chaque requête. Réf `calc:<id>`.
+     *
+     * @var array<int, array{id: string, operands: array<int, array{op?: string, column?: string, value?: float}>}>
+     */
+    private array $calcSpecs = [];
+
     public function __construct(
         private readonly LiveDatasetQueryService $liveQueryService,
     ) {}
@@ -102,6 +111,10 @@ class DatasetController extends Controller
 
             if ($p['distinct'] && count($p['columns']) === 1) {
                 return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters'], $p['graph'], $userId);
+            }
+
+            if ($p['facet'] && count($p['columns']) === 1) {
+                return $this->facetResponse($dataset, $p['columns'][0], $p['facetLimit'], $p['facetOffset'], (string) $request->query('search', ''), $p['filters'], $p['graph'], $userId);
             }
 
             $result = $this->resolveRows(
@@ -186,6 +199,10 @@ class DatasetController extends Controller
 
             if ($p['distinct'] && count($p['columns']) === 1) {
                 return $this->distinctResponse($dataset, $p['columns'][0], $p['limit'], (string) $request->query('search', ''), $p['filters'], $p['graph'], $content->user_id);
+            }
+
+            if ($p['facet'] && count($p['columns']) === 1) {
+                return $this->facetResponse($dataset, $p['columns'][0], $p['facetLimit'], $p['facetOffset'], (string) $request->query('search', ''), $p['filters'], $p['graph'], $content->user_id);
             }
 
             $result = $this->resolveRows(
@@ -289,7 +306,7 @@ class DatasetController extends Controller
     /**
      * Parses and validates the query params shared by query() and queryPublic().
      *
-     * @return array{limit: int, offset: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>, aggregateSpecs: array<int, array{column: string, fn: string}>, graph: QueryGraph}
+     * @return array{limit: int, offset: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, facet: bool, facetLimit: int, facetOffset: int, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>, aggregateSpecs: array<int, array{column: string, fn: string}>, graph: QueryGraph}
      */
     private function parseQueryParams(Request $request, int $primaryDatasetId): array
     {
@@ -302,6 +319,9 @@ class DatasetController extends Controller
         $searchQ = (string) $request->query('search_q', '');
         $searchCols = $request->query('search_columns', []);
         $distinct = filter_var($request->query('distinct', false), FILTER_VALIDATE_BOOLEAN);
+        $facet = filter_var($request->query('facet', false), FILTER_VALIDATE_BOOLEAN);
+        $facetLimit = min(max((int) $request->query('facet_limit', 50), 1), 200);
+        $facetOffset = max((int) $request->query('facet_offset', 0), 0);
         $distinctColumn = (string) $request->query('distinct_column', '');
         $sortColumn = (string) $request->query('sort_column', '');
         $sortDirection = in_array($request->query('sort_direction'), ['asc', 'desc']) ? $request->query('sort_direction') : 'asc';
@@ -350,6 +370,8 @@ class DatasetController extends Controller
 
         $graph = QueryGraph::fromRequest($sources, $joins, $primaryDatasetId);
 
+        $this->calcSpecs = $this->parseCalcSpecs($request->query('calc', []));
+
         return [
             'limit' => $limit,
             'offset' => $offset,
@@ -359,6 +381,9 @@ class DatasetController extends Controller
             'searchQ' => $searchQ,
             'searchCols' => array_values($searchCols),
             'distinct' => $distinct,
+            'facet' => $facet,
+            'facetLimit' => $facetLimit,
+            'facetOffset' => $facetOffset,
             'distinctColumn' => $distinctColumn ?: null,
             'sortColumn' => $sortColumn ?: null,
             'sortDirection' => $sortDirection,
@@ -424,6 +449,227 @@ class DatasetController extends Controller
     }
 
     /**
+     * Panneau à facettes : valeurs distinctes d'une colonne + nombre d'occurrences,
+     * triées par décompte décroissant, avec recherche et pagination. Alimente le
+     * panneau de filtres du Studio.
+     *
+     * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     */
+    private function facetResponse(Dataset $dataset, string $col, int $limit, int $offset, string $search, array $filters = [], ?QueryGraph $graph = null, int $userId = 0): JsonResponse
+    {
+        // ─── Source live : pas de GROUP BY possible en amont → valeurs indicatives
+        //     issues de l'échantillon capturé, sans décompte. ──────────────────
+        if ($dataset->isLive()) {
+            $resolvedCol = $graph ? $graph->resolveRef($col)['name'] : $col;
+            $values = $this->liveQueryService->resolveDistinctValues($dataset, $resolvedCol, $limit, $search);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'column' => $col,
+                    'values' => array_map(fn ($v) => ['value' => (string) $v, 'count' => null], array_values($values)),
+                    'total' => count($values),
+                    'offset' => 0,
+                    'limit' => $limit,
+                ],
+                'meta' => ['has_counts' => false, 'partial' => true],
+            ]);
+        }
+
+        // ─── Multi-sources : jointures appliquées avant le décompte (scan plafonné). ──
+        if ($graph && $graph->isMultiSource()) {
+            $cap = (int) config('statsio.data_ingestion.facet_scan_cap', 50_000);
+            $result = $this->resolveRows(
+                $dataset, [$col], $filters, $cap, [], $userId, $search, $search !== '' ? [$col] : [],
+                null, null, 'asc', null, [], [], 0, [], $graph,
+            );
+            $key = $result->columnMap[$col] ?? $col;
+            [$values, $total] = $this->tallyFacet($result->rows, $key, $limit, $offset);
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'column' => $col,
+                    'values' => $values,
+                    'total' => $total,
+                    'offset' => $offset,
+                    'limit' => $limit,
+                ],
+                'meta' => ['has_counts' => true, 'partial' => count($result->rows) >= $cap],
+            ]);
+        }
+
+        // ─── Mono-source matérialisée. ──────────────────────────────────────────
+        $resolvedCol = $graph ? $graph->resolveRef($col)['name'] : $col;
+        $data = $this->resolveColumnFacets($dataset, $resolvedCol, $limit, $offset, $search, $filters);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'column' => $col,
+                'values' => $data['values'],
+                'total' => $data['total'],
+                'offset' => $offset,
+                'limit' => $limit,
+            ],
+            'meta' => ['has_counts' => true, 'partial' => false],
+        ]);
+    }
+
+    /**
+     * Regroupe des lignes déjà résolues par valeur d'une colonne et compte les
+     * occurrences. Tri : décompte décroissant puis valeur croissante.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array{0: array<int, array{value: string, count: int}>, 1: int} [page, nb total de valeurs distinctes]
+     */
+    private function tallyFacet(array $rows, string $key, int $limit, int $offset): array
+    {
+        $counts = [];
+        foreach ($rows as $row) {
+            $val = $row[$key] ?? null;
+            if ($val === null || $val === '') {
+                continue;
+            }
+            $str = (string) $val;
+            $counts[$str] = ($counts[$str] ?? 0) + 1;
+        }
+
+        uksort($counts, function ($a, $b) use ($counts) {
+            return $counts[$b] <=> $counts[$a] ?: strnatcasecmp($a, $b);
+        });
+
+        $total = count($counts);
+        $page = array_slice($counts, $offset, $limit, true);
+        $values = [];
+        foreach ($page as $value => $count) {
+            $values[] = ['value' => (string) $value, 'count' => $count];
+        }
+
+        return [$values, $total];
+    }
+
+    /**
+     * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     * @return array{values: array<int, array{value: string, count: int}>, total: int}
+     */
+    private function resolveColumnFacets(Dataset $dataset, string $column, int $limit, int $offset, string $search, array $filters = []): array
+    {
+        $version = $dataset->latestVersion;
+
+        if (! $version?->parquet_storage_path) {
+            return ['values' => [], 'total' => 0];
+        }
+
+        $cacheKey = $this->buildQueryCacheKey('facet', $dataset, $version, [], [
+            'column' => $column,
+            'limit' => $limit,
+            'offset' => $offset,
+            'search' => $search,
+            'filters' => $filters,
+        ]);
+
+        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchColumnFacets($dataset, $version, $column, $limit, $offset, $search, $filters));
+    }
+
+    /**
+     * Requête DuckDB / mock-parquet réelle du décompte de facettes. Appelée uniquement sur cache miss.
+     *
+     * @param  array<int, array{column: string, operator: string, value: string}>  $filters
+     * @return array{values: array<int, array{value: string, count: int}>, total: int}
+     */
+    private function fetchColumnFacets(Dataset $dataset, DatasetVersion $version, string $column, int $limit, int $offset, string $search, array $filters = []): array
+    {
+        $datasetsDisk = config('statsio.data_ingestion.datasets_disk', 'local');
+
+        $raw = Storage::disk($datasetsDisk)->get($version->parquet_storage_path);
+        if ($raw === null) {
+            return ['values' => [], 'total' => 0];
+        }
+
+        $decoded = json_decode($raw, true);
+
+        // ─── Mock parquet — scan PHP ────────────────────────────────────────────
+        if (is_array($decoded) && isset($decoded['__mock__'])) {
+            $allColumns = $decoded['schema'] ?? [];
+            $needle = mb_strtolower($search);
+
+            $counts = [];
+            foreach ($decoded['data'] ?? [] as $row) {
+                $assoc = array_is_list($row) ? array_combine($allColumns, $row) : $row;
+                $val = $assoc[$column] ?? null;
+                if ($val === null || $val === '') {
+                    continue;
+                }
+                if (! $this->matchesFilters($assoc, $filters)) {
+                    continue;
+                }
+                $str = (string) $val;
+                if ($needle !== '' && mb_stripos($str, $needle) === false) {
+                    continue;
+                }
+                $counts[$str] = ($counts[$str] ?? 0) + 1;
+            }
+
+            uksort($counts, fn ($a, $b) => ($counts[$b] <=> $counts[$a]) ?: strnatcasecmp($a, $b));
+
+            $total = count($counts);
+            $values = [];
+            foreach (array_slice($counts, $offset, $limit, true) as $value => $count) {
+                $values[] = ['value' => (string) $value, 'count' => $count];
+            }
+
+            return ['values' => $values, 'total' => $total];
+        }
+
+        // ─── Parquet réel via DuckDB ────────────────────────────────────────────
+        $localParquet = tempnam(sys_get_temp_dir(), 'statsio_');
+        file_put_contents($localParquet, $raw);
+        $escapedPath = escapeshellarg($localParquet);
+        $escapedCol = '"'.str_replace('"', '""', $column).'"';
+
+        $whereSearch = $search !== ''
+            ? " AND lower({$escapedCol}::VARCHAR) LIKE lower(".escapeshellarg('%'.$search.'%').')'
+            : '';
+        // buildDuckDbWhere() renvoie " WHERE a AND b" — raccordé en " AND ..." à la
+        // clause WHERE déjà présente (IS NOT NULL).
+        $filterClause = $this->buildDuckDbWhere($filters);
+        if ($filterClause !== '') {
+            $filterClause = ' AND '.substr($filterClause, strlen(' WHERE '));
+        }
+
+        $baseWhere = "WHERE {$escapedCol} IS NOT NULL{$filterClause}{$whereSearch}";
+        $valuesSql = "SELECT {$escapedCol}::VARCHAR AS value, COUNT(*) AS count FROM read_parquet({$escapedPath}) {$baseWhere} GROUP BY 1 ORDER BY count DESC, value ASC LIMIT {$limit} OFFSET {$offset}";
+        $totalSql = "SELECT COUNT(DISTINCT {$escapedCol}) AS total FROM read_parquet({$escapedPath}) {$baseWhere}";
+
+        $values = [];
+        $valuesOut = shell_exec('duckdb -json -c '.escapeshellarg($valuesSql).' 2>/dev/null');
+        if ($valuesOut) {
+            $jsonRows = json_decode($valuesOut, true);
+            if (is_array($jsonRows)) {
+                foreach ($jsonRows as $r) {
+                    $value = (string) ($r['value'] ?? '');
+                    if ($value === '') {
+                        continue;
+                    }
+                    $values[] = ['value' => $value, 'count' => (int) ($r['count'] ?? 0)];
+                }
+            }
+        }
+
+        $total = count($values);
+        $totalOut = shell_exec('duckdb -json -c '.escapeshellarg($totalSql).' 2>/dev/null');
+        if ($totalOut) {
+            $totalRows = json_decode($totalOut, true);
+            if (is_array($totalRows) && isset($totalRows[0]['total'])) {
+                $total = (int) $totalRows[0]['total'];
+            }
+        }
+
+        return ['values' => $values, 'total' => $total];
+    }
+
+    /**
      * @param  array<int, array{column: string, operator: string, value: string}>  $filters
      * @param  array<int, array>  $joins  ancien format (dataset_id) — passé tel quel au service live
      * @param  array<int, array{column: string, fn: string}>  $aggregateSpecs
@@ -433,6 +679,11 @@ class DatasetController extends Controller
         $graph ??= QueryGraph::fromRequest([], $joins, $dataset->id);
 
         if ($dataset->isLive()) {
+            if ($this->calcSpecs !== []) {
+                throw new UnsupportedLiveQueryOperationException(
+                    'Les colonnes calculées ne sont pas disponibles pour une source en direct.'
+                );
+            }
             // La pagination serveur (offset) ne s'applique qu'aux datasets matérialisés.
             [$cols, $rows, $total] = $this->liveQueryService->resolveRows(
                 $dataset, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols,
@@ -461,6 +712,7 @@ class DatasetController extends Controller
             'aggregateSpecs' => $aggregateSpecs,
             'groupBy' => $groupBy,
             'offset' => $offset,
+            'calcSpecs' => $this->calcSpecs,
         ]);
 
         return Cache::remember($cacheKey, self::CACHE_TTL, function () use (
@@ -513,13 +765,12 @@ class DatasetController extends Controller
         // ─── Mock parquet ───────────────────────────────────────────────────
         if (is_array($decoded) && isset($decoded['__mock__'])) {
             $allColumns = $decoded['schema'] ?? [];
-            $rows = [];
-            foreach ($decoded['data'] ?? [] as $row) {
-                $assoc = array_combine($allColumns, $row);
-                if ($this->matchesFilters($assoc, $filters) && $this->matchesSearchQ($assoc, $searchQ, $searchCols)) {
-                    $rows[] = $assoc;
-                }
-            }
+            $rows = array_map(fn ($row) => array_combine($allColumns, $row), $decoded['data'] ?? []);
+            $rows = $this->applyCalcColumns($rows, $bare);
+            $rows = array_values(array_filter(
+                $rows,
+                fn ($assoc) => $this->matchesFilters($assoc, $filters) && $this->matchesSearchQ($assoc, $searchQ, $searchCols),
+            ));
 
             $rows = $this->sortMockRows($rows, $sortColumn, $sortDirection);
             $rows = $this->distinctMockRows($rows, $distinctColumn);
@@ -527,6 +778,7 @@ class DatasetController extends Controller
 
             if ($aggregateSpecs !== []) {
                 $rows = $this->aggregateRows($rows, $aggregateSpecs, $groupBy);
+                $rows = $this->orderAggregatedRows($rows, $groupBy, array_column($aggregateSpecs, 'column'), $sortColumn, $sortDirection);
                 $allColumns = array_values(array_unique(array_merge($groupBy, array_column($aggregateSpecs, 'column'))));
                 $totalAfterFilter = count($rows);
                 $rows = array_slice($rows, 0, $limit);
@@ -547,22 +799,38 @@ class DatasetController extends Controller
         $escapedPath = escapeshellarg($localParquet);
         $q = fn (string $c) => '"'.str_replace('"', '""', $c).'"';
 
-        $orderClause = $sortColumn ? ' ORDER BY '.$q($sortColumn).' '.strtoupper($sortDirection) : '';
+        // Tri numérique d'abord (les valeurs décorées « 90 % » comprises), puis
+        // lexical en repli — les cellules non numériques passent en fin.
+        $sortDir = strtoupper($sortDirection);
+        $orderClause = $sortColumn
+            ? ' ORDER BY '.$this->duckDbNumericExpr($q($sortColumn))." {$sortDir} NULLS LAST, ".$q($sortColumn)." {$sortDir}"
+            : '';
         $where = $this->appendSearchClause($this->buildDuckDbWhere($filters), $searchQ, $searchCols);
         $colClause = $selectColumns ? implode(', ', array_map($q, $selectColumns)) : '*';
+
+        // Colonnes calculées : injectées comme colonnes de la sous-requête → utilisables
+        // ensuite comme n'importe quelle colonne (filtre, tri, group_by, agrégat).
+        $source = "read_parquet({$escapedPath})";
+        if ($this->calcSpecs !== []) {
+            $calcCols = array_map(
+                fn ($spec) => $this->calcColumnSql($spec['operands'], fn ($ref) => $q($bare($ref))).' AS '.$q('calc:'.$spec['id']),
+                $this->calcSpecs,
+            );
+            $source = '(SELECT *, '.implode(', ', $calcCols)." FROM read_parquet({$escapedPath})) calc_src";
+        }
 
         if ($distinctColumn) {
             $innerOrder = $sortColumn
                 ? ' ORDER BY '.$q($distinctColumn).', '.$q($sortColumn).' '.strtoupper($sortDirection)
                 : ' ORDER BY '.$q($distinctColumn);
-            $inner = "SELECT DISTINCT ON ({$q($distinctColumn)}) * FROM read_parquet({$escapedPath}){$where}{$innerOrder}";
+            $inner = "SELECT DISTINCT ON ({$q($distinctColumn)}) * FROM {$source}{$where}{$innerOrder}";
             $sql = "SELECT {$colClause} FROM ({$inner}) sub{$orderClause}";
         } else {
-            $sql = "SELECT {$colClause} FROM read_parquet({$escapedPath}){$where}{$orderClause}";
+            $sql = "SELECT {$colClause} FROM {$source}{$where}{$orderClause}";
         }
 
         if ($aggregateSpecs !== []) {
-            $sql = $this->wrapAggregateSql($sql, $aggregateSpecs, $groupBy)." LIMIT {$limit}";
+            $sql = $this->wrapAggregateSql($sql, $aggregateSpecs, $groupBy, $sortColumn, $sortDirection)." LIMIT {$limit}";
         } else {
             $sql .= " LIMIT {$limit}".($offset > 0 ? " OFFSET {$offset}" : '');
         }
@@ -654,6 +922,9 @@ class DatasetController extends Controller
             $rows = $this->hashJoinRows($rows, $fromKey, $joinRows, $edge['to_column'], $toKeyMap, $edge['type']);
         }
 
+        // 3b. Colonnes calculées (avant filtres/tri/agrégat).
+        $rows = $this->applyCalcColumns($rows, fn ($ref) => $refToKey($ref) ?? $ref);
+
         // 4. Filtres / recherche / tri / distinct — sur les clés de ligne résolues.
         $mFilters = array_map(fn ($f) => [...$f, 'column' => $refToKey($f['column'] ?? '')], $filters);
         $mSearchCols = array_map($refToKey, $searchCols);
@@ -670,6 +941,7 @@ class DatasetController extends Controller
             $specs = array_map(fn ($s) => ['column' => $refToKey($s['column']), 'fn' => $s['fn']], $aggregateSpecs);
             $groupKeys = array_map($refToKey, $groupBy);
             $rows = $this->aggregateRows($rows, $specs, $groupKeys);
+            $rows = $this->orderAggregatedRows($rows, $groupKeys, array_column($specs, 'column'), $sortColumn ? $refToKey($sortColumn) : null, $sortDirection);
             $total = count($rows);
             $rows = array_slice($rows, 0, $limit);
             $outColumns = array_values(array_unique(array_merge($groupKeys, array_column($specs, 'column'))));
@@ -743,6 +1015,30 @@ class DatasetController extends Controller
             return "{$r['alias']}.{$q($r['name'])}";
         };
 
+        // Colonnes calculées : on aplatit le JOIN dans `msbase` (projection + calc),
+        // et tout ce qui suit (filtres, tri, distinct, agrégat) opère sur `msbase`.
+        if ($this->calcSpecs !== []) {
+            $keyOf = function (string $ref) use ($graph, $plan, $q): string {
+                $r = $graph->resolveRef($ref);
+
+                return $q($plan[$r['source_id']][$r['name']] ?? $r['name']);
+            };
+            $calcCols = array_map(
+                fn ($spec) => $this->calcColumnSql($spec['operands'], $keyOf).' AS '.$q('calc:'.$spec['id']),
+                $this->calcSpecs,
+            );
+            $from = '(SELECT '.$projection.', '.implode(', ', $calcCols)." FROM {$from}) msbase";
+            $projection = 'msbase.*';
+            $sqlRef = function (?string $ref) use ($graph, $plan, $q): ?string {
+                if ($ref === null || $ref === '') {
+                    return null;
+                }
+                $r = $graph->resolveRef($ref);
+
+                return 'msbase.'.$q($plan[$r['source_id']][$r['name']] ?? $r['name']);
+            };
+        }
+
         $where = '';
         $clauses = [];
         foreach ($filters as $f) {
@@ -764,7 +1060,10 @@ class DatasetController extends Controller
         }
 
         $sortSql = $sqlRef($sortColumn);
-        $orderClause = $sortSql ? " ORDER BY {$sortSql} ".strtoupper($sortDirection) : '';
+        $sortDir = strtoupper($sortDirection);
+        $orderClause = $sortSql
+            ? ' ORDER BY '.$this->duckDbNumericExpr($sortSql)." {$sortDir} NULLS LAST, {$sortSql} {$sortDir}"
+            : '';
         $distinctSql = $sqlRef($distinctColumn);
 
         if ($distinctSql) {
@@ -784,7 +1083,8 @@ class DatasetController extends Controller
         if ($aggregateSpecs !== []) {
             $specs = array_map(fn ($s) => ['column' => $refToKey($s['column']), 'fn' => $s['fn']], $aggregateSpecs);
             $groupKeys = array_map($refToKey, $groupBy);
-            $sql = $this->wrapAggregateSql($sql, $specs, $groupKeys)." LIMIT {$limit}";
+            $sortKey = ($sortColumn !== null && $sortColumn !== '') ? $refToKey($sortColumn) : null;
+            $sql = $this->wrapAggregateSql($sql, $specs, $groupKeys, $sortKey, $sortDirection)." LIMIT {$limit}";
         } else {
             $sql .= " LIMIT {$limit}".($offset > 0 ? " OFFSET {$offset}" : '');
         }
@@ -921,12 +1221,74 @@ class DatasetController extends Controller
         if (! $sortColumn) {
             return $rows;
         }
-        usort($rows, function ($a, $b) use ($sortColumn, $sortDirection) {
-            $av = $a[$sortColumn] ?? null;
-            $bv = $b[$sortColumn] ?? null;
-            $cmp = is_numeric($av) && is_numeric($bv) ? ($av <=> $bv) : strcmp((string) $av, (string) $bv);
+        usort($rows, fn ($a, $b) => $this->compareCells($a[$sortColumn] ?? null, $b[$sortColumn] ?? null, $sortDirection === 'desc'));
 
-            return $sortDirection === 'desc' ? -$cmp : $cmp;
+        return $rows;
+    }
+
+    /**
+     * Comparaison d'une paire de cellules : tri numérique quand les deux valeurs le
+     * sont (« 90 % » comprises), valeurs non numériques reléguées en fin, repli lexical.
+     */
+    private function compareCells(mixed $av, mixed $bv, bool $desc): int
+    {
+        $an = NumericValueParser::parse($av);
+        $bn = NumericValueParser::parse($bv);
+
+        if ($an !== null && $bn !== null) {
+            return $desc ? ($bn <=> $an) : ($an <=> $bn);
+        }
+        if ($an !== null) {
+            return -1;
+        }
+        if ($bn !== null) {
+            return 1;
+        }
+        $cmp = strcmp((string) $av, (string) $bv);
+
+        return $desc ? -$cmp : $cmp;
+    }
+
+    /**
+     * Ordonne des lignes déjà agrégées (une par combinaison de $groupBy). Le GROUP BY
+     * détruit tout tri appliqué en amont : sans ça, l'axe X d'un graphique agrégé
+     * ressort dans un ordre arbitraire. Tri sur $sortColumn si elle fait partie des
+     * clés de groupe ou d'une colonne agrégée ; sinon repli sur la 1re clé de groupe
+     * (l'axe X), croissant.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, string>  $groupBy  clés de groupe (déjà résolues en clés de ligne)
+     * @param  array<int, string>  $aggColumns  colonnes agrégées (déjà résolues)
+     * @return array<int, array<string, mixed>>
+     */
+    private function orderAggregatedRows(array $rows, array $groupBy, array $aggColumns, ?string $sortColumn, string $sortDirection): array
+    {
+        if ($rows === [] || $groupBy === []) {
+            return $rows;
+        }
+
+        $desc = strtolower($sortDirection) === 'desc';
+        $target = ($sortColumn !== null && $sortColumn !== '' && (in_array($sortColumn, $groupBy, true) || in_array($sortColumn, $aggColumns, true)))
+            ? $sortColumn
+            : $groupBy[0];
+        if ($target === $groupBy[0] && $target !== $sortColumn) {
+            $desc = false; // repli « axe X » : toujours croissant
+        }
+        $secondary = array_values(array_filter($groupBy, fn ($k) => $k !== $target));
+
+        usort($rows, function ($a, $b) use ($target, $desc, $secondary) {
+            $c = $this->compareCells($a[$target] ?? null, $b[$target] ?? null, $desc);
+            if ($c !== 0) {
+                return $c;
+            }
+            foreach ($secondary as $k) {
+                $c = $this->compareCells($a[$k] ?? null, $b[$k] ?? null, false);
+                if ($c !== 0) {
+                    return $c;
+                }
+            }
+
+            return 0;
         });
 
         return $rows;
@@ -969,18 +1331,192 @@ class DatasetController extends Controller
     private function duckDbFilterClause(string $col, string $op, string $rawValue): string
     {
         $val = "'".str_replace("'", "''", $rawValue)."'";
+        $colN = $this->duckDbNumericExpr($col);
+        $valN = $this->duckDbNumericExpr($val);
 
         return match ($op) {
             '=' => "{$col} = {$val}",
             '!=' => "{$col} != {$val}",
-            '>' => "TRY_CAST({$col} AS DOUBLE) > TRY_CAST({$val} AS DOUBLE)",
-            '>=' => "TRY_CAST({$col} AS DOUBLE) >= TRY_CAST({$val} AS DOUBLE)",
-            '<' => "TRY_CAST({$col} AS DOUBLE) < TRY_CAST({$val} AS DOUBLE)",
-            '<=' => "TRY_CAST({$col} AS DOUBLE) <= TRY_CAST({$val} AS DOUBLE)",
+            '>' => "{$colN} > {$valN}",
+            '>=' => "{$colN} >= {$valN}",
+            '<' => "{$colN} < {$valN}",
+            '<=' => "{$colN} <= {$valN}",
             'contains' => "LOWER({$col}) LIKE LOWER(CONCAT('%', {$val}, '%'))",
             'not_contains' => "LOWER({$col}) NOT LIKE LOWER(CONCAT('%', {$val}, '%'))",
+            'in' => $this->duckDbInClause($col, $rawValue, false),
+            'not_in' => $this->duckDbInClause($col, $rawValue, true),
             default => '1=1',
         };
+    }
+
+    /**
+     * Expression SQL DuckDB qui extrait la valeur numérique d'une colonne/valeur
+     * potentiellement décorée : « 90 % », « 1 234 », « 10,000+ », « 12 € »… On
+     * retire les séparateurs de milliers (espace, virgule) puis toute décoration
+     * non numérique avant `TRY_CAST`. Sans quoi `TRY_CAST('90%' AS DOUBLE)` = NULL
+     * et le point disparaît des graphiques / le filtre <,> exclut la ligne.
+     *
+     * Aligné sur `NumericValueParser::parse()` (PHP) et `parseNumericValue()` (front).
+     */
+    private function duckDbNumericExpr(string $sqlExpr): string
+    {
+        // On isole d'abord chiffres et séparateurs (« 47,8 % » → « 47,8 »), puis :
+        // « 12,5 » (une seule virgule, pas de point, 1-2 décimales) → virgule décimale ;
+        // sinon la virgule est un séparateur de milliers (« 1,234 », « 10,000 »).
+        $v = "REGEXP_REPLACE(CAST({$sqlExpr} AS VARCHAR), '[^0-9,.+-]', '', 'g')";
+        $commaNorm = "CASE WHEN REGEXP_MATCHES({$v}, '^[^.,]*,[0-9]{1,2}$') "
+            ."THEN REPLACE({$v}, ',', '.') ELSE REPLACE({$v}, ',', '') END";
+        $digitsOnly = "REGEXP_REPLACE({$commaNorm}, '[^0-9.-]', '', 'g')";
+
+        return "TRY_CAST(NULLIF({$digitsOnly}, '') AS DOUBLE)";
+    }
+
+    // ─── Colonnes calculées (combinaisons arithmétiques) ────────────────────────
+
+    private const CALC_OPS = ['+', '-', '*', '/'];
+
+    /**
+     * Valide les specs `calc[]` de la requête. Chaque opérande : `op` dans une liste
+     * fixe + exactement un de `column` (chaîne opaque, résolue plus tard) / `value`
+     * (numérique). Aucune SQL brute.
+     *
+     * @return array<int, array{id: string, operands: array<int, array{op?: string, column?: string, value?: float}>}>
+     */
+    private function parseCalcSpecs(mixed $raw): array
+    {
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($raw as $spec) {
+            if (! is_array($spec)) {
+                continue;
+            }
+            $id = preg_replace('/[^A-Za-z0-9_-]/', '', (string) ($spec['id'] ?? ''));
+            $operandsRaw = is_array($spec['operands'] ?? null) ? $spec['operands'] : [];
+            if ($id === '' || $operandsRaw === []) {
+                continue;
+            }
+
+            $operands = [];
+            foreach (array_values($operandsRaw) as $i => $o) {
+                if (! is_array($o)) {
+                    continue;
+                }
+                $entry = [];
+                if ($i > 0) {
+                    $op = (string) ($o['op'] ?? '+');
+                    $entry['op'] = in_array($op, self::CALC_OPS, true) ? $op : '+';
+                }
+                if (isset($o['column']) && (string) $o['column'] !== '') {
+                    $entry['column'] = (string) $o['column'];
+                } elseif (isset($o['value']) && is_numeric($o['value'])) {
+                    $entry['value'] = (float) $o['value'];
+                } else {
+                    continue; // opérande vide → ignorée
+                }
+                $operands[] = $entry;
+            }
+
+            if ($operands !== []) {
+                $out[] = ['id' => $id, 'operands' => $operands];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Expression SQL d'une colonne calculée : `(numexpr(a) op numexpr(b) …)`.
+     * `$keyOf` mappe une réf de colonne d'opérande vers sa clé de ligne (nom nu,
+     * ou `alias."col"` en multi-sources).
+     *
+     * @param  array<int, array{op?: string, column?: string, value?: float}>  $operands
+     */
+    private function calcColumnSql(array $operands, callable $keyOf): string
+    {
+        $sql = '';
+        foreach ($operands as $i => $o) {
+            $term = isset($o['column'])
+                ? $this->duckDbNumericExpr($keyOf($o['column']))
+                : (string) ($o['value'] ?? 0);
+            if ($i === 0) {
+                $sql = $term;
+
+                continue;
+            }
+            $op = $o['op'] ?? '+';
+            $sql = $op === '/'
+                ? "({$sql}) / NULLIF({$term}, 0)"
+                : "({$sql}) {$op} {$term}";
+        }
+
+        return "({$sql})";
+    }
+
+    /**
+     * Ajoute les colonnes calculées à des lignes déjà chargées (chemin mock / PHP).
+     * `$keyOf` mappe une réf d'opérande vers la clé de ligne.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function applyCalcColumns(array $rows, callable $keyOf): array
+    {
+        if ($this->calcSpecs === []) {
+            return $rows;
+        }
+
+        return array_map(function ($row) use ($keyOf) {
+            foreach ($this->calcSpecs as $spec) {
+                $acc = null;
+                foreach ($spec['operands'] as $i => $o) {
+                    $val = isset($o['column'])
+                        ? NumericValueParser::parse($row[$keyOf($o['column'])] ?? null)
+                        : (float) ($o['value'] ?? 0);
+                    if ($i === 0) {
+                        $acc = $val;
+
+                        continue;
+                    }
+                    if ($acc === null || $val === null) {
+                        $acc = null;
+
+                        continue;
+                    }
+                    $acc = match ($o['op'] ?? '+') {
+                        '-' => $acc - $val,
+                        '*' => $acc * $val,
+                        '/' => $val == 0.0 ? null : $acc / $val,
+                        default => $acc + $val,
+                    };
+                }
+                $row['calc:'.$spec['id']] = $acc;
+            }
+
+            return $row;
+        }, $rows);
+    }
+
+    /**
+     * Clause `col IN (...)` (insensible à la casse) pour un filtre `in` / `not_in`
+     * dont la valeur est un tableau JSON.
+     */
+    private function duckDbInClause(string $col, string $rawValue, bool $negate): string
+    {
+        $list = $this->decodeFilterList($rawValue);
+        if ($list === []) {
+            return $negate ? '1=1' : '1=0';
+        }
+
+        $quoted = implode(', ', array_map(
+            fn ($v) => "LOWER('".str_replace("'", "''", $v)."')",
+            $list,
+        ));
+
+        return $negate
+            ? "LOWER({$col}::VARCHAR) NOT IN ({$quoted})"
+            : "LOWER({$col}::VARCHAR) IN ({$quoted})";
     }
 
     /**
@@ -993,7 +1529,7 @@ class DatasetController extends Controller
      * @param  array<string>  $aggregateColumns
      * @param  array<string>  $groupBy
      */
-    private function wrapAggregateSql(string $innerSql, array $aggregateSpecs, array $groupBy): string
+    private function wrapAggregateSql(string $innerSql, array $aggregateSpecs, array $groupBy, ?string $sortColumn = null, string $sortDirection = 'asc'): string
     {
         $quote = fn (string $c) => '"'.str_replace('"', '""', $c).'"';
 
@@ -1007,19 +1543,54 @@ class DatasetController extends Controller
             $seen[$col] = true;
             $fn = strtoupper($spec['fn']);
             $escaped = $quote($col);
-            // Les colonnes texte type "10,000+" (compteurs scrapés) ne sont pas castables
-            // telles quelles : on retire virgules et "+" final avant le TRY_CAST.
-            $cleaned = "REGEXP_REPLACE(REGEXP_REPLACE(CAST({$escaped} AS VARCHAR), ',', '', 'g'), '\\+\$', '')";
-            $expr = $fn === 'COUNT' ? 'COUNT(*)' : "{$fn}(TRY_CAST({$cleaned} AS DOUBLE))";
+            // Les colonnes texte décorées ("10,000+", "90 %", "12 €") ne sont pas
+            // castables telles quelles : on extrait la valeur numérique avant l'agrégat.
+            $expr = $fn === 'COUNT' ? 'COUNT(*)' : "{$fn}({$this->duckDbNumericExpr($escaped)})";
             $selectParts[] = "{$expr} AS {$escaped}";
         }
 
         $sql = 'SELECT '.implode(', ', $selectParts)." FROM ({$innerSql}) agg_sub";
         if (! empty($groupBy)) {
             $sql .= ' GROUP BY '.implode(', ', array_map($quote, $groupBy));
+            // Le GROUP BY détruit l'ORDER BY de la sous-requête → on ré-ordonne la
+            // sortie agrégée (sinon l'axe X d'un graphique ressort en vrac).
+            $sql .= $this->aggregateOrderClause($groupBy, array_keys($seen), $sortColumn, $sortDirection);
         }
 
         return $sql;
+    }
+
+    /**
+     * Clause ORDER BY pour une sortie agrégée. Tri sur $sortColumn si elle est une
+     * clé de groupe ou une colonne agrégée ; sinon repli sur la 1re clé de groupe
+     * (l'axe X), croissant.
+     *
+     * @param  array<int, string>  $groupBy
+     * @param  array<int, string>  $aggColumns
+     */
+    private function aggregateOrderClause(array $groupBy, array $aggColumns, ?string $sortColumn, string $sortDirection): string
+    {
+        if ($groupBy === []) {
+            return '';
+        }
+
+        $desc = strtolower($sortDirection) === 'desc';
+        $isAggTarget = $sortColumn !== null && $sortColumn !== '' && in_array($sortColumn, $aggColumns, true) && ! in_array($sortColumn, $groupBy, true);
+        $target = ($sortColumn !== null && $sortColumn !== '' && (in_array($sortColumn, $groupBy, true) || $isAggTarget))
+            ? $sortColumn
+            : $groupBy[0];
+        if ($target === $groupBy[0] && $target !== $sortColumn) {
+            $desc = false;
+        }
+
+        $q = '"'.str_replace('"', '""', $target).'"';
+        $dir = $desc ? 'DESC' : 'ASC';
+
+        // Une colonne agrégée est déjà numérique (AVG/SUM/…) — pas de décodage texte.
+        // Une clé de groupe reste du texte brut, potentiellement décoré (« 90 % »).
+        return $isAggTarget
+            ? " ORDER BY {$q} {$dir} NULLS LAST"
+            : ' ORDER BY '.$this->duckDbNumericExpr($q)." {$dir} NULLS LAST, {$q} {$dir}";
     }
 
     /**
@@ -1222,16 +1793,22 @@ class DatasetController extends Controller
             }
 
             $cell = (string) $row[$col];
+            // Comparaisons numériques : on extrait la valeur (« 90 % » → 90) des deux
+            // côtés plutôt que d'exiger une chaîne déjà numérique.
+            $cellNum = NumericValueParser::parse($cell);
+            $valueNum = NumericValueParser::parse($value);
 
             $match = match ($operator) {
                 '=' => strtolower($cell) === strtolower($value),
                 '!=' => strtolower($cell) !== strtolower($value),
-                '>' => is_numeric($cell) && is_numeric($value) && (float) $cell > (float) $value,
-                '>=' => is_numeric($cell) && is_numeric($value) && (float) $cell >= (float) $value,
-                '<' => is_numeric($cell) && is_numeric($value) && (float) $cell < (float) $value,
-                '<=' => is_numeric($cell) && is_numeric($value) && (float) $cell <= (float) $value,
+                '>' => $cellNum !== null && $valueNum !== null && $cellNum > $valueNum,
+                '>=' => $cellNum !== null && $valueNum !== null && $cellNum >= $valueNum,
+                '<' => $cellNum !== null && $valueNum !== null && $cellNum < $valueNum,
+                '<=' => $cellNum !== null && $valueNum !== null && $cellNum <= $valueNum,
                 'contains' => str_contains(strtolower($cell), strtolower($value)),
                 'not_contains' => ! str_contains(strtolower($cell), strtolower($value)),
+                'in' => in_array(strtolower($cell), array_map('strtolower', $this->decodeFilterList($value)), true),
+                'not_in' => ! in_array(strtolower($cell), array_map('strtolower', $this->decodeFilterList($value)), true),
                 default => true,
             };
 
@@ -1241,6 +1818,24 @@ class DatasetController extends Controller
         }
 
         return true;
+    }
+
+    /**
+     * Décode la valeur d'un filtre `in` / `not_in` : un tableau JSON (`["a","b"]`).
+     * Tolère une valeur simple (traitée comme liste à un élément) pour rester robuste
+     * aux filtres legacy.
+     *
+     * @return array<int, string>
+     */
+    private function decodeFilterList(string $value): array
+    {
+        $decoded = json_decode($value, true);
+
+        if (is_array($decoded)) {
+            return array_values(array_map(fn ($v) => (string) $v, $decoded));
+        }
+
+        return $value === '' ? [] : [$value];
     }
 
     private function matchesSearchQ(array $row, string $searchQ, array $searchCols): bool
@@ -1287,16 +1882,20 @@ class DatasetController extends Controller
             $col = $prefix.'"'.str_replace('"', '""', $filter['column'] ?? '').'"';
             $val = "'".str_replace("'", "''", $filter['value'] ?? '')."'";
             $op = $filter['operator'] ?? '=';
+            $colN = $this->duckDbNumericExpr($col);
+            $valN = $this->duckDbNumericExpr($val);
 
             $clauses[] = match ($op) {
                 '=' => "{$col} = {$val}",
                 '!=' => "{$col} != {$val}",
-                '>' => "TRY_CAST({$col} AS DOUBLE) > TRY_CAST({$val} AS DOUBLE)",
-                '>=' => "TRY_CAST({$col} AS DOUBLE) >= TRY_CAST({$val} AS DOUBLE)",
-                '<' => "TRY_CAST({$col} AS DOUBLE) < TRY_CAST({$val} AS DOUBLE)",
-                '<=' => "TRY_CAST({$col} AS DOUBLE) <= TRY_CAST({$val} AS DOUBLE)",
+                '>' => "{$colN} > {$valN}",
+                '>=' => "{$colN} >= {$valN}",
+                '<' => "{$colN} < {$valN}",
+                '<=' => "{$colN} <= {$valN}",
                 'contains' => "LOWER({$col}) LIKE LOWER(CONCAT('%', {$val}, '%'))",
                 'not_contains' => "LOWER({$col}) NOT LIKE LOWER(CONCAT('%', {$val}, '%'))",
+                'in' => $this->duckDbInClause($col, $filter['value'] ?? '', false),
+                'not_in' => $this->duckDbInClause($col, $filter['value'] ?? '', true),
                 default => '1=1',
             };
         }

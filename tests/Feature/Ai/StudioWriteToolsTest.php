@@ -246,6 +246,27 @@ class StudioWriteToolsTest extends TestCase
         $this->assertSame(['xAxis' => 'region', 'yAxes' => ['population'], 'aggregate' => 'sum'], $op['fieldMapping']);
     }
 
+    public function test_add_block_accepts_calc_column_refs_in_the_mapping(): void
+    {
+        $dataset = $this->dataset();
+        $ctx = $this->context('statsdata');
+        (app(AddPageTool::class))->execute(['ref' => 'p1', 'title' => 'X'], $ctx);
+        (new AddSectionTool)->execute(['ref' => 's1', 'page_ref' => 'p1', 'layout' => '1-col'], $ctx);
+
+        $fm = '{"xAxis":"region","yAxes":["calc:t"],"aggregate":"avg",'
+            .'"calcColumns":[{"id":"t","label":"Total","operands":[{"column":"population"},{"op":"*","value":2}]}]}';
+
+        $ok = (app(AddBlockTool::class))->execute([
+            'ref' => 'b1', 'section_ref' => 's1', 'col' => 0, 'type' => 'bar',
+            'dataset_id' => $dataset->id,
+            'field_mapping_json' => $fm,
+        ], $ctx);
+
+        $this->assertTrue($ok['ok'], json_encode($ok));
+        $op = collect($ctx->patchOps())->firstWhere('op', 'addBlock');
+        $this->assertSame(['calc:t'], $op['fieldMapping']['yAxes']);
+    }
+
     public function test_add_block_requires_dataset_for_data_blocks(): void
     {
         $ctx = $this->context('statsdata');

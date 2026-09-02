@@ -269,6 +269,36 @@ class LiveDatasetQueryTest extends TestCase
         Queue::assertPushed(RefreshLiveAggregateJob::class);
     }
 
+    public function test_facet_on_a_live_dataset_degrades_to_sample_values_without_counts(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $this->fakeWaterQualityApi();
+
+        $this->withToken($token)->postJson('/api/api-sources', [
+            'name' => 'Facet live test',
+            'url' => 'https://example.com/water',
+            'method' => 'GET',
+            'data_path' => 'data',
+            'materialization' => 'live',
+            'pagination' => ['style' => 'page', 'param_name' => 'page', 'param_start' => 1, 'size_param' => 'size', 'page_size' => 20],
+            'query_mapping' => ['filters' => ['code_departement' => ['param' => 'code_departement', 'operators' => ['eq']]]],
+        ]);
+        $dataset = DataSource::first()->dataset;
+        $dataset->columns()->where('name', 'code_departement')->update(['sample_values' => ['75', '77', '75']]);
+
+        $response = $this->withToken($token)->getJson(
+            "/api/datasets/{$dataset->id}/query?facet=1&columns[0]=code_departement"
+        );
+
+        $response->assertStatus(200)
+            ->assertJsonPath('meta.has_counts', false)
+            ->assertJsonPath('meta.partial', true)
+            ->assertJsonPath('data.values.0.value', '75')
+            ->assertJsonPath('data.values.0.count', null);
+    }
+
     public function test_aggregate_with_group_by_is_still_rejected(): void
     {
         $user = User::factory()->create();
