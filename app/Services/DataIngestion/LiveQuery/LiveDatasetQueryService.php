@@ -5,6 +5,7 @@ namespace App\Services\DataIngestion\LiveQuery;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Domain\DataIngestion\Exceptions\LiveApiQueryException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedLiveQueryOperationException;
+use App\Domain\DataIngestion\Query\QueryGraph;
 use App\Jobs\RefreshLiveAggregateJob;
 use App\Models\DataIngestion\Dataset;
 use App\Services\DataIngestion\NumericValueParser;
@@ -54,7 +55,14 @@ class LiveDatasetQueryService
         ?string $aggregate = null,
         array $aggregateColumns = [],
         array $groupBy = [],
+        ?QueryGraph $graph = null,
     ): array {
+        if ($graph?->isMultiSource()) {
+            throw new UnsupportedLiveQueryOperationException(
+                "Une source en direct ne peut pas être combinée à d'autres sources : les jointures ne sont pas supportées sur une source en direct."
+            );
+        }
+
         $dataSource = $dataset->dataSource;
         $config = $dataSource->api_config ?? [];
         $queryMapping = $config['query_mapping'] ?? [];

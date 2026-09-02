@@ -33,11 +33,40 @@ class ContentDatasetSources
                 continue;
             }
             foreach ($blocks as $block) {
-                $datasetId = is_array($block) ? ($block['datasetId'] ?? null) : null;
-                if ($datasetId !== null && $datasetId !== '') {
-                    $ids[] = (string) $datasetId;
+                if (! is_array($block)) {
+                    continue;
+                }
+                foreach (self::blockDatasetIds($block) as $id) {
+                    $ids[] = $id;
                 }
             }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Datasets référencés par un bloc : `datasetId` (legacy / source primaire),
+     * `sources[].datasetId` (multi-sources) et `joins[].datasetId` (ancien format).
+     *
+     * @param  array<string, mixed>  $block
+     * @return list<string>
+     */
+    public static function blockDatasetIds(array $block): array
+    {
+        $ids = [];
+        $push = function ($id) use (&$ids) {
+            if ($id !== null && $id !== '') {
+                $ids[] = (string) $id;
+            }
+        };
+
+        $push($block['datasetId'] ?? null);
+        foreach ($block['sources'] ?? [] as $source) {
+            $push(is_array($source) ? ($source['datasetId'] ?? null) : null);
+        }
+        foreach ($block['joins'] ?? [] as $join) {
+            $push(is_array($join) ? ($join['datasetId'] ?? null) : null);
         }
 
         return array_values(array_unique($ids));

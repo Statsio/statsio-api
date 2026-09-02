@@ -22,7 +22,7 @@ class AddSectionTool implements StudioAgentTool
     {
         return 'Ajoute une section à une page. layout ∈ '.implode(' | ', self::LAYOUTS).'. '
             .'En-tête optionnel : kicker (sur-titre), title, description ; theme (fond) ∈ '
-            .implode(' | ', self::THEMES).' ; anchor (ancre + entrée du sommaire).';
+            .implode(' | ', self::THEMES).'. Un title génère automatiquement l\'ancre + l\'entrée du sommaire.';
     }
 
     public function parameters(): array
@@ -38,7 +38,6 @@ class AddSectionTool implements StudioAgentTool
                 'title' => ['type' => 'string'],
                 'description' => ['type' => 'string'],
                 'theme' => ['type' => 'string', 'enum' => self::THEMES],
-                'anchor' => ['type' => 'string', 'description' => 'Slug d\'ancre (ex. "chiffres-cles") → sommaire de la page.'],
             ],
             'required' => ['ref', 'page_ref', 'layout'],
         ];
@@ -76,9 +75,6 @@ class AddSectionTool implements StudioAgentTool
         }
         if (isset($input['theme']) && in_array($input['theme'], self::THEMES, true) && $input['theme'] !== 'default') {
             $op['theme'] = $input['theme'];
-        }
-        if (isset($input['anchor']) && is_string($input['anchor']) && $input['anchor'] !== '') {
-            $op['anchorId'] = preg_replace('/[^a-z0-9-]+/', '-', strtolower(trim($input['anchor'])));
         }
         $context->pushOp($op);
 
