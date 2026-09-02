@@ -91,6 +91,27 @@ class PublicDatasetQueryTest extends TestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_query_public_serves_the_facet_branch(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createDataset($user);
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $user->id,
+            'blocks' => [['datasetId' => (string) $dataset->id]],
+        ]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}/datasets/{$dataset->id}/query?facet=1&columns[0]=annee")
+            ->assertStatus(200)
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.column', 'annee')
+            ->assertJsonPath('meta.has_counts', true)
+            ->assertExactJson([
+                'success' => true,
+                'data' => ['column' => 'annee', 'values' => [], 'total' => 0, 'offset' => 0, 'limit' => 50],
+                'meta' => ['has_counts' => true, 'partial' => false],
+            ]);
+    }
+
     public function test_query_public_authorizes_dataset_via_sources_array(): void
     {
         $user = User::factory()->create();

@@ -15,6 +15,11 @@ return [
         // Disque pour les fichiers Parquet des datasets (local en dev, r2-datasets en prod)
         'datasets_disk' => env('DATASETS_DISK', 'local'),
 
+        // Plafond de lignes scannées pour un décompte de facettes multi-sources
+        // (jointure appliquée avant le GROUP BY en PHP) — au-delà, la réponse est
+        // marquée `partial`. Voir DatasetController::facetResponse().
+        'facet_scan_cap' => (int) env('DATA_INGESTION_FACET_SCAN_CAP', 50_000),
+
         // Garde-fous pour la récupération paginée d'une source "api"
         'pagination' => [
             'default_max_pages' => (int) env('DATA_INGESTION_PAGINATION_MAX_PAGES', 100),

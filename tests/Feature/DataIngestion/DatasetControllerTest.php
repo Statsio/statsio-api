@@ -272,6 +272,342 @@ class DatasetControllerTest extends TestCase
         $this->assertSame(3645000, (int) $rows['Germany']['population']);
     }
 
+    private const YEARLY = [
+        ['id', 'annee', 'valeur'],
+        [
+            [1, '2021', 10],
+            [2, '2019', 5],
+            [3, '2022', 40],
+            [4, '2020', 20],
+            [5, '2021', 30],
+            [6, '2019', 15],
+        ],
+    ];
+
+    public function test_query_aggregates_are_ordered_by_the_group_key_by_default(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::YEARLY[0], self::YEARLY[1]);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?aggregate=sum&aggregate_columns[0]=valeur&group_by[0]=annee"
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(['2019', '2020', '2021', '2022'], collect($response->json('data.rows'))->pluck('annee')->all());
+    }
+
+    public function test_query_aggregates_respect_an_explicit_sort_on_the_group_column(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::YEARLY[0], self::YEARLY[1]);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?aggregate=sum&aggregate_columns[0]=valeur&group_by[0]=annee&sort_column=annee&sort_direction=desc"
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(['2022', '2021', '2020', '2019'], collect($response->json('data.rows'))->pluck('annee')->all());
+    }
+
+    public function test_query_aggregates_can_be_sorted_by_the_aggregated_value(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::YEARLY[0], self::YEARLY[1]);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?aggregate=sum&aggregate_columns[0]=valeur&group_by[0]=annee&sort_column=valeur&sort_direction=desc"
+        );
+
+        $response->assertStatus(200);
+        // sommes : 2019=20, 2020=20, 2021=40, 2022=40 → décroissant sur la valeur
+        $this->assertSame([40, 40, 20, 20], collect($response->json('data.rows'))->pluck('valeur')->map(fn ($v) => (int) $v)->all());
+    }
+
+    private const CALC = [
+        ['id', 'annee', 'a', 'b'],
+        [
+            [1, '2019', 10, 40],
+            [2, '2019', 20, 60],
+            [3, '2020', 30, 30],
+            [4, '2020', 40, 10],
+        ],
+    ];
+
+    /** `calc[0]` = `a + b`, injectée puis agrégée `SUM(calc:t)` par année. */
+    public function test_query_calc_column_aggregate(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::CALC[0], self::CALC[1]);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?".http_build_query([
+                'columns' => ['annee', 'calc:t'],
+                'calc' => [['id' => 't', 'operands' => [['column' => 'a'], ['op' => '+', 'column' => 'b']]]],
+                'aggregates' => [['column' => 'calc:t', 'fn' => 'sum']],
+                'group_by' => ['annee'],
+                'sort_column' => 'annee',
+            ])
+        );
+
+        $response->assertStatus(200);
+        // 2019 : (10+40)+(20+60)=130 ; 2020 : (30+30)+(40+10)=110
+        $rows = collect($response->json('data.rows'))->keyBy('annee');
+        $this->assertSame(130, (int) $rows['2019']['calc:t']);
+        $this->assertSame(110, (int) $rows['2020']['calc:t']);
+    }
+
+    public function test_query_calc_column_division_and_constant_with_zero_guard(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, ['id', 'a', 'b'], [
+            [1, 30, 60],   // 30/60*100 = 50
+            [2, 5, 0],     // /0 → null
+        ]);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?".http_build_query([
+                'columns' => ['id', 'calc:r'],
+                'calc' => [['id' => 'r', 'operands' => [
+                    ['column' => 'a'],
+                    ['op' => '/', 'column' => 'b'],
+                    ['op' => '*', 'value' => 100],
+                ]]],
+                'sort_column' => 'id',
+            ])
+        );
+
+        $response->assertStatus(200);
+        $rows = collect($response->json('data.rows'))->all();
+        $this->assertSame(50.0, (float) $rows[0]['calc:r']);
+        $this->assertNull($rows[1]['calc:r']);
+    }
+
+    public function test_query_calc_column_can_be_the_sort_key(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::CALC[0], self::CALC[1]);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?".http_build_query([
+                'columns' => ['annee', 'calc:s'],
+                'calc' => [['id' => 's', 'operands' => [['column' => 'a'], ['op' => '-', 'column' => 'b']]]],
+                'aggregates' => [['column' => 'calc:s', 'fn' => 'sum']],
+                'group_by' => ['annee'],
+                'sort_column' => 'calc:s',
+                'sort_direction' => 'desc',
+            ])
+        );
+
+        $response->assertStatus(200);
+        // 2019 : (10-40)+(20-60) = -70 ; 2020 : (30-30)+(40-10) = 30 → desc
+        $this->assertSame(['2020', '2019'], collect($response->json('data.rows'))->pluck('annee')->all());
+    }
+
+    public function test_query_calc_column_across_joined_sources(): void
+    {
+        $user = User::factory()->create();
+        $cities = $this->createMockDataset($user, ['id', 'city', 'region_code', 'sales'], [
+            [1, 'Paris', 'IDF', 100],
+            [2, 'Lyon', 'ARA', 40],
+        ], 'Cities');
+        $regions = $this->createMockDataset($user, ['code', 'bonus'], [
+            ['IDF', 5],
+            ['ARA', 3],
+        ], 'Regions');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$cities->id}/query?".http_build_query([
+                'columns' => ['city', 'calc:tot'],
+                'sources' => [
+                    ['id' => 'c', 'dataset_id' => (string) $cities->id],
+                    ['id' => 'r', 'dataset_id' => (string) $regions->id],
+                ],
+                'joins' => [['left_source' => 'c', 'left_column' => 'region_code', 'right_source' => 'r', 'right_column' => 'code', 'type' => 'inner']],
+                'calc' => [['id' => 'tot', 'operands' => [['column' => 'sales'], ['op' => '+', 'column' => 'bonus@r']]]],
+                'sort_column' => 'city',
+            ])
+        );
+
+        $response->assertStatus(200);
+        $rows = collect($response->json('data.rows'))->keyBy('city');
+        $this->assertSame(105, (int) $rows['Paris']['calc:tot']);
+        $this->assertSame(43, (int) $rows['Lyon']['calc:tot']);
+    }
+
+    private const FACET_SCHEMA = ['id', 'annee', 'region'];
+
+    private const FACET_ROWS = [
+        [1, '2025', 'Bretagne'],
+        [2, '2025', 'Normandie'],
+        [3, '2025', 'Bretagne'],
+        [4, '2024', 'Bretagne'],
+        [5, '2024', 'Occitanie'],
+        [6, '2023', 'Bretagne'],
+    ];
+
+    public function test_query_facet_returns_values_with_counts_sorted_desc(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::FACET_SCHEMA, self::FACET_ROWS);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?facet=1&columns[0]=annee"
+        );
+
+        $response->assertStatus(200)
+            ->assertJsonPath('meta.has_counts', true)
+            ->assertJsonPath('meta.partial', false)
+            ->assertJsonPath('data.column', 'annee')
+            ->assertJsonPath('data.total', 3);
+
+        $this->assertSame(
+            [['value' => '2025', 'count' => 3], ['value' => '2024', 'count' => 2], ['value' => '2023', 'count' => 1]],
+            $response->json('data.values'),
+        );
+    }
+
+    public function test_query_facet_respects_search(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::FACET_SCHEMA, self::FACET_ROWS);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?facet=1&columns[0]=region&search=bret"
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame([['value' => 'Bretagne', 'count' => 4]], $response->json('data.values'));
+    }
+
+    public function test_query_facet_applies_filters(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::FACET_SCHEMA, self::FACET_ROWS);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?facet=1&columns[0]=region&filters[0][column]=annee&filters[0][operator]==&filters[0][value]=2025"
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(
+            [['value' => 'Bretagne', 'count' => 2], ['value' => 'Normandie', 'count' => 1]],
+            $response->json('data.values'),
+        );
+    }
+
+    public function test_query_facet_pagination(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::FACET_SCHEMA, self::FACET_ROWS);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?facet=1&columns[0]=annee&facet_limit=1&facet_offset=1"
+        );
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.total', 3)
+            ->assertJsonPath('data.offset', 1)
+            ->assertJsonPath('data.limit', 1);
+        $this->assertSame([['value' => '2024', 'count' => 2]], $response->json('data.values'));
+    }
+
+    public function test_query_facet_from_a_joined_source(): void
+    {
+        $user = User::factory()->create();
+        $cities = $this->createMockDataset($user, ['id', 'city', 'region_code'], [
+            [1, 'Paris', 'IDF'],
+            [2, 'Lyon', 'ARA'],
+            [3, 'Nice', 'PACA'],
+            [4, 'Marseille', 'PACA'],
+        ], 'Cities');
+        $regions = $this->createMockDataset($user, ['code', 'zone'], [
+            ['IDF', 'Nord'],
+            ['ARA', 'Sud'],
+            ['PACA', 'Sud'],
+        ], 'Regions');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$cities->id}/query?".http_build_query([
+                'facet' => '1',
+                'columns' => ['zone@r'],
+                'sources' => [
+                    ['id' => 'c', 'dataset_id' => (string) $cities->id],
+                    ['id' => 'r', 'dataset_id' => (string) $regions->id],
+                ],
+                'joins' => [['left_source' => 'c', 'left_column' => 'region_code', 'right_source' => 'r', 'right_column' => 'code', 'type' => 'inner']],
+            ])
+        );
+
+        $response->assertStatus(200)->assertJsonPath('meta.has_counts', true);
+        $this->assertSame(
+            [['value' => 'Sud', 'count' => 3], ['value' => 'Nord', 'count' => 1]],
+            $response->json('data.values'),
+        );
+    }
+
+    public function test_query_facet_is_cached_until_dataset_is_reingested(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::FACET_SCHEMA, self::FACET_ROWS);
+        $token = $user->createToken('t')->plainTextToken;
+        $url = "/api/datasets/{$dataset->id}/query?facet=1&columns[0]=annee";
+
+        $this->withToken($token)->getJson($url)->assertStatus(200);
+
+        // Nouvelle version (checksum différent) → la clé de cache change, le décompte est recalculé.
+        $path = "datasets/{$dataset->id}/v2.parquet";
+        Storage::disk('local')->put($path, json_encode(['__mock__' => true, 'schema' => self::FACET_SCHEMA, 'data' => [
+            [1, '2030', 'Bretagne'],
+        ]]));
+        DatasetVersion::create([
+            'dataset_id' => $dataset->id,
+            'version_number' => 2,
+            'parquet_storage_path' => $path,
+            'checksum' => 'v2-checksum',
+            'file_size_bytes' => 50,
+            'row_count' => 1,
+        ]);
+
+        $response = $this->withToken($token)->getJson($url);
+        $response->assertStatus(200);
+        $this->assertSame([['value' => '2030', 'count' => 1]], $response->json('data.values'));
+    }
+
+    public function test_query_filter_in_operator(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::FACET_SCHEMA, self::FACET_ROWS);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?".http_build_query([
+                'columns' => ['id'],
+                'filters' => [['column' => 'annee', 'operator' => 'in', 'value' => json_encode(['2024', '2023'])]],
+                'sort_column' => 'id',
+            ])
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(['4', '5', '6'], collect($response->json('data.rows'))->pluck('id')->map(fn ($v) => (string) $v)->all());
+    }
+
+    public function test_query_filter_not_in_operator(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::FACET_SCHEMA, self::FACET_ROWS);
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query?".http_build_query([
+                'columns' => ['id'],
+                'filters' => [['column' => 'annee', 'operator' => 'not_in', 'value' => json_encode(['2024', '2023'])]],
+                'sort_column' => 'id',
+            ])
+        );
+
+        $response->assertStatus(200);
+        $this->assertSame(['1', '2', '3'], collect($response->json('data.rows'))->pluck('id')->map(fn ($v) => (string) $v)->all());
+    }
+
     public function test_query_joins_with_another_owned_dataset(): void
     {
         $user = User::factory()->create();
