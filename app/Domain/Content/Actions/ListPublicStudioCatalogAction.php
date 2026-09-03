@@ -2,6 +2,7 @@
 
 namespace App\Domain\Content\Actions;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\Content\Support\StudioContentBlocks;
@@ -39,6 +40,7 @@ class ListPublicStudioCatalogAction
         $type = $this->sanitizeType($request->query('type'));
         $channelId = $request->query('channel_id') ? (int) $request->query('channel_id') : null;
         $allowlist = $this->sanitizeCategories($request->query('categories'));
+        $subBrand = $this->sanitizeSubBrand($request->query('sub_brand'));
         $category = $this->sanitizeSingleCategory($request->query('category'));
         $format = $this->sanitizeFormat($request->query('format'));
         $search = $this->sanitizeSearch($request->query('q'));
@@ -54,7 +56,7 @@ class ListPublicStudioCatalogAction
         $viewer = $request->user('sanctum');
         $respondentToken = $this->sanitizeToken($request->query('respondent_token'));
 
-        $base = $this->publishedQuery($type, $channelId, $allowlist);
+        $base = $this->publishedQuery($type, $channelId, $allowlist, $subBrand);
         $searched = $this->applySearch(clone $base, $search);
 
         $filtered = clone $searched;
@@ -93,6 +95,16 @@ class ListPublicStudioCatalogAction
         if ($sort === 'votes') {
             $filtered->withCount('blockResponses');
         }
+
+        $hasUserFilters = $search !== '' || $category !== null || $format !== null || $hasData
+            || $surveyKind !== null || $surveyStatus !== null || $notParticipated;
+
+        // Sans filtre : les contenus « à la une » (choisis par l'admin) sont épinglés
+        // en tête, dans l'ordre de `featured_priority` (plus petit = premier).
+        if (! $hasUserFilters) {
+            $filtered->orderByDesc('is_featured')
+                ->orderByRaw('COALESCE(featured_priority, 2147483647) asc');
+        }
         $this->applySort($filtered, $sort);
 
         $total = (clone $filtered)->count();
@@ -124,12 +136,11 @@ class ListPublicStudioCatalogAction
             ->values()
             ->all();
 
-        $featured = null;
-        $hasUserFilters = $search !== '' || $category !== null || $format !== null || $hasData
-            || $surveyKind !== null || $surveyStatus !== null || $notParticipated;
-        if (! $hasUserFilters && $data !== []) {
-            $featured = $data[0];
-        }
+        // La grande card mise en avant = le contenu « à la une » de plus haute
+        // priorité. Rien n'est promu automatiquement : l'admin décide.
+        $featured = (! $hasUserFilters && isset($data[0]) && ($data[0]['is_featured'] ?? false))
+            ? $data[0]
+            : null;
 
         return [
             'data' => $data,
@@ -144,17 +155,18 @@ class ListPublicStudioCatalogAction
                 'formats' => $this->formatFacets($searched),
                 'survey_kinds' => $isSurvey ? $this->surveyKindFacets($searched) : [],
             ],
-            'stats' => $this->heroStats($type, $channelId, $allowlist),
+            'stats' => $this->heroStats($type, $channelId, $allowlist, $subBrand),
             'featured' => $featured,
         ];
     }
 
-    private function publishedQuery(?string $type, ?int $channelId, array $allowlist): Builder
+    private function publishedQuery(?string $type, ?int $channelId, array $allowlist, ?string $subBrand = null): Builder
     {
         return StudioContent::query()
             ->where('status', 'published')
             ->when($type, fn (Builder $q) => $q->where('type', $type))
             ->when($channelId, fn (Builder $q) => $q->where('channel_id', $channelId)->where('published_as', 'channel'))
+            ->when($subBrand, fn (Builder $q) => $q->where('sub_brand', $subBrand))
             ->when($allowlist, fn (Builder $q) => $q->where(function (Builder $sub) use ($allowlist) {
                 foreach ($allowlist as $category) {
                     $sub->orWhereJsonContains('categories', $category);
@@ -297,12 +309,12 @@ class ListPublicStudioCatalogAction
     /**
      * @return array{published: int, channels: int, charts: int, last_published_at: ?string}
      */
-    private function heroStats(?string $type, ?int $channelId, array $allowlist): array
+    private function heroStats(?string $type, ?int $channelId, array $allowlist, ?string $subBrand = null): array
     {
-        $cacheKey = 'studio.public.catalog.stats.'.md5(json_encode([$type, $channelId, $allowlist]));
+        $cacheKey = 'studio.public.catalog.stats.'.md5(json_encode([$type, $channelId, $allowlist, $subBrand]));
 
-        return Cache::remember($cacheKey, self::STATS_TTL, function () use ($type, $channelId, $allowlist) {
-            $query = $this->publishedQuery($type, $channelId, $allowlist);
+        return Cache::remember($cacheKey, self::STATS_TTL, function () use ($type, $channelId, $allowlist, $subBrand) {
+            $query = $this->publishedQuery($type, $channelId, $allowlist, $subBrand);
             $published = (clone $query)->count();
             $channels = (clone $query)->where('published_as', 'channel')->whereNotNull('channel_id')->distinct()->count('channel_id');
             $last = (clone $query)->orderByDesc('updated_at')->value('updated_at');
@@ -417,6 +429,12 @@ class ListPublicStudioCatalogAction
     private function sanitizeSurveyKind(mixed $raw): ?string
     {
         return is_string($raw) && in_array($raw, SurveyKindEnum::values(), true) ? $raw : null;
+    }
+
+    /** Sous-marque concrète (`statsio|tvstats|medistats`) pour cadrer un listing. */
+    private function sanitizeSubBrand(mixed $raw): ?string
+    {
+        return is_string($raw) && in_array($raw, SubBrandEnum::contentValues(), true) ? $raw : null;
     }
 
     private function sanitizeSurveyStatus(mixed $raw): ?string

@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\Dossiers\Tables;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 
@@ -23,6 +25,12 @@ class DossiersTable
                     ->label('Titre')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('sub_brand')
+                    ->label('Sous-marque')
+                    ->badge()
+                    ->sortable()
+                    ->formatStateUsing(fn (SubBrandEnum $state): string => $state->label())
+                    ->color(fn (SubBrandEnum $state): string => $state === SubBrandEnum::All ? 'gray' : 'primary'),
                 TextColumn::make('content_categories_count')
                     ->label('Catégories')
                     ->sortable(),
@@ -41,6 +49,9 @@ class DossiersTable
             ])
             ->defaultSort('position')
             ->filters([
+                SelectFilter::make('sub_brand')
+                    ->label('Sous-marque')
+                    ->options(SubBrandEnum::options()),
                 TernaryFilter::make('is_active')->label('Actif'),
                 TernaryFilter::make('is_pinned')->label('Épinglé'),
             ])

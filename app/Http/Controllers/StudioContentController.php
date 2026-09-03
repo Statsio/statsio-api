@@ -9,6 +9,7 @@ use App\Domain\Content\Actions\PublishStudioContentAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
 use App\Domain\Content\Actions\SuggestDossiersAction;
 use App\Domain\Content\Enums\ContentCoverageEnum;
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\Content\Support\StudioContentBlocks;
@@ -88,6 +89,7 @@ class StudioContentController extends Controller
             'categories' => 'nullable|array',
             'categories.*' => 'string|max:50',
             'coverage' => ['nullable', Rule::enum(ContentCoverageEnum::class)],
+            'sub_brand' => ['sometimes', Rule::in(SubBrandEnum::contentValues())],
             'response_deadline' => 'nullable|date',
         ]);
 
@@ -111,6 +113,7 @@ class StudioContentController extends Controller
             'blocks' => $data['blocks'] ?? [],
             'categories' => $data['categories'] ?? [],
             'coverage' => $data['coverage'] ?? null,
+            'sub_brand' => $data['sub_brand'] ?? 'statsio',
             'response_deadline' => $data['response_deadline'] ?? null,
         ]);
 
@@ -432,16 +435,19 @@ class StudioContentController extends Controller
             'categories.*' => 'string|max:50',
             'card_block_id' => 'sometimes|nullable|string|max:64',
             'coverage' => ['sometimes', 'nullable', Rule::enum(ContentCoverageEnum::class)],
+            'sub_brand' => ['sometimes', Rule::in(SubBrandEnum::contentValues())],
             'published_as' => 'sometimes|nullable|string|in:user,channel',
             'channel_id' => 'sometimes|nullable|integer|exists:channels,id',
             'response_deadline' => 'sometimes|nullable|date',
             'thumbnail' => 'sometimes|file|image|max:5120',
+            'thumbnail_media_id' => 'sometimes|nullable|integer|exists:media,id',
             'remove_thumbnail' => 'sometimes|boolean',
         ]);
 
         $thumbnailFile = $request->file('thumbnail');
+        $thumbnailMediaId = $request->filled('thumbnail_media_id') ? (int) $request->input('thumbnail_media_id') : null;
         $removeThumbnail = $request->boolean('remove_thumbnail');
-        unset($data['thumbnail'], $data['remove_thumbnail']);
+        unset($data['thumbnail'], $data['thumbnail_media_id'], $data['remove_thumbnail']);
 
         // Purge le cache public de l'ancien slug avant qu'il ne change.
         $previousSlug = $content->slug;
@@ -455,6 +461,8 @@ class StudioContentController extends Controller
         if ($thumbnailFile) {
             $content->getMedia('thumbnail')->each(fn ($m) => $content->deleteMedia($m));
             $content->addMedia($thumbnailFile, 'studio-content-thumbnails', 'thumbnail');
+        } elseif ($thumbnailMediaId !== null) {
+            $content->attachMediaFromLibrary($thumbnailMediaId, 'studio-content-thumbnails', 'thumbnail', $request->user()->id);
         } elseif ($removeThumbnail) {
             $content->getMedia('thumbnail')->each(fn ($m) => $content->deleteMedia($m));
         }
@@ -826,6 +834,7 @@ class StudioContentController extends Controller
             'categories' => $content->categories ?? [],
             'card_block_id' => $content->card_block_id,
             'coverage' => $content->coverage,
+            'sub_brand' => $content->sub_brand?->value ?? 'statsio',
             'response_deadline' => $content->response_deadline?->toIso8601String(),
             'published_as' => $content->published_as,
             'channel_id' => $content->channel_id,

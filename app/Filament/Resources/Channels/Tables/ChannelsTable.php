@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Channels\Tables;
 
 use App\Domain\Channel\Actions\ChannelAction;
 use App\Domain\Channel\Enums\ChannelStatusEnum;
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Filament\Resources\Channels\Support\ChannelModerationActions;
 use App\Models\Channel\Channel;
 use Filament\Actions\ActionGroup;
@@ -30,6 +31,12 @@ class ChannelsTable
                     )),
                 TextColumn::make('profile.handle')
                     ->label('@handle'),
+                TextColumn::make('profile.sub_brand')
+                    ->label('Domaine')
+                    ->badge()
+                    ->getStateUsing(fn (Channel $record): SubBrandEnum => $record->profile?->sub_brand ?? SubBrandEnum::All)
+                    ->formatStateUsing(fn (SubBrandEnum $state): string => $state->label())
+                    ->color(fn (SubBrandEnum $state): string => $state === SubBrandEnum::All ? 'gray' : 'primary'),
                 TextColumn::make('status')
                     ->label('Statut')
                     ->badge()
@@ -58,6 +65,12 @@ class ChannelsTable
                     ->options(collect(ChannelStatusEnum::cases())
                         ->mapWithKeys(fn (ChannelStatusEnum $c): array => [$c->value => ucfirst($c->value)])
                         ->all()),
+                SelectFilter::make('sub_brand')
+                    ->label('Domaine')
+                    ->options(SubBrandEnum::options())
+                    ->query(fn (Builder $query, array $data): Builder => filled($data['value'] ?? null)
+                        ? $query->whereHas('profile', fn (Builder $q) => $q->where('sub_brand', $data['value']))
+                        : $query),
             ])
             ->recordActions([
                 EditAction::make(),

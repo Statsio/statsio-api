@@ -154,4 +154,61 @@ class DossierTest extends TestCase
             'dossier_id' => $dossier->id,
         ]);
     }
+
+    public function test_public_catalog_is_open_and_ranks_active_dossiers_with_counts(): void
+    {
+        $ukraine = DossierFactory::new()->create(['name' => 'Guerre en Ukraine', 'position' => 0]);
+        $climat = DossierFactory::new()->create(['name' => 'Crise climatique', 'position' => 1]);
+        DossierFactory::new()->inactive()->create(['name' => 'Archivé']);
+
+        $a = StudioContentFactory::new()->published()->create(['type' => 'article']);
+        $b = StudioContentFactory::new()->published()->create(['type' => 'statsdata']);
+        StudioContentFactory::new()->create(['type' => 'article']); // brouillon → ignoré
+        $ukraine->studioContents()->sync([$a->id, $b->id]);
+        $climat->studioContents()->sync([$a->id]);
+
+        $res = $this->getJson('/api/dossiers/catalog')
+            ->assertOk()
+            ->assertJsonPath('data.stats.dossiers', 2)
+            ->assertJsonPath('data.featured.slug', $ukraine->slug)
+            ->assertJsonPath('data.featured.content_count', 2);
+
+        $this->assertSame(1, collect($res->json('data.data'))->firstWhere('slug', $climat->slug)['content_count']);
+    }
+
+    public function test_public_catalog_filters_by_search(): void
+    {
+        DossierFactory::new()->create(['name' => 'Guerre en Ukraine']);
+        DossierFactory::new()->create(['name' => 'Marché immobilier']);
+
+        $this->getJson('/api/dossiers/catalog?q=ukraine')
+            ->assertOk()
+            ->assertJsonCount(1, 'data.data')
+            ->assertJsonPath('data.data.0.name', 'Guerre en Ukraine');
+    }
+
+    public function test_public_dossier_detail_returns_only_published_contents_and_type_counts(): void
+    {
+        $dossier = DossierFactory::new()->create(['name' => 'Guerre en Ukraine']);
+        $article = StudioContentFactory::new()->published()->create(['type' => 'article', 'title' => 'Six mois de livraisons']);
+        $stat = StudioContentFactory::new()->published()->create(['type' => 'statsdata', 'title' => 'Sanctions']);
+        $draft = StudioContentFactory::new()->create(['type' => 'article', 'title' => 'Brouillon']);
+        $dossier->studioContents()->sync([$article->id, $stat->id, $draft->id]);
+
+        $this->getJson("/api/dossiers/public/{$dossier->slug}")
+            ->assertOk()
+            ->assertJsonPath('data.dossier.name', 'Guerre en Ukraine')
+            ->assertJsonPath('data.counts.all', 2)
+            ->assertJsonPath('data.counts.article', 1)
+            ->assertJsonPath('data.counts.statsdata', 1)
+            ->assertJsonCount(2, 'data.items');
+    }
+
+    public function test_public_dossier_detail_404_when_inactive_or_missing(): void
+    {
+        $dossier = DossierFactory::new()->inactive()->create();
+
+        $this->getJson("/api/dossiers/public/{$dossier->slug}")->assertStatus(404);
+        $this->getJson('/api/dossiers/public/inconnu')->assertStatus(404);
+    }
 }

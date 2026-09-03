@@ -22,6 +22,7 @@ class ChannelProfileAction
             'description' => $data['description'] ?? null,
             'tags' => $data['tags'] ?? null,
             'country' => $data['country'] ?? null,
+            'sub_brand' => $data['sub_brand'] ?? 'statsio',
             'is_featured' => $data['is_featured'] ?? false,
             'custom_color_primary' => $data['custom_color_primary'] ?? null,
             'custom_color_secondary' => $data['custom_color_secondary'] ?? null,
@@ -68,6 +69,9 @@ class ChannelProfileAction
         if (isset($data['country'])) {
             $profileData['country'] = $data['country'];
         }
+        if (isset($data['sub_brand'])) {
+            $profileData['sub_brand'] = $data['sub_brand'];
+        }
         if (isset($data['is_featured'])) {
             $profileData['is_featured'] = $data['is_featured'];
         }
@@ -87,20 +91,26 @@ class ChannelProfileAction
             $this->syncCategories($profile, $data['categories'] ?? $data['category']);
         }
 
-        // Logo
+        $mediaOwnerId = isset($data['media_owner_id']) ? (int) $data['media_owner_id'] : null;
+
+        // Logo — upload direct ou média choisi dans la bibliothèque.
         if (isset($data['logo']) && $data['logo'] instanceof UploadedFile) {
             $profile->media()->where('collection_name', 'logo')->get()->each(function ($m) {
                 app(MediaAction::class)->delete($m);
             });
             $profile->addMedia($data['logo'], 'channels/logos', 'logo');
+        } elseif (! empty($data['logo_media_id'])) {
+            $profile->attachMediaFromLibrary((int) $data['logo_media_id'], 'channels/logos', 'logo', $mediaOwnerId);
         }
 
-        // Bannière
+        // Bannière — upload direct ou média choisi dans la bibliothèque.
         if (isset($data['banner']) && $data['banner'] instanceof UploadedFile) {
             $profile->media()->where('collection_name', 'banner')->get()->each(function ($m) {
                 app(MediaAction::class)->delete($m);
             });
             $profile->addMedia($data['banner'], 'channels/banners', 'banner');
+        } elseif (! empty($data['banner_media_id'])) {
+            $profile->attachMediaFromLibrary((int) $data['banner_media_id'], 'channels/banners', 'banner', $mediaOwnerId);
         }
 
         return $profile->load(['channel', 'channelCategories']);

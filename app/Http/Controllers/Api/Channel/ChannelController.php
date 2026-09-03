@@ -43,9 +43,12 @@ class ChannelController extends Controller
     /**
      * Liste toutes les catégories disponibles
      */
-    public function categories()
+    public function categories(Request $request)
     {
-        $categories = ChannelCategory::orderBy('position')->get(['id', 'slug', 'label']);
+        $categories = ChannelCategory::query()
+            ->forSubBrand($request->query('sub_brand'))
+            ->orderBy('position')
+            ->get(['id', 'slug', 'label', 'sub_brand']);
 
         return response()->json(['success' => true, 'data' => $categories]);
     }
@@ -119,6 +122,8 @@ class ChannelController extends Controller
         $request->validate([
             'logo' => 'sometimes|file|image:allow_svg|max:5120',
             'banner' => 'sometimes|file|image:allow_svg|max:10240',
+            'logo_media_id' => 'sometimes|integer|exists:media,id',
+            'banner_media_id' => 'sometimes|integer|exists:media,id',
         ]);
 
         $channel = $this->channelAction->getChannelById($id);
@@ -127,7 +132,8 @@ class ChannelController extends Controller
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
         }
 
-        $data = $request->only(['logo', 'banner']);
+        $data = $request->only(['logo', 'banner', 'logo_media_id', 'banner_media_id']);
+        $data['media_owner_id'] = $user->id;
         $updated = $this->channelAction->updateChannelProfile($channel->profile, $data);
 
         return response()->json([
