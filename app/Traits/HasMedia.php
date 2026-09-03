@@ -25,6 +25,40 @@ trait HasMedia
         return $media;
     }
 
+    /**
+     * Rattache à cette entité un média choisi dans la bibliothèque de l'utilisateur.
+     * Le fichier source est dupliqué (l'entité possède sa propre copie), l'ancien
+     * média de la collection est supprimé, puis la copie est enregistrée avec le
+     * nom de collection voulu.
+     *
+     * @param  int|null  $ownerUserId  si fourni, le média source doit lui appartenir
+     */
+    public function attachMediaFromLibrary(int $mediaId, string $directory, string $collection, ?int $ownerUserId = null): ?Media
+    {
+        $source = Media::query()
+            ->when($ownerUserId !== null, fn ($q) => $q->where('user_id', $ownerUserId))
+            ->find($mediaId);
+
+        if (! $source) {
+            return null;
+        }
+
+        $mediaAction = app(MediaAction::class);
+
+        $this->media()
+            ->where('collection_name', $collection)
+            ->get()
+            ->each(fn (Media $m) => $mediaAction->delete($m));
+
+        $copy = $mediaAction->duplicate($source, $directory);
+        $copy->collection_name = $collection ?: null;
+        $copy->user_id = $source->user_id;
+
+        $this->media()->save($copy);
+
+        return $copy;
+    }
+
     public function addMultipleMedia(array $files, string $directory = 'media'): Collection
     {
         $mediaItems = [];

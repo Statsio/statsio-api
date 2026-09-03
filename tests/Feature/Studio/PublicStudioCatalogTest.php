@@ -139,6 +139,8 @@ class PublicStudioCatalogTest extends TestCase
                 'user_id' => $this->user->id,
                 'type' => 'article',
                 'title' => "Article $i",
+                'is_featured' => $i === 3,
+                'featured_priority' => $i === 3 ? 1 : null,
             ]);
             $row->forceFill(['views_count' => $i])->save();
         }
@@ -146,11 +148,49 @@ class PublicStudioCatalogTest extends TestCase
         $plain = $this->getJson('/api/studio/content/public/catalog?type=article&per_page=3&sort=views');
         $plain->assertOk()
             ->assertJsonPath('meta.shown', 3)
-            ->assertJsonPath('meta.has_more', true);
-        $this->assertNotNull($plain->json('featured'));
+            ->assertJsonPath('meta.has_more', true)
+            ->assertJsonPath('featured.title', 'Article 3')
+            ->assertJsonPath('data.0.title', 'Article 3')
+            ->assertJsonPath('data.0.is_featured', true);
 
         $filtered = $this->getJson('/api/studio/content/public/catalog?type=article&q=Article&per_page=3');
         $filtered->assertOk()->assertJsonPath('featured', null);
+    }
+
+    public function test_catalog_has_no_featured_card_when_the_admin_flagged_nothing(): void
+    {
+        StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'title' => 'Ordinaire',
+        ]);
+
+        $this->getJson('/api/studio/content/public/catalog?type=article')
+            ->assertOk()
+            ->assertJsonPath('featured', null)
+            ->assertJsonPath('data.0.is_featured', false);
+    }
+
+    public function test_catalog_pins_extra_featured_contents_first_by_priority(): void
+    {
+        $normalTop = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id, 'type' => 'article', 'title' => 'Très lu',
+        ]);
+        $normalTop->forceFill(['views_count' => 9999])->save();
+
+        $second = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id, 'type' => 'article', 'title' => 'À la une #2',
+            'is_featured' => true, 'featured_priority' => 2,
+        ]);
+        $first = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id, 'type' => 'article', 'title' => 'À la une #1',
+            'is_featured' => true, 'featured_priority' => 1,
+        ]);
+
+        $res = $this->getJson('/api/studio/content/public/catalog?type=article&sort=views')->assertOk();
+
+        $this->assertSame((string) $first->id, $res->json('featured.id'));
+        $this->assertSame(['À la une #1', 'À la une #2', 'Très lu'], collect($res->json('data'))->pluck('title')->all());
     }
 
     public function test_catalog_filters_by_channel_id(): void
@@ -175,5 +215,27 @@ class PublicStudioCatalogTest extends TestCase
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.id', (string) $own->id)
             ->assertJsonPath('data.0.publisher.is_channel', true);
+    }
+
+    public function test_catalog_filters_by_sub_brand(): void
+    {
+        $tv = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'title' => 'Sur TVStats',
+            'sub_brand' => 'tvstats',
+        ]);
+        StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'title' => 'Sur Statsio',
+            'sub_brand' => 'statsio',
+        ]);
+
+        $this->getJson('/api/studio/content/public/catalog?type=article&sub_brand=tvstats')
+            ->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('data.0.id', (string) $tv->id)
+            ->assertJsonPath('data.0.sub_brand', 'tvstats');
     }
 }

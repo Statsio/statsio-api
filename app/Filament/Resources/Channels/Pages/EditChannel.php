@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Channels\Pages;
 
 use App\Domain\Channel\Actions\ChannelAction;
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Filament\Resources\Channels\ChannelResource;
 use App\Filament\Resources\Channels\Support\ChannelModerationActions;
 use App\Models\Channel\Channel;
@@ -40,6 +41,7 @@ class EditChannel extends EditRecord
             'handle' => $profile?->handle,
             'description' => $profile?->description,
             'country' => $profile?->country,
+            'sub_brand' => $profile?->sub_brand?->value ?? SubBrandEnum::All->value,
             'custom_color_primary' => $profile?->custom_color_primary,
             'custom_color_secondary' => $profile?->custom_color_secondary,
             'categories' => $profile?->categories ?? [],

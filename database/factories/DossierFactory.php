@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Content\ContentCategory;
 use App\Models\Content\Dossier;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -27,12 +28,18 @@ class DossierFactory extends Factory
             'position' => 0,
             'is_active' => true,
             'is_pinned' => false,
+            'sub_brand' => SubBrandEnum::All,
         ];
     }
 
     public function inactive(): static
     {
         return $this->state(fn () => ['is_active' => false]);
+    }
+
+    public function subBrand(SubBrandEnum $brand): static
+    {
+        return $this->state(fn () => ['sub_brand' => $brand]);
     }
 
     public function pinned(): static

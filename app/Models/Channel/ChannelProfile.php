@@ -3,6 +3,7 @@
 namespace App\Models\Channel;
 
 use App\Domain\Channel\Enums\ChannelKindEnum;
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Media;
 use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,6 +26,7 @@ class ChannelProfile extends Model
         'banner',
         'tags',
         'country',
+        'sub_brand',
         'is_featured',
         'view_count',
         'custom_color_primary',
@@ -36,6 +38,7 @@ class ChannelProfile extends Model
         'is_private' => 'boolean',
         'view_count' => 'integer',
         'kind' => ChannelKindEnum::class,
+        'sub_brand' => SubBrandEnum::class,
         'tags' => 'array',
     ];
 
@@ -99,6 +102,9 @@ class ChannelProfile extends Model
         $array = parent::toArray();
         if (isset($array['kind']) && $array['kind'] instanceof ChannelKindEnum) {
             $array['kind'] = $array['kind']->value;
+        }
+        if (isset($array['sub_brand']) && $array['sub_brand'] instanceof SubBrandEnum) {
+            $array['sub_brand'] = $array['sub_brand']->value;
         }
 
         return $array;

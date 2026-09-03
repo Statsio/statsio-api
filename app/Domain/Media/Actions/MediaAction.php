@@ -40,6 +40,26 @@ class MediaAction
         return $media;
     }
 
+    /**
+     * Duplique un média existant de la bibliothèque : recopie le fichier sur le
+     * disque sous un nouveau nom et crée une ligne `Media` indépendante. Permet à
+     * une entité (avatar, logo de chaîne, miniature…) de posséder son propre
+     * fichier, découplé de la bibliothèque personnelle de l'utilisateur.
+     */
+    public function duplicate(Media $source, string $directory = 'media'): Media
+    {
+        $extension = pathinfo($source->path, PATHINFO_EXTENSION);
+        $filename = Str::uuid().($extension !== '' ? '.'.$extension : '');
+        $path = trim($directory, '/').'/'.$filename;
+
+        Storage::disk($this->disk())->copy($source->path, $path);
+
+        return Media::create([
+            'path' => $path,
+            'type' => $source->type,
+        ]);
+    }
+
     public function delete(Media $media): bool
     {
         if (Storage::disk($this->disk())->exists($media->path)) {

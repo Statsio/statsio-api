@@ -89,6 +89,29 @@ class StudioPublishingTest extends TestCase
             ->assertJsonPath('data.published_version', 2);
     }
 
+    public function test_sub_brand_is_frozen_in_the_published_version(): void
+    {
+        $content = StudioContentFactory::new()->create([
+            'user_id' => $this->user->id,
+            'sub_brand' => 'tvstats',
+        ]);
+        $this->withToken($this->token)->postJson("/api/studio/content/{$content->slug}/publish", ['published_as' => 'user'])->assertOk();
+
+        $this->assertDatabaseHas('studio_content_versions', [
+            'studio_content_id' => $content->id,
+            'version' => 1,
+            'sub_brand' => 'tvstats',
+        ]);
+
+        // Le brouillon change de domaine sans re-publication…
+        $this->withToken($this->token)->patchJson("/api/studio/content/{$content->slug}", ['sub_brand' => 'statsio'])->assertOk();
+
+        // …le public voit toujours le domaine figé de la v1.
+        $this->getJson("/api/studio/content/public/{$content->slug}")
+            ->assertOk()
+            ->assertJsonPath('data.sub_brand', 'tvstats');
+    }
+
     public function test_republish_ignores_a_new_author_choice(): void
     {
         $channel = Channel::factory()->withProfile()->create();

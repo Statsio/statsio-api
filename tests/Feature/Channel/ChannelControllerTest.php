@@ -2,9 +2,13 @@
 
 namespace Tests\Feature\Channel;
 
+use App\Domain\Media\Actions\MediaAction;
 use App\Models\Channel\Channel;
+use App\Models\Channel\ChannelCategory;
+use App\Models\Media;
 use App\Models\User\User;
 use Database\Factories\ChannelProfileFactory;
+use Database\Factories\MediaFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -69,6 +73,41 @@ class ChannelControllerTest extends TestCase
             ->assertJsonPath('success', true);
 
         $this->assertDatabaseCount('channels', 1);
+    }
+
+    public function test_create_channel_defaults_sub_brand_to_statsio(): void
+    {
+        $this->withToken($this->token)->postJson('/api/channels', [
+            'name' => 'Sans domaine', 'handle' => 'sans_domaine',
+        ])->assertStatus(201);
+
+        $this->assertDatabaseHas('channel_profiles', ['handle' => 'sans_domaine', 'sub_brand' => 'statsio']);
+    }
+
+    public function test_update_channel_persists_sub_brand(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+        $channel->users()->attach($this->user->id, ['role' => 'owner', 'subscribed_at' => now()]);
+
+        $this->withToken($this->token)->putJson("/api/channels/{$channel->id}", [
+            'sub_brand' => 'medistats',
+        ])->assertStatus(200);
+
+        $this->assertDatabaseHas('channel_profiles', ['channel_id' => $channel->id, 'sub_brand' => 'medistats']);
+    }
+
+    public function test_channel_categories_expose_and_filter_by_sub_brand(): void
+    {
+        ChannelCategory::where('slug', 'science')->update(['sub_brand' => 'medistats']);
+
+        $all = collect($this->getJson('/api/channels/categories')->assertOk()->json('data'));
+        $this->assertSame('medistats', $all->firstWhere('slug', 'science')['sub_brand']);
+        $this->assertSame('all', $all->firstWhere('slug', 'sport')['sub_brand']);
+
+        $tvSlugs = collect($this->getJson('/api/channels/categories?sub_brand=tvstats')->assertOk()->json('data'))
+            ->pluck('slug');
+        $this->assertContains('sport', $tvSlugs);       // « toutes les marques »
+        $this->assertNotContains('science', $tvSlugs);  // propre à Medistats
     }
 
     public function test_create_channel_persists_custom_color(): void
@@ -233,6 +272,45 @@ class ChannelControllerTest extends TestCase
         ]);
 
         $response->assertStatus(200)->assertJsonPath('success', true);
+    }
+
+    public function test_can_update_media_from_library(): void
+    {
+        // MediaAction stubbé (stockage disque non testable dans ce sandbox) : on
+        // vérifie que le média de la bibliothèque est bien rattaché au profil.
+        $this->mock(MediaAction::class, function ($mock) {
+            $mock->shouldReceive('duplicate')->once()
+                ->andReturn(new Media(['path' => 'channels/logos/copy.png', 'type' => 'image/png']));
+            $mock->shouldReceive('getUrl')->andReturn('http://localhost/api/media/99/file');
+        });
+
+        $channel = Channel::factory()->withProfile()->create();
+        $channel->users()->attach($this->user->id, ['role' => 'owner', 'subscribed_at' => now()]);
+
+        $source = MediaFactory::new()->create(['user_id' => $this->user->id]);
+
+        $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/media", [
+            'logo_media_id' => $source->id,
+        ])->assertStatus(200)->assertJsonPath('success', true);
+
+        $logo = $channel->profile->fresh()->media()->where('collection_name', 'logo')->first();
+        $this->assertNotNull($logo);
+        $this->assertNotSame($source->id, $logo->id);
+        $this->assertSame($this->user->id, $logo->user_id);
+    }
+
+    public function test_update_media_ignores_a_library_media_owned_by_someone_else(): void
+    {
+        $channel = Channel::factory()->withProfile()->create();
+        $channel->users()->attach($this->user->id, ['role' => 'owner', 'subscribed_at' => now()]);
+
+        $foreign = MediaFactory::new()->create(['user_id' => User::factory()->create()->id]);
+
+        $this->withToken($this->token)->postJson("/api/channels/{$channel->id}/media", [
+            'logo_media_id' => $foreign->id,
+        ])->assertStatus(200);
+
+        $this->assertNull($channel->profile->fresh()->media()->where('collection_name', 'logo')->first());
     }
 
     public function test_non_member_cannot_update_media(): void
