@@ -301,6 +301,7 @@ class DatasetController extends Controller
         $emptyPayload = [
             'block_id' => (string) ($block['id'] ?? ''),
             'kind' => $kind,
+            'title' => trim((string) (is_array($block['config'] ?? null) ? ($block['config']['title'] ?? '') : '')),
             'labels' => [],
             'series' => [],
             'empty' => true,

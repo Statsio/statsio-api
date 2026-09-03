@@ -25,7 +25,6 @@ class StudioContentSummary
             'slug' => $content->slug,
             'title' => $content->title,
             'type' => $content->type ?? 'statsdata',
-            'emoji' => $content->emoji,
             'thumbnail_url' => $content->getFirstMediaUrl('thumbnail') ?: null,
             'channel' => $isChannel ? [
                 'id' => $content->channel->id,

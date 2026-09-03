@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Models\User\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -10,6 +12,7 @@ class Media extends Model
     use HasFactory;
 
     protected $fillable = [
+        'user_id',
         'path',
         'type',
         'mediable_type',
@@ -18,6 +21,7 @@ class Media extends Model
     ];
 
     protected $casts = [
+        'user_id' => 'integer',
         'mediable_id' => 'integer',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
@@ -26,6 +30,22 @@ class Media extends Model
     public function mediable()
     {
         return $this->morphTo();
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /** @param  Builder  $query */
+    public function scopeForUser($query, int $userId)
+    {
+        return $query->where('user_id', $userId);
+    }
+
+    public function scopeImages($query)
+    {
+        return $query->where('type', 'like', 'image/%');
     }
 
     public function getUrl(): string

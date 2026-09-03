@@ -8,6 +8,7 @@ Route::prefix('media')->name('media.')->group(function () {
     Route::get('/{media}', [MediaController::class, 'show'])->name('show');
 
     Route::middleware('auth:api')->group(function () {
+        Route::get('/', [MediaController::class, 'index'])->name('index');
         Route::post('/upload', [MediaController::class, 'upload'])->name('upload');
         Route::post('/upload-multiple', [MediaController::class, 'uploadMultiple'])->name('upload.multiple');
         Route::delete('/{media}', [MediaController::class, 'destroy'])->name('destroy');

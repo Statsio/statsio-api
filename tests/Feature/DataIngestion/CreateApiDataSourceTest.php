@@ -49,6 +49,43 @@ class CreateApiDataSourceTest extends TestCase
         Queue::assertPushed(ProcessDataSourceJob::class);
     }
 
+    public function test_persists_hourly_refresh_frequency_and_schedules_next_refresh(): void
+    {
+        Queue::fake();
+        Http::fake(['example.com/*' => Http::response(['data' => [1, 2, 3]])]);
+
+        $user = User::factory()->create();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $response = $this->withToken($token)->postJson('/api/api-sources', [
+            'name' => 'Ressource data.gouv.fr',
+            'url' => 'https://example.com/items',
+            'data_path' => 'data',
+            'refresh_frequency' => 'hourly',
+        ]);
+
+        $response->assertStatus(202);
+
+        $dataSource = DataSource::first();
+        $this->assertSame('hourly', $dataSource->refresh_frequency->value);
+        $this->assertNotNull($dataSource->next_refresh_at);
+        $this->assertTrue($dataSource->next_refresh_at->between(now()->addMinutes(50), now()->addMinutes(70)));
+    }
+
+    public function test_rejects_unknown_refresh_frequency(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $response = $this->withToken($token)->postJson('/api/api-sources', [
+            'name' => 'Bad frequency',
+            'url' => 'https://example.com/items',
+            'refresh_frequency' => 'every_minute',
+        ]);
+
+        $response->assertStatus(422)->assertJsonValidationErrors('refresh_frequency');
+    }
+
     public function test_rejects_invalid_pagination_style(): void
     {
         $user = User::factory()->create();

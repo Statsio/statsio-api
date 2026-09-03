@@ -29,9 +29,6 @@ class StudioContentSchema
                     ->label('Description')
                     ->maxLength(2000)
                     ->columnSpanFull(),
-                TextInput::make('emoji')
-                    ->label('Emoji')
-                    ->maxLength(16),
 
                 Select::make('status')
                     ->label('Statut')

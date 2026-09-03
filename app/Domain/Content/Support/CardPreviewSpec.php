@@ -238,7 +238,7 @@ class CardPreviewSpec
      * Met en forme le résultat d'une requête de bloc en aperçu compact.
      *
      * @param  array<string, mixed>  $block
-     * @return array{block_id: string, kind: string, labels: list<string>, series: list<array{name: string, values: list<float>}>, unit?: string, orientation?: string, empty: bool}
+     * @return array{block_id: string, kind: string, title: string, labels: list<string>, series: list<array{name: string, values: list<float>}>, unit?: string, orientation?: string, empty: bool}
      */
     public static function shape(array $block, QueryResult $result): array
     {
@@ -247,10 +247,12 @@ class CardPreviewSpec
         $m = is_array($block['fieldMapping'] ?? null) ? $block['fieldMapping'] : [];
         $config = is_array($block['config'] ?? null) ? $block['config'] : [];
         $blockId = (string) ($block['id'] ?? '');
+        $title = trim((string) ($config['title'] ?? ''));
 
         $empty = [
             'block_id' => $blockId,
             'kind' => $kind,
+            'title' => $title,
             'labels' => [],
             'series' => [],
             'empty' => true,
@@ -293,6 +295,7 @@ class CardPreviewSpec
             $out = [
                 'block_id' => $blockId,
                 'kind' => 'pie',
+                'title' => $title,
                 'labels' => array_values(array_column($top, 'label')),
                 'series' => [['name' => self::blockLabel($block), 'values' => array_values($values)]],
                 'empty' => false,
@@ -386,6 +389,7 @@ class CardPreviewSpec
         $out = [
             'block_id' => $blockId,
             'kind' => $kind,
+            'title' => $title,
             'labels' => array_values($labels),
             'series' => $series,
             'empty' => false,

@@ -41,7 +41,6 @@ class StudioContentFactory extends Factory
                     'title' => $content->title,
                     'description' => $content->description,
                     'coverage' => $content->coverage,
-                    'emoji' => $content->emoji,
                     'categories' => $content->categories ?? [],
                     'pages' => $content->pages ?? [],
                     'sections' => $content->sections ?? [],

@@ -97,6 +97,56 @@ class ContentDatasetSources
         ];
     }
 
+    /**
+     * Payload de fraîcheur d'un dataset — alimente le badge « Mis à jour il y a… »
+     * (page publique + cartes de listing). Partagé avec StudioContentController::format().
+     *
+     * @return array{is_live: bool, last_refreshed_at: ?string, next_refresh_at: ?string, refresh_frequency: ?string}
+     */
+    public static function freshnessPayload(Dataset $dataset): array
+    {
+        $source = $dataset->dataSource;
+
+        return [
+            'is_live' => (bool) $source?->isLive(),
+            'last_refreshed_at' => $source?->last_refreshed_at?->toIso8601String(),
+            'next_refresh_at' => $source?->next_refresh_at?->toIso8601String(),
+            'refresh_frequency' => $source?->refresh_frequency?->value,
+        ];
+    }
+
+    /**
+     * Choisit la source la plus « parlante » d'un lot pour un badge unique de carte :
+     * une source en direct l'emporte ; sinon la source planifiée (cadence ≠ « jamais »)
+     * rafraîchie le plus récemment ; sinon `null` — une source figée (« jamais ») ou
+     * sans planification n'affiche rien sur les cartes.
+     *
+     * @param  list<array{is_live: bool, last_refreshed_at: ?string, next_refresh_at: ?string, refresh_frequency: ?string}>  $payloads
+     * @return array{is_live: bool, last_refreshed_at: ?string, next_refresh_at: ?string, refresh_frequency: ?string}|null
+     */
+    public static function pickPrimaryFreshness(array $payloads): ?array
+    {
+        foreach ($payloads as $payload) {
+            if ($payload['is_live'] ?? false) {
+                return $payload;
+            }
+        }
+
+        $scheduled = array_values(array_filter(
+            $payloads,
+            fn ($p) => in_array($p['refresh_frequency'] ?? null, ['hourly', 'daily', 'weekly', 'monthly', 'yearly'], true)
+                && ! empty($p['last_refreshed_at'])
+        ));
+
+        if ($scheduled === []) {
+            return null;
+        }
+
+        usort($scheduled, fn ($a, $b) => strcmp((string) $b['last_refreshed_at'], (string) $a['last_refreshed_at']));
+
+        return $scheduled[0];
+    }
+
     private static function resolveOrigin(Dataset $dataset): ?string
     {
         $source = $dataset->dataSource;

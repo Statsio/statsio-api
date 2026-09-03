@@ -7,6 +7,7 @@ use App\Domain\Content\Actions\GlobalSearchAction;
 use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
 use App\Domain\Content\Actions\PublishStudioContentAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
+use App\Domain\Content\Actions\SuggestDossiersAction;
 use App\Domain\Content\Enums\ContentCoverageEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\Content\Support\ContentDatasetSources;
@@ -53,11 +54,11 @@ class StudioContentController extends Controller
                 return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
             }
 
-            $query = StudioContent::with('channel.profile')
+            $query = StudioContent::with(['channel.profile', 'dossiers'])
                 ->where('channel_id', $channelId)
                 ->where('published_as', 'channel');
         } else {
-            $query = StudioContent::with('channel.profile')
+            $query = StudioContent::with(['channel.profile', 'dossiers'])
                 ->where('user_id', $request->user()->id);
         }
 
@@ -86,7 +87,6 @@ class StudioContentController extends Controller
             'blocks' => 'nullable|array',
             'categories' => 'nullable|array',
             'categories.*' => 'string|max:50',
-            'emoji' => 'nullable|string|max:16',
             'coverage' => ['nullable', Rule::enum(ContentCoverageEnum::class)],
             'response_deadline' => 'nullable|date',
         ]);
@@ -110,7 +110,6 @@ class StudioContentController extends Controller
             'sections' => $data['sections'] ?? [],
             'blocks' => $data['blocks'] ?? [],
             'categories' => $data['categories'] ?? [],
-            'emoji' => $data['emoji'] ?? null,
             'coverage' => $data['coverage'] ?? null,
             'response_deadline' => $data['response_deadline'] ?? null,
         ]);
@@ -431,7 +430,6 @@ class StudioContentController extends Controller
             'blocks' => 'sometimes|nullable|array',
             'categories' => 'sometimes|nullable|array',
             'categories.*' => 'string|max:50',
-            'emoji' => 'sometimes|nullable|string|max:16',
             'card_block_id' => 'sometimes|nullable|string|max:64',
             'coverage' => ['sometimes', 'nullable', Rule::enum(ContentCoverageEnum::class)],
             'published_as' => 'sometimes|nullable|string|in:user,channel',
@@ -491,6 +489,8 @@ class StudioContentController extends Controller
         $data = $request->validate([
             'published_as' => 'nullable|string|in:user,channel',
             'channel_id' => 'nullable|integer|exists:channels,id',
+            'dossier_ids' => 'sometimes|array',
+            'dossier_ids.*' => 'integer|exists:dossiers,id',
         ]);
 
         $content = $action->execute(
@@ -499,6 +499,11 @@ class StudioContentController extends Controller
             $data['published_as'] ?? null,
             $data['channel_id'] ?? null,
         );
+
+        // Placement dans les dossiers éditoriaux (facultatif, non versionné).
+        if ($request->has('dossier_ids')) {
+            $content->dossiers()->sync($data['dossier_ids'] ?? []);
+        }
 
         $this->forgetPublicCache($content);
 
@@ -554,6 +559,72 @@ class StudioContentController extends Controller
         $content->update($target->payload());
 
         return response()->json(['success' => true, 'data' => $this->format($content->fresh())]);
+    }
+
+    /**
+     * Dossiers éditoriaux dans lesquels ce contenu est actuellement rangé.
+     */
+    public function dossiers(Request $request, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        return response()->json(['success' => true, 'data' => $this->formatDossiers($content)]);
+    }
+
+    /**
+     * Range le contenu dans un ensemble de dossiers (remplace l'ensemble courant).
+     * Placement vivant, indépendant du versioning de publication.
+     */
+    public function syncDossiers(Request $request, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        $data = $request->validate([
+            'dossier_ids' => 'present|array',
+            'dossier_ids.*' => 'integer|exists:dossiers,id',
+        ]);
+
+        $content->dossiers()->sync($data['dossier_ids']);
+        $this->forgetPublicCache($content);
+
+        return response()->json(['success' => true, 'data' => $this->formatDossiers($content->fresh())]);
+    }
+
+    /**
+     * Dossiers suggérés pour ce contenu (correspondance titre + catégories).
+     */
+    public function dossierSuggestions(Request $request, SuggestDossiersAction $action, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        $suggestions = $action->execute($content->title, $content->categories ?? [])
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'slug' => $d->slug,
+                'name' => $d->name,
+                'description' => $d->description,
+                'image_url' => $d->image_url,
+                'category_slugs' => $d->contentCategories->pluck('slug')->values(),
+            ]);
+
+        return response()->json(['success' => true, 'data' => $suggestions]);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function formatDossiers(StudioContent $content): array
+    {
+        return $content->dossiers()
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'slug' => $d->slug,
+                'name' => $d->name,
+                'image_url' => $d->image_url,
+            ])
+            ->all();
     }
 
     private function forgetPublicCache(StudioContent $content): void
@@ -678,7 +749,7 @@ class StudioContentController extends Controller
 
     private function findBySlug(int $userId, string $slug): StudioContent
     {
-        return StudioContent::with('channel.profile')
+        return StudioContent::with(['channel.profile', 'dossiers'])
             ->where('user_id', $userId)
             ->where(function ($q) use ($slug) {
                 $q->where('slug', $slug);
@@ -731,16 +802,11 @@ class StudioContentController extends Controller
                     ->where('user_id', $content->user_id)
                     ->orWhereHas('dataSource.users', fn ($u) => $u->where('user_id', $content->user_id)))
                 ->get(['id', 'name', 'row_count', 'data_source_id'])
-                ->map(fn ($d) => [
+                ->map(fn ($d) => array_merge([
                     'id' => $d->id,
                     'name' => $d->name,
                     'row_count' => $d->row_count,
-                    // Fraîcheur : alimente le badge « Mis à jour il y a… » de la page publique.
-                    'is_live' => (bool) $d->dataSource?->isLive(),
-                    'last_refreshed_at' => $d->dataSource?->last_refreshed_at?->toIso8601String(),
-                    'next_refresh_at' => $d->dataSource?->next_refresh_at?->toIso8601String(),
-                    'refresh_frequency' => $d->dataSource?->refresh_frequency?->value,
-                ])
+                ], ContentDatasetSources::freshnessPayload($d)))
                 ->toArray();
         }
 
@@ -758,7 +824,6 @@ class StudioContentController extends Controller
             'thumbnail_url' => $content->getFirstMediaUrl('thumbnail'),
             'slug' => $content->slug,
             'categories' => $content->categories ?? [],
-            'emoji' => $content->emoji,
             'card_block_id' => $content->card_block_id,
             'coverage' => $content->coverage,
             'response_deadline' => $content->response_deadline?->toIso8601String(),
@@ -778,6 +843,13 @@ class StudioContentController extends Controller
                 ]
                 : null,
             'author' => ['name' => $authorName],
+            // Accès propriété = chargement paresseux si la relation n'est pas déjà eager-loaded.
+            'dossiers' => $content->dossiers->map(fn ($d) => [
+                'id' => $d->id,
+                'slug' => $d->slug,
+                'name' => $d->name,
+                'image_url' => $d->image_url,
+            ])->values(),
             'datasets' => $datasets,
             'pages' => $content->pages ?? [],
             'sections' => $content->sections ?? [],

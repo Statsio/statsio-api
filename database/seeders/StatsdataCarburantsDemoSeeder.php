@@ -123,7 +123,6 @@ class StatsdataCarburantsDemoSeeder extends Seeder
             'status' => 'draft',
             'description' => "11 132 stations relevées en France métropolitaine et outre-mer. Comparez les six carburants, mesurez l'écart entre régions, puis ouvrez la fiche détaillée de votre commune.",
             'categories' => ['energie', 'mobilite'],
-            'emoji' => '⛽',
             'coverage' => 'nationale',
         ]);
 

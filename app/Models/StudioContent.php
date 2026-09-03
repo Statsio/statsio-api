@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Channel\Channel;
+use App\Models\Content\Dossier;
 use App\Models\Studio\StudioBlockResponse;
 use App\Models\Studio\StudioContentVersion;
 use App\Models\User\User;
@@ -10,6 +11,7 @@ use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StudioContent extends Model
@@ -31,7 +33,6 @@ class StudioContent extends Model
         'blocks',
         'sections',
         'categories',
-        'emoji',
         'card_block_id',
         'coverage',
         'published_as',
@@ -98,6 +99,15 @@ class StudioContent extends Model
     }
 
     /**
+     * Dossiers éditoriaux dans lesquels ce contenu est rangé (placement vivant,
+     * indépendant du versioning).
+     */
+    public function dossiers(): BelongsToMany
+    {
+        return $this->belongsToMany(Dossier::class, 'dossier_studio_content')->withTimestamps();
+    }
+
+    /**
      * Le contenu a-t-il au moins une version publiée en ligne ?
      */
     public function isPublished(): bool
@@ -129,7 +139,6 @@ class StudioContent extends Model
             'title' => $version->title,
             'description' => $version->description,
             'coverage' => $version->coverage,
-            'emoji' => $version->emoji,
             'categories' => $version->categories ?? [],
             'pages' => $version->pages ?? [],
             'sections' => $version->sections ?? [],

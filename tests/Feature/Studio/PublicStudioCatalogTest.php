@@ -4,6 +4,7 @@ namespace Tests\Feature\Studio;
 
 use App\Models\Channel\Channel;
 use App\Models\User\User;
+use Database\Factories\DossierFactory;
 use Database\Factories\StudioContentFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -58,6 +59,34 @@ class PublicStudioCatalogTest extends TestCase
             ->assertJsonMissingPath('data.0.blocks')
             ->assertJsonPath('stats.published', 1);
         $this->assertGreaterThanOrEqual(1, $response->json('data.0.reading_minutes'));
+    }
+
+    public function test_catalog_exposes_the_primary_linked_dossier(): void
+    {
+        $withDossier = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'title' => 'Contenu rangé',
+        ]);
+        $withDossier->forceFill(['views_count' => 10])->save();
+        $active = DossierFactory::new()->create(['name' => 'Guerre en Ukraine', 'position' => 0]);
+        $archived = DossierFactory::new()->inactive()->create(['name' => 'Sujet archivé', 'position' => 1]);
+        $withDossier->dossiers()->sync([$active->id, $archived->id]);
+
+        $noDossier = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'title' => 'Contenu libre',
+        ]);
+
+        $response = $this->getJson('/api/studio/content/public/catalog?type=article&sort=views');
+
+        $response->assertOk()
+            ->assertJsonPath('data.0.id', (string) $withDossier->id)
+            ->assertJsonPath('data.0.dossier.slug', $active->slug)
+            ->assertJsonPath('data.0.dossier.name', 'Guerre en Ukraine')
+            ->assertJsonPath('data.1.id', (string) $noDossier->id)
+            ->assertJsonPath('data.1.dossier', null);
     }
 
     public function test_catalog_search_filters_by_title(): void
