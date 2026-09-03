@@ -2,11 +2,14 @@
 
 namespace App\Filament\Resources\Channels\Schemas;
 
-use App\Domain\Channel\Enums\ChannelCategoryEnum;
+use App\Domain\Content\Enums\SubBrandEnum;
+use App\Models\Channel\ChannelCategory;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 
 /**
@@ -32,12 +35,33 @@ class ChannelForm
                     ->label('Description')
                     ->maxLength(1000)
                     ->columnSpanFull(),
+
+                Select::make('sub_brand')
+                    ->label('Domaine')
+                    ->helperText(
+                        'Sous-marque de rattachement de la chaîne. « Toutes les marques » = visible partout.'
+                    )
+                    ->options(SubBrandEnum::options())
+                    ->default(SubBrandEnum::All->value)
+                    ->selectablePlaceholder(false)
+                    ->required()
+                    ->live()
+                    ->afterStateUpdated(function ($state, Get $get, Set $set): void {
+                        // Retire les catégories déjà choisies qui ne correspondent plus au domaine.
+                        $allowed = ChannelCategory::query()->forSubBrand($state)->pluck('slug')->all();
+                        $set('categories', array_values(array_intersect((array) $get('categories'), $allowed)));
+                    }),
+
                 Select::make('categories')
                     ->label('Catégories')
+                    ->helperText('Limitées au domaine sélectionné (+ « toutes les marques »).')
                     ->multiple()
-                    ->options(collect(ChannelCategoryEnum::cases())
-                        ->mapWithKeys(fn (ChannelCategoryEnum $c): array => [$c->value => ucfirst(str_replace('_', ' ', $c->value))])
+                    ->options(fn (Get $get): array => ChannelCategory::query()
+                        ->forSubBrand($get('sub_brand'))
+                        ->orderBy('position')
+                        ->pluck('label', 'slug')
                         ->all()),
+
                 TextInput::make('country')
                     ->label('Pays (code ISO 2 lettres)')
                     ->maxLength(2),

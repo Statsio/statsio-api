@@ -2,11 +2,14 @@
 
 namespace App\Filament\Resources\StudioContents\Support;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\StudioContent;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 
 class StudioContentTable
@@ -42,6 +45,16 @@ class StudioContentTable
 
                         return $name !== '' ? $name : ($record->user?->email ?? '—');
                     }),
+                TextColumn::make('sub_brand')
+                    ->label('Domaine')
+                    ->badge()
+                    ->formatStateUsing(fn ($state): string => ($state instanceof SubBrandEnum ? $state : SubBrandEnum::tryFrom((string) $state))?->label() ?? (string) $state)
+                    ->toggleable(),
+                IconColumn::make('is_featured')
+                    ->label('À la une')
+                    ->boolean()
+                    ->sortable()
+                    ->tooltip(fn (StudioContent $record): ?string => $record->is_featured ? 'Priorité '.($record->featured_priority ?? '—') : null),
                 TextColumn::make('views_count')
                     ->label('Vues')
                     ->sortable()
@@ -59,6 +72,8 @@ class StudioContentTable
                         'draft' => 'Brouillon',
                         'published' => 'Publié',
                     ]),
+                TernaryFilter::make('is_featured')
+                    ->label('À la une'),
             ])
             ->recordActions([
                 EditAction::make(),

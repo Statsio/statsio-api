@@ -2,6 +2,7 @@
 
 namespace App\Models\Content;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\StudioContent;
 use Database\Factories\DossierFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,6 +30,8 @@ class Dossier extends Model
         'position',
         'is_active',
         'is_pinned',
+        'icon',
+        'sub_brand',
     ];
 
     protected $appends = ['image_url'];
@@ -40,6 +43,7 @@ class Dossier extends Model
             'is_active' => 'boolean',
             'is_pinned' => 'boolean',
             'position' => 'integer',
+            'sub_brand' => SubBrandEnum::class,
         ];
     }
 

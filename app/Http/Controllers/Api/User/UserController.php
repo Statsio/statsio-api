@@ -67,14 +67,21 @@ class UserController extends Controller
         ]);
     }
 
-    /** POST /me/avatar — upload de la photo de profil (multipart, champ `file`). */
+    /**
+     * POST /me/avatar — met à jour la photo de profil.
+     * Deux modes : upload direct (multipart, champ `file`) ou réutilisation d'une
+     * image de la bibliothèque de médias (`media_id`, comme dans le Studio).
+     */
     public function updateAvatar(Request $request, UpdateAvatarAction $action, MeAction $me)
     {
         $request->validate([
-            'file' => 'required|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'file' => 'required_without:media_id|file|image|mimes:jpg,jpeg,png,webp|max:4096',
+            'media_id' => 'required_without:file|integer|exists:media,id',
         ]);
 
-        $url = $action->execute($request->user(), $request->file('file'));
+        $url = $request->filled('media_id')
+            ? $action->executeFromLibrary($request->user(), (int) $request->input('media_id'))
+            : $action->execute($request->user(), $request->file('file'));
 
         return response()->json([
             'success' => true,
