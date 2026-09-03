@@ -126,6 +126,7 @@ class StudioCardPreviewTest extends TestCase
         $res->assertJsonPath('data.kind', 'line')
             ->assertJsonPath('data.empty', false)
             ->assertJsonPath('data.block_id', 'chart-1')
+            ->assertJsonPath('data.title', 'Prix')
             ->assertJsonPath('data.unit', ' €')
             ->assertJsonPath('data.labels', ['2019', '2020', '2021']);
         $this->assertEqualsWithDelta([1.5, 1.6, 1.7], $res->json('data.series.0.values'), 0.001);
