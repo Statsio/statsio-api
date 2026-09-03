@@ -2,6 +2,7 @@
 
 use App\Console\Commands\MonitorHealthCommand;
 use App\Http\Middleware\LanguageMiddleware;
+use App\Http\Middleware\TrustProxies;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Console\Scheduling\Schedule;
@@ -23,10 +24,6 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withTrustProxies(
-        proxies: '*',
-        headers: Request::HEADER_X_FORWARDED_ALL
-    )
     ->withSchedule(function (Schedule $schedule): void {
         // Laravel exécute chaque tâche planifiée via Symfony Process, qui capture systématiquement
         // la sortie du sous-shell dans son propre pipe (donc `/dev/stdout` s'y reboucle et se fait
@@ -46,6 +43,8 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleCors::class,
             LanguageMiddleware::class,
         ]);
+
+        $middleware->prepend(TrustProxies::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // L'API rend toujours du JSON ; le panneau d'administration Filament (routes web
