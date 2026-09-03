@@ -23,6 +23,10 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withTrustProxies(
+        proxies: '*',
+        headers: Request::HEADER_X_FORWARDED_ALL
+    )
     ->withSchedule(function (Schedule $schedule): void {
         // Laravel exécute chaque tâche planifiée via Symfony Process, qui capture systématiquement
         // la sortie du sous-shell dans son propre pipe (donc `/dev/stdout` s'y reboucle et se fait
