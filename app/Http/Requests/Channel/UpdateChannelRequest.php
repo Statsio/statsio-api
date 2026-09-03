@@ -4,6 +4,7 @@ namespace App\Http\Requests\Channel;
 
 use App\Domain\Channel\Enums\ChannelCategoryEnum;
 use App\Domain\Channel\Enums\ChannelKindEnum;
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Channel\ChannelUser;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -44,6 +45,7 @@ class UpdateChannelRequest extends FormRequest
             'category' => ['sometimes', Rule::in(ChannelCategoryEnum::values())],
             'categories' => 'sometimes|array',
             'categories.*' => ['string', Rule::in(ChannelCategoryEnum::values())],
+            'sub_brand' => ['sometimes', Rule::in(SubBrandEnum::contentValues())],
             'logo' => 'sometimes|file|image:allow_svg|max:5120',
             'banner' => 'sometimes|file|image:allow_svg|max:10240',
             'custom_color_primary' => 'sometimes|nullable|string|regex:/^#[0-9a-fA-F]{6}$/',

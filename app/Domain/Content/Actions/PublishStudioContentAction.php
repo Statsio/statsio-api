@@ -38,6 +38,7 @@ class PublishStudioContentAction
             'title' => $content->title,
             'description' => $content->description,
             'coverage' => $content->coverage,
+            'sub_brand' => $content->sub_brand?->value ?? 'statsio',
             'categories' => $content->categories ?? [],
             'pages' => $content->pages ?? [],
             'sections' => $content->sections ?? [],

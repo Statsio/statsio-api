@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Channel\Channel;
 use App\Models\Content\Dossier;
 use App\Models\Studio\StudioBlockResponse;
@@ -35,6 +36,9 @@ class StudioContent extends Model
         'categories',
         'card_block_id',
         'coverage',
+        'sub_brand',
+        'is_featured',
+        'featured_priority',
         'published_as',
         'channel_id',
         'response_deadline',
@@ -56,6 +60,9 @@ class StudioContent extends Model
         'last_published_at' => 'datetime',
         'requires_identity_verification' => 'boolean',
         'petition_goal' => 'integer',
+        'sub_brand' => SubBrandEnum::class,
+        'is_featured' => 'boolean',
+        'featured_priority' => 'integer',
     ];
 
     /**
@@ -139,6 +146,7 @@ class StudioContent extends Model
             'title' => $version->title,
             'description' => $version->description,
             'coverage' => $version->coverage,
+            'sub_brand' => $version->sub_brand ?? 'statsio',
             'categories' => $version->categories ?? [],
             'pages' => $version->pages ?? [],
             'sections' => $version->sections ?? [],

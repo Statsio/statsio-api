@@ -2,8 +2,11 @@
 
 namespace Tests\Feature\Studio;
 
+use App\Domain\Media\Actions\MediaAction;
 use App\Models\Channel\Channel;
+use App\Models\Media;
 use App\Models\User\User;
+use Database\Factories\MediaFactory;
 use Database\Factories\StudioContentFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -130,6 +133,39 @@ class StudioContentControllerTest extends TestCase
         $this->assertDatabaseHas('studio_contents', ['user_id' => $this->user->id]);
     }
 
+    public function test_create_defaults_sub_brand_to_statsio_and_accepts_an_explicit_one(): void
+    {
+        $this->withToken($this->token)->postJson('/api/studio/content', ['title' => 'Sans domaine'])
+            ->assertStatus(201)
+            ->assertJsonPath('data.sub_brand', 'statsio');
+
+        $this->withToken($this->token)->postJson('/api/studio/content', [
+            'title' => 'TV', 'sub_brand' => 'tvstats',
+        ])->assertStatus(201)->assertJsonPath('data.sub_brand', 'tvstats');
+    }
+
+    public function test_create_rejects_an_unknown_or_all_sub_brand(): void
+    {
+        $this->withToken($this->token)->postJson('/api/studio/content', [
+            'title' => 'X', 'sub_brand' => 'all',
+        ])->assertStatus(422);
+
+        $this->withToken($this->token)->postJson('/api/studio/content', [
+            'title' => 'X', 'sub_brand' => 'nope',
+        ])->assertStatus(422);
+    }
+
+    public function test_update_changes_sub_brand(): void
+    {
+        $content = StudioContentFactory::new()->create(['user_id' => $this->user->id]);
+
+        $this->withToken($this->token)->patchJson("/api/studio/content/{$content->slug}", [
+            'sub_brand' => 'medistats',
+        ])->assertStatus(200)->assertJsonPath('data.sub_brand', 'medistats');
+
+        $this->assertDatabaseHas('studio_contents', ['id' => $content->id, 'sub_brand' => 'medistats']);
+    }
+
     public function test_authenticated_user_can_update_own_content(): void
     {
         $content = StudioContentFactory::new()->create(['user_id' => $this->user->id]);
@@ -140,6 +176,27 @@ class StudioContentControllerTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertDatabaseHas('studio_contents', ['id' => $content->id, 'title' => 'Titre mis à jour']);
+    }
+
+    public function test_update_sets_thumbnail_from_media_library(): void
+    {
+        // MediaAction stubbé (stockage disque non testable dans ce sandbox).
+        $this->mock(MediaAction::class, function ($mock) {
+            $mock->shouldReceive('duplicate')->once()
+                ->andReturn(new Media(['path' => 'studio-content-thumbnails/copy.png', 'type' => 'image/png']));
+            $mock->shouldReceive('getUrl')->andReturn('http://localhost/api/media/99/file');
+        });
+
+        $content = StudioContentFactory::new()->create(['user_id' => $this->user->id]);
+        $source = MediaFactory::new()->create(['user_id' => $this->user->id]);
+
+        $this->withToken($this->token)->patchJson("/api/studio/content/{$content->slug}", [
+            'thumbnail_media_id' => $source->id,
+        ])->assertStatus(200);
+
+        $thumb = $content->fresh()->getMedia('thumbnail')->first();
+        $this->assertNotNull($thumb);
+        $this->assertNotSame($source->id, $thumb->id);
     }
 
     public function test_update_persists_card_block_id_and_returns_it(): void

@@ -75,6 +75,10 @@ class StudioContentListing
             'linked_datasets_count' => StudioContentBlocks::linkedDatasetCount($blocks),
             'charts_count' => StudioContentBlocks::chartCount($blocks),
             'views_count' => (int) ($content->views_count ?? 0),
+            // Sous-marque de publication (pastille « Publié sur… » des cartes catalogue).
+            'sub_brand' => $content->sub_brand?->value ?? 'statsio',
+            // Mise en avant éditoriale (admin) — badge « À LA UNE » sur les cartes épinglées.
+            'is_featured' => (bool) $content->is_featured,
             'updated_at' => $content->updated_at?->toIso8601String(),
             'created_at' => $content->created_at?->toIso8601String(),
             'publisher' => [
