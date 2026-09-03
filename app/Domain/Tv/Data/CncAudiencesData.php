@@ -12,9 +12,9 @@ class CncAudiencesData
     public static function get(): array
     {
         return [
-            'years'           => range(2015, 2024),
+            'years' => range(2015, 2024),
             'channelYearData' => self::channelYearData(),
-            'top50'           => self::top50(),
+            'top50' => self::top50(),
         ];
     }
 

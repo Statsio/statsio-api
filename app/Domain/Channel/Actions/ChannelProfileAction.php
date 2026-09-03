@@ -2,11 +2,12 @@
 
 namespace App\Domain\Channel\Actions;
 
-use App\Models\Channel\ChannelProfile;
-use App\Models\Channel\ChannelProfileLink;
-use App\Models\Channel\ChannelCategory;
 use App\Domain\Channel\Enums\ChannelCategoryEnum;
 use App\Domain\Channel\Enums\ChannelKindEnum;
+use App\Domain\Media\Actions\MediaAction;
+use App\Models\Channel\ChannelCategory;
+use App\Models\Channel\ChannelProfile;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 
 class ChannelProfileAction
@@ -14,15 +15,15 @@ class ChannelProfileAction
     public function createProfile(array $data): ChannelProfile
     {
         $profileData = [
-            'channel_id'             => $data['channel_id'],
-            'name'                   => $data['name'],
-            'handle'                 => $data['handle'],
-            'kind'                   => $data['kind'] ?? ChannelKindEnum::INDEPENDANT->value,
-            'description'            => $data['description'] ?? null,
-            'tags'                   => $data['tags'] ?? null,
-            'country'                => $data['country'] ?? null,
-            'is_featured'            => $data['is_featured'] ?? false,
-            'custom_color_primary'   => $data['custom_color_primary'] ?? null,
+            'channel_id' => $data['channel_id'],
+            'name' => $data['name'],
+            'handle' => $data['handle'],
+            'kind' => $data['kind'] ?? ChannelKindEnum::INDEPENDANT->value,
+            'description' => $data['description'] ?? null,
+            'tags' => $data['tags'] ?? null,
+            'country' => $data['country'] ?? null,
+            'is_featured' => $data['is_featured'] ?? false,
+            'custom_color_primary' => $data['custom_color_primary'] ?? null,
             'custom_color_secondary' => $data['custom_color_secondary'] ?? null,
         ];
 
@@ -46,18 +47,38 @@ class ChannelProfileAction
     {
         $profileData = [];
 
-        if (isset($data['name']))                   $profileData['name']                   = $data['name'];
-        if (isset($data['handle']))                 $profileData['handle']                 = $data['handle'];
-        if (isset($data['kind']))                   $profileData['kind']                   = $data['kind'];
-        if (isset($data['description']))            $profileData['description']            = $data['description'];
-        if (isset($data['is_private']))              $profileData['is_private']             = $data['is_private'];
-        if (isset($data['tags']))                   $profileData['tags']                   = $data['tags'];
-        if (isset($data['country']))                $profileData['country']                = $data['country'];
-        if (isset($data['is_featured']))            $profileData['is_featured']            = $data['is_featured'];
-        if (isset($data['custom_color_primary']))   $profileData['custom_color_primary']   = $data['custom_color_primary'];
-        if (isset($data['custom_color_secondary'])) $profileData['custom_color_secondary'] = $data['custom_color_secondary'];
+        if (isset($data['name'])) {
+            $profileData['name'] = $data['name'];
+        }
+        if (isset($data['handle'])) {
+            $profileData['handle'] = $data['handle'];
+        }
+        if (isset($data['kind'])) {
+            $profileData['kind'] = $data['kind'];
+        }
+        if (isset($data['description'])) {
+            $profileData['description'] = $data['description'];
+        }
+        if (isset($data['is_private'])) {
+            $profileData['is_private'] = $data['is_private'];
+        }
+        if (isset($data['tags'])) {
+            $profileData['tags'] = $data['tags'];
+        }
+        if (isset($data['country'])) {
+            $profileData['country'] = $data['country'];
+        }
+        if (isset($data['is_featured'])) {
+            $profileData['is_featured'] = $data['is_featured'];
+        }
+        if (isset($data['custom_color_primary'])) {
+            $profileData['custom_color_primary'] = $data['custom_color_primary'];
+        }
+        if (isset($data['custom_color_secondary'])) {
+            $profileData['custom_color_secondary'] = $data['custom_color_secondary'];
+        }
 
-        if (!empty($profileData)) {
+        if (! empty($profileData)) {
             $profile->update($profileData);
         }
 
@@ -69,7 +90,7 @@ class ChannelProfileAction
         // Logo
         if (isset($data['logo']) && $data['logo'] instanceof UploadedFile) {
             $profile->media()->where('collection_name', 'logo')->get()->each(function ($m) {
-                app(\App\Domain\Media\Actions\MediaAction::class)->delete($m);
+                app(MediaAction::class)->delete($m);
             });
             $profile->addMedia($data['logo'], 'channels/logos', 'logo');
         }
@@ -77,7 +98,7 @@ class ChannelProfileAction
         // Bannière
         if (isset($data['banner']) && $data['banner'] instanceof UploadedFile) {
             $profile->media()->where('collection_name', 'banner')->get()->each(function ($m) {
-                app(\App\Domain\Media\Actions\MediaAction::class)->delete($m);
+                app(MediaAction::class)->delete($m);
             });
             $profile->addMedia($data['banner'], 'channels/banners', 'banner');
         }
@@ -122,7 +143,7 @@ class ChannelProfileAction
     public function toggleFeatured(ChannelProfile $profile): ChannelProfile
     {
         $profile->update([
-            'is_featured' => !$profile->is_featured
+            'is_featured' => ! $profile->is_featured,
         ]);
 
         return $profile->load('channel');
@@ -142,12 +163,12 @@ class ChannelProfileAction
     {
         // Supprimer les anciens liens sociaux
         $profile->channelProfileLinks()->whereIn('type', [
-            'twitter', 'instagram', 'youtube', 'tiktok', 'linkedin', 'facebook', 'discord'
+            'twitter', 'instagram', 'youtube', 'tiktok', 'linkedin', 'facebook', 'discord',
         ])->delete();
 
         // Ajouter les nouveaux liens sociaux
         foreach ($socialLinks as $platform => $url) {
-            if (!empty($url)) {
+            if (! empty($url)) {
                 $profile->channelProfileLinks()->create([
                     'type' => $platform,
                     'name' => ucfirst($platform),
@@ -189,15 +210,15 @@ class ChannelProfileAction
         $socialTypes = ['twitter', 'instagram', 'youtube', 'tiktok', 'linkedin', 'facebook', 'discord'];
 
         return $profile->channelProfileLinks()
-                    ->whereIn('type', $socialTypes)
-                    ->pluck('url', 'type')
-                    ->toArray();
+            ->whereIn('type', $socialTypes)
+            ->pluck('url', 'type')
+            ->toArray();
     }
 
     /**
      * Get all links for the profile
      */
-    public function getAllLinks(ChannelProfile $profile): \Illuminate\Database\Eloquent\Collection
+    public function getAllLinks(ChannelProfile $profile): Collection
     {
         return $profile->channelProfileLinks()->get();
     }
@@ -206,6 +227,7 @@ class ChannelProfileAction
     {
         if ($categories === null) {
             $profile->channelCategories()->detach();
+
             return;
         }
 

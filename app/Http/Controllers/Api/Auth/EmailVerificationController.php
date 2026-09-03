@@ -8,6 +8,7 @@ use App\Domain\Auth\Exceptions\InvalidVerificationCodeException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\Auth\ResendVerificationRequest;
 use App\Http\Requests\Api\Auth\VerifyEmailRequest;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 
 class EmailVerificationController extends Controller
@@ -30,7 +31,7 @@ class EmailVerificationController extends Controller
                 'success' => false,
                 'message' => $e->getMessage(),
             ], 422);
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException) {
+        } catch (ModelNotFoundException) {
             return response()->json([
                 'success' => false,
                 'message' => __('auth.verification_code_invalid'),

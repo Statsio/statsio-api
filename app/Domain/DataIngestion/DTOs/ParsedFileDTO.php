@@ -9,12 +9,12 @@ namespace App\Domain\DataIngestion\DTOs;
 final class ParsedFileDTO
 {
     /**
-     * @param string[] $headers Noms des colonnes dans l'ordre du fichier
-     * @param iterable<int, array<string, string|null>> $rows Lignes sous forme de tableaux associatifs.
-     *        Pour les gros fichiers (ex. JsonLinesParser), il s'agit d'un IteratorAggregate qui relit
-     *        le fichier depuis le disque à chaque parcours plutôt qu'un array chargé en RAM — sample()
-     *        et un consommateur final (ex. DuckDbParquetWriter) peuvent donc chacun le parcourir
-     *        intégralement et indépendamment sans jamais matérialiser l'ensemble des lignes en mémoire.
+     * @param  string[]  $headers  Noms des colonnes dans l'ordre du fichier
+     * @param  iterable<int, array<string, string|null>>  $rows  Lignes sous forme de tableaux associatifs.
+     *                                                           Pour les gros fichiers (ex. JsonLinesParser), il s'agit d'un IteratorAggregate qui relit
+     *                                                           le fichier depuis le disque à chaque parcours plutôt qu'un array chargé en RAM — sample()
+     *                                                           et un consommateur final (ex. DuckDbParquetWriter) peuvent donc chacun le parcourir
+     *                                                           intégralement et indépendamment sans jamais matérialiser l'ensemble des lignes en mémoire.
      */
     public function __construct(
         public readonly array $headers,

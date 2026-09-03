@@ -5,12 +5,17 @@ namespace App\Http\Controllers;
 use App\Domain\Channel\Enums\ChannelUserRoleEnum;
 use App\Domain\Content\Actions\GlobalSearchAction;
 use App\Domain\Content\Actions\ListPublicStudioCatalogAction;
+use App\Domain\Content\Actions\PublishStudioContentAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
+use App\Domain\Content\Actions\SuggestDossiersAction;
+use App\Domain\Content\Enums\ContentCoverageEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\Content\Support\ContentDatasetSources;
+use App\Domain\Content\Support\StudioContentBlocks;
 use App\Domain\User\Actions\RecordContentViewAction;
 use App\Models\Channel\ChannelUser;
 use App\Models\DataIngestion\Dataset;
+use App\Models\Studio\StudioContentVersion;
 use App\Models\StudioContent;
 use App\Models\User\User;
 use Illuminate\Http\JsonResponse;
@@ -49,11 +54,11 @@ class StudioContentController extends Controller
                 return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
             }
 
-            $query = StudioContent::with('channel.profile')
+            $query = StudioContent::with(['channel.profile', 'dossiers'])
                 ->where('channel_id', $channelId)
                 ->where('published_as', 'channel');
         } else {
-            $query = StudioContent::with('channel.profile')
+            $query = StudioContent::with(['channel.profile', 'dossiers'])
                 ->where('user_id', $request->user()->id);
         }
 
@@ -78,23 +83,19 @@ class StudioContentController extends Controller
             'petition_goal' => 'nullable|integer|min:1',
             'petition_target' => 'nullable|string|max:2000',
             'description' => 'nullable|string|max:2000',
-            'status' => 'nullable|string|in:draft,published',
             'sections' => 'nullable|array',
             'blocks' => 'nullable|array',
             'categories' => 'nullable|array',
             'categories.*' => 'string|max:50',
-            'emoji' => 'nullable|string|max:16',
-            'coverage_type' => 'nullable|string|in:monde,pays,ville',
-            'coverage_data' => 'nullable|array',
-            'visibility' => 'nullable|string|in:public,protege,private',
-            'published_as' => 'nullable|string|in:user,channel',
-            'channel_id' => 'nullable|integer|exists:channels,id',
+            'coverage' => ['nullable', Rule::enum(ContentCoverageEnum::class)],
             'response_deadline' => 'nullable|date',
         ]);
 
         $type = $data['type'] ?? 'statsdata';
         $isSurvey = $type === 'survey';
 
+        // Un contenu naît toujours en brouillon : la publication (et le choix
+        // « en mon nom / au nom d'une chaîne ») se fait ensuite depuis le Studio.
         $content = StudioContent::create([
             'user_id' => $request->user()->id,
             'title' => $data['title'],
@@ -104,17 +105,12 @@ class StudioContentController extends Controller
             'petition_goal' => $isSurvey ? ($data['petition_goal'] ?? null) : null,
             'petition_target' => $isSurvey ? ($data['petition_target'] ?? null) : null,
             'description' => $data['description'] ?? null,
-            'status' => $data['status'] ?? 'draft',
+            'status' => 'draft',
             'slug' => $this->generateUniqueSlug($data['title']),
             'sections' => $data['sections'] ?? [],
             'blocks' => $data['blocks'] ?? [],
             'categories' => $data['categories'] ?? [],
-            'emoji' => $data['emoji'] ?? null,
-            'coverage_type' => $data['coverage_type'] ?? null,
-            'coverage_data' => $data['coverage_data'] ?? null,
-            'visibility' => $data['visibility'] ?? 'private',
-            'published_as' => $data['published_as'] ?? null,
-            'channel_id' => $data['channel_id'] ?? null,
+            'coverage' => $data['coverage'] ?? null,
             'response_deadline' => $data['response_deadline'] ?? null,
         ]);
 
@@ -174,7 +170,7 @@ class StudioContentController extends Controller
         $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($channelId ? ".ch{$channelId}" : '').($categories ? '.'.implode(',', $categories) : '');
 
         $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories) {
-            $contents = StudioContent::with(['user.profile', 'channel.profile'])
+            $contents = StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
                 ->where('status', 'published')
                 ->when($type, fn ($q) => $q->where('type', $type))
                 ->when($channelId, fn ($q) => $q->where('channel_id', $channelId)->where('published_as', 'channel'))
@@ -186,7 +182,7 @@ class StudioContentController extends Controller
                 ->orderBy('updated_at', 'desc')
                 ->get();
 
-            return $contents->map(fn ($c) => $this->format($c))->values()->all();
+            return $contents->map(fn ($c) => $this->format($c->applyPublishedPayload()))->values()->all();
         });
 
         return response()->json(['success' => true, 'data' => $data]);
@@ -228,7 +224,7 @@ class StudioContentController extends Controller
         $type = $request->query('type');
         $like = '%'.addcslashes(mb_strtolower($q), '%_\\').'%';
 
-        $rows = StudioContent::with(['user.profile', 'channel.profile'])
+        $rows = StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
             ->where('status', 'published')
             ->when(in_array($type, ['article', 'statsdata', 'survey'], true), fn ($query) => $query->where('type', $type))
             ->whereRaw('LOWER(title) LIKE ?', [$like])
@@ -236,6 +232,7 @@ class StudioContentController extends Controller
             ->limit(12)
             ->get()
             ->map(function (StudioContent $c) {
+                $c->applyPublishedPayload();
                 $isChannel = $c->published_as === 'channel' && $c->channel;
                 if ($isChannel) {
                     $name = $c->channel->profile?->name ?: 'Anonyme';
@@ -262,7 +259,7 @@ class StudioContentController extends Controller
         // viewer edit it" depends on who's asking — it's computed fresh on every request instead
         // of being baked into the cached payload.
         $content = Cache::remember("studio.public.show.{$slug}", self::PUBLIC_CACHE_TTL, function () use ($slug) {
-            return StudioContent::with(['user.profile', 'channel.profile'])
+            return StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
                 ->where('status', 'published')
                 ->where(function ($q) use ($slug) {
                     $q->where('slug', $slug);
@@ -277,6 +274,9 @@ class StudioContentController extends Controller
         // not just cache misses. Called on the instance (not a static query) so the
         // in-memory attribute used by format() below reflects this visit too.
         $content->increment('views_count');
+
+        // La page publique affiche la dernière version PUBLIÉE, jamais le brouillon en cours.
+        $content->applyPublishedPayload();
 
         // Historique de consultation : trace la visite pour l'utilisateur connecté
         // (pas de progression ici — elle est poussée séparément par le front).
@@ -425,16 +425,13 @@ class StudioContentController extends Controller
                 Rule::unique('studio_contents', 'slug')->ignore($content->id),
             ],
             'description' => 'sometimes|nullable|string|max:2000',
-            'status' => 'sometimes|string|in:draft,published',
             'pages' => 'sometimes|nullable|array',
             'sections' => 'sometimes|nullable|array',
             'blocks' => 'sometimes|nullable|array',
             'categories' => 'sometimes|nullable|array',
             'categories.*' => 'string|max:50',
-            'emoji' => 'sometimes|nullable|string|max:16',
-            'coverage_type' => 'sometimes|nullable|string|in:monde,pays,ville',
-            'coverage_data' => 'sometimes|nullable|array',
-            'visibility' => 'sometimes|string|in:public,protege,private',
+            'card_block_id' => 'sometimes|nullable|string|max:64',
+            'coverage' => ['sometimes', 'nullable', Rule::enum(ContentCoverageEnum::class)],
             'published_as' => 'sometimes|nullable|string|in:user,channel',
             'channel_id' => 'sometimes|nullable|integer|exists:channels,id',
             'response_deadline' => 'sometimes|nullable|date',
@@ -480,6 +477,156 @@ class StudioContentController extends Controller
         return response()->json(['success' => true, 'message' => 'Contenu supprimé.']);
     }
 
+    /**
+     * Publie le contenu : fige un instantané du brouillon courant dans une nouvelle
+     * version et pointe la page publique dessus. `published_as` / `channel_id` ne
+     * sont pris en compte qu'à la 1re publication (auteur verrouillé ensuite).
+     */
+    public function publish(Request $request, PublishStudioContentAction $action, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        $data = $request->validate([
+            'published_as' => 'nullable|string|in:user,channel',
+            'channel_id' => 'nullable|integer|exists:channels,id',
+            'dossier_ids' => 'sometimes|array',
+            'dossier_ids.*' => 'integer|exists:dossiers,id',
+        ]);
+
+        $content = $action->execute(
+            $content,
+            $request->user(),
+            $data['published_as'] ?? null,
+            $data['channel_id'] ?? null,
+        );
+
+        // Placement dans les dossiers éditoriaux (facultatif, non versionné).
+        if ($request->has('dossier_ids')) {
+            $content->dossiers()->sync($data['dossier_ids'] ?? []);
+        }
+
+        $this->forgetPublicCache($content);
+
+        return response()->json(['success' => true, 'data' => $this->format($content->fresh())]);
+    }
+
+    /**
+     * Dépublie : retire la page du public (les versions et le brouillon sont conservés).
+     */
+    public function unpublish(Request $request, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+        $content->update(['status' => 'draft']);
+        $this->forgetPublicCache($content);
+
+        return response()->json(['success' => true, 'data' => $this->format($content->fresh())]);
+    }
+
+    /**
+     * Journal des versions publiées (métadonnées seulement — pas de payload).
+     */
+    public function versions(Request $request, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        $rows = $content->versions()
+            ->with(['publishedBy.profile', 'channel.profile'])
+            ->orderByDesc('version')
+            ->get()
+            ->map(fn (StudioContentVersion $v) => [
+                'version' => $v->version,
+                'title' => $v->title,
+                'created_at' => $v->created_at?->toIso8601String(),
+                'published_as' => $v->published_as,
+                'author_name' => $v->published_as === 'channel'
+                    ? ($v->channel?->profile?->name ?: 'Chaîne')
+                    : (trim(($v->publishedBy?->profile?->first_name ?? '').' '.($v->publishedBy?->profile?->last_name ?? '')) ?: 'Anonyme'),
+                'is_current' => $v->version === $content->published_version,
+            ]);
+
+        return response()->json(['success' => true, 'data' => $rows]);
+    }
+
+    /**
+     * Recharge une version antérieure dans le brouillon de travail. La page publique
+     * reste sur la version en ligne tant que l'auteur n'a pas re-cliqué « Publier ».
+     */
+    public function restoreVersion(Request $request, string $slug, int $version): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+        $target = $content->versions()->where('version', $version)->firstOrFail();
+
+        $content->update($target->payload());
+
+        return response()->json(['success' => true, 'data' => $this->format($content->fresh())]);
+    }
+
+    /**
+     * Dossiers éditoriaux dans lesquels ce contenu est actuellement rangé.
+     */
+    public function dossiers(Request $request, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        return response()->json(['success' => true, 'data' => $this->formatDossiers($content)]);
+    }
+
+    /**
+     * Range le contenu dans un ensemble de dossiers (remplace l'ensemble courant).
+     * Placement vivant, indépendant du versioning de publication.
+     */
+    public function syncDossiers(Request $request, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        $data = $request->validate([
+            'dossier_ids' => 'present|array',
+            'dossier_ids.*' => 'integer|exists:dossiers,id',
+        ]);
+
+        $content->dossiers()->sync($data['dossier_ids']);
+        $this->forgetPublicCache($content);
+
+        return response()->json(['success' => true, 'data' => $this->formatDossiers($content->fresh())]);
+    }
+
+    /**
+     * Dossiers suggérés pour ce contenu (correspondance titre + catégories).
+     */
+    public function dossierSuggestions(Request $request, SuggestDossiersAction $action, string $slug): JsonResponse
+    {
+        $content = $this->findBySlug($request->user()->id, $slug);
+
+        $suggestions = $action->execute($content->title, $content->categories ?? [])
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'slug' => $d->slug,
+                'name' => $d->name,
+                'description' => $d->description,
+                'image_url' => $d->image_url,
+                'category_slugs' => $d->contentCategories->pluck('slug')->values(),
+            ]);
+
+        return response()->json(['success' => true, 'data' => $suggestions]);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function formatDossiers(StudioContent $content): array
+    {
+        return $content->dossiers()
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($d) => [
+                'id' => $d->id,
+                'slug' => $d->slug,
+                'name' => $d->name,
+                'image_url' => $d->image_url,
+            ])
+            ->all();
+    }
+
     private function forgetPublicCache(StudioContent $content): void
     {
         Cache::forget('studio.public.index');
@@ -502,7 +649,7 @@ class StudioContentController extends Controller
      */
     private function findEmbeddableSourceBySlug(Request $request, string $slug): StudioContent
     {
-        $content = StudioContent::with(['user.profile', 'channel.profile'])
+        $content = StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
             ->where(function ($q) use ($slug) {
                 $q->where('slug', $slug);
                 if (is_numeric($slug)) {
@@ -514,9 +661,12 @@ class StudioContentController extends Controller
         if ($content->status !== 'published') {
             $viewer = $request->user('sanctum');
             abort_unless($viewer !== null && $viewer->can('update', $content), 404);
+
+            return $content;
         }
 
-        return $content;
+        // Contenu publié : le bloc réutilisé provient de la version en ligne.
+        return $content->applyPublishedPayload();
     }
 
     /** Métadonnées légères d'un document source (auteur / chaîne) pour un bloc embarqué. */
@@ -588,49 +738,18 @@ class StudioContentController extends Controller
     }
 
     /**
-     * Blocs du contenu dans l'ordre de lecture : parcours des sections (ordre du
-     * tableau `sections`) → colonnes → blocs de la zone `"{sectionId}-{col}"`.
-     * Repli : ordre brut du tableau `blocks`.
+     * Blocs du contenu dans l'ordre de lecture (cf. StudioContentBlocks::ordered).
      *
      * @return list<array<string,mixed>>
      */
     private function orderedBlocks(StudioContent $content): array
     {
-        $blocks = array_values(array_filter($content->blocks ?? [], 'is_array'));
-        $sections = array_values(array_filter($content->sections ?? [], 'is_array'));
-        if (empty($sections)) {
-            return $blocks;
-        }
-
-        $byZone = [];
-        foreach ($blocks as $block) {
-            $byZone[$block['zoneId'] ?? ''][] = $block;
-        }
-
-        $ordered = [];
-        $seen = [];
-        foreach ($sections as $section) {
-            $sectionId = $section['id'] ?? '';
-            for ($col = 0; $col < 4; $col++) {
-                foreach ($byZone["{$sectionId}-{$col}"] ?? [] as $block) {
-                    $ordered[] = $block;
-                    $seen[$block['id'] ?? ''] = true;
-                }
-            }
-        }
-        // Blocs orphelins (zone inconnue, enfants de script…) : à la fin, ordre brut.
-        foreach ($blocks as $block) {
-            if (! isset($seen[$block['id'] ?? ''])) {
-                $ordered[] = $block;
-            }
-        }
-
-        return $ordered;
+        return StudioContentBlocks::ordered($content);
     }
 
     private function findBySlug(int $userId, string $slug): StudioContent
     {
-        return StudioContent::with('channel.profile')
+        return StudioContent::with(['channel.profile', 'dossiers'])
             ->where('user_id', $userId)
             ->where(function ($q) use ($slug) {
                 $q->where('slug', $slug);
@@ -683,16 +802,11 @@ class StudioContentController extends Controller
                     ->where('user_id', $content->user_id)
                     ->orWhereHas('dataSource.users', fn ($u) => $u->where('user_id', $content->user_id)))
                 ->get(['id', 'name', 'row_count', 'data_source_id'])
-                ->map(fn ($d) => [
+                ->map(fn ($d) => array_merge([
                     'id' => $d->id,
                     'name' => $d->name,
                     'row_count' => $d->row_count,
-                    // Fraîcheur : alimente le badge « Mis à jour il y a… » de la page publique.
-                    'is_live' => (bool) $d->dataSource?->isLive(),
-                    'last_refreshed_at' => $d->dataSource?->last_refreshed_at?->toIso8601String(),
-                    'next_refresh_at' => $d->dataSource?->next_refresh_at?->toIso8601String(),
-                    'refresh_frequency' => $d->dataSource?->refresh_frequency?->value,
-                ])
+                ], ContentDatasetSources::freshnessPayload($d)))
                 ->toArray();
         }
 
@@ -707,16 +821,17 @@ class StudioContentController extends Controller
             'description' => $content->description,
             'status' => $content->status ?? 'draft',
             'views_count' => $content->views_count ?? 0,
-            'visibility' => $content->visibility ?? 'private',
             'thumbnail_url' => $content->getFirstMediaUrl('thumbnail'),
             'slug' => $content->slug,
             'categories' => $content->categories ?? [],
-            'emoji' => $content->emoji,
-            'coverage_type' => $content->coverage_type,
-            'coverage_data' => $content->coverage_data ?? [],
+            'card_block_id' => $content->card_block_id,
+            'coverage' => $content->coverage,
             'response_deadline' => $content->response_deadline?->toIso8601String(),
             'published_as' => $content->published_as,
             'channel_id' => $content->channel_id,
+            'published_version' => $content->published_version,
+            'first_published_at' => $content->first_published_at?->toIso8601String(),
+            'last_published_at' => $content->last_published_at?->toIso8601String(),
             'channel' => $content->published_as === 'channel' && $content->channel
                 ? [
                     'id' => $content->channel->id,
@@ -728,6 +843,13 @@ class StudioContentController extends Controller
                 ]
                 : null,
             'author' => ['name' => $authorName],
+            // Accès propriété = chargement paresseux si la relation n'est pas déjà eager-loaded.
+            'dossiers' => $content->dossiers->map(fn ($d) => [
+                'id' => $d->id,
+                'slug' => $d->slug,
+                'name' => $d->name,
+                'image_url' => $d->image_url,
+            ])->values(),
             'datasets' => $datasets,
             'pages' => $content->pages ?? [],
             'sections' => $content->sections ?? [],

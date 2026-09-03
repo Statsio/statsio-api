@@ -45,9 +45,9 @@ class PaginatedApiFetcher
      *                                          jamais garder le dataset complet en mémoire PHP. `records`
      *                                          reste alors vide dans la valeur de retour.
      * @param  array<string, mixed>  $staticQuery  Paramètres fusionnés dans la query de CHAQUE page (première
-     *                                              et suivantes) — ex. des filtres résolus pour une agrégation
-     *                                              en streaming sur une source live, qui doivent rester
-     *                                              appliqués tout au long de la pagination.
+     *                                             et suivantes) — ex. des filtres résolus pour une agrégation
+     *                                             en streaming sur une source live, qui doivent rester
+     *                                             appliqués tout au long de la pagination.
      * @return array{records: array, truncated: bool, stopped_reason: ?string, pages_fetched: int, row_count: int}
      *
      * @throws ApiSourceFetchException

@@ -12,9 +12,10 @@ use Illuminate\Queue\SerializesModels;
 
 class ProcessDataSourceJob implements ShouldQueue
 {
-    use Queueable, InteractsWithQueue, SerializesModels;
+    use InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $timeout = 1800; // jusqu'à 1500s de budget pagination (grosse API à petites pages) + parse/écriture Parquet
 
     public function __construct(
@@ -44,7 +45,7 @@ class ProcessDataSourceJob implements ShouldQueue
         // Here we ensure it if the job is killed (e.g., timeout) before the orchestrator does.
         if ($this->dataSource->status->value !== 'failed') {
             $this->dataSource->markAsFailed(
-                "Le traitement a échoué après {$this->tries} tentatives : " . $exception->getMessage()
+                "Le traitement a échoué après {$this->tries} tentatives : ".$exception->getMessage()
             );
             $this->dataSource->dataset?->markAsFailed();
         }

@@ -26,12 +26,19 @@ class StudioContentListing
      * @param  bool  $hasParticipated  le visiteur a déjà répondu à ce sondage
      * @return array<string, mixed>
      */
+    /**
+     * @param  array<string, mixed>|null  $freshness  fraîcheur de la source principale (badge des cartes StatsData), null = rien à afficher
+     */
     public static function make(
         StudioContent $content,
         bool $isFavorited = false,
         ?array $survey = null,
         bool $hasParticipated = false,
+        ?array $freshness = null,
     ): array {
+        // Les cartes de listing reflètent la version PUBLIÉE, pas le brouillon en cours.
+        $content->applyPublishedPayload();
+
         $blocks = StudioContentBlocks::all($content);
         $categories = array_values(array_filter(
             is_array($content->categories) ? $content->categories : [],
@@ -47,6 +54,11 @@ class StudioContentListing
         $isChannel = $content->published_as === 'channel' && $content->channel;
         $publisherName = self::publisherName($content, $isChannel);
         $logoUrl = $isChannel ? ($content->channel->profile?->logo_url ?: null) : null;
+
+        // Dossier éditorial « principal » (1er par position) — pastille discrète des cartes.
+        $primaryDossier = $content->relationLoaded('dossiers')
+            ? $content->dossiers->firstWhere('is_active', true)
+            : null;
 
         $card = [
             'id' => (string) $content->id,
@@ -74,6 +86,11 @@ class StudioContentListing
                 'handle' => $isChannel ? ($content->channel->profile?->handle ?: null) : null,
             ],
             'is_favorited' => $isFavorited,
+            // Fraîcheur de la source principale — null si figée (« jamais ») ou sans planification.
+            'freshness' => $freshness,
+            'dossier' => $primaryDossier
+                ? ['slug' => $primaryDossier->slug, 'name' => $primaryDossier->name]
+                : null,
         ];
 
         if (($content->type ?? null) === 'survey') {
@@ -124,7 +141,13 @@ class StudioContentListing
     /** Relations à charger avant make(). */
     public static function eagerLoads(): array
     {
-        return ['user.profile', 'channel.profile', 'media'];
+        return [
+            'user.profile',
+            'channel.profile',
+            'media',
+            'publishedVersion',
+            'dossiers' => fn ($q) => $q->where('is_active', true)->orderBy('position')->orderBy('name'),
+        ];
     }
 
     private static function publisherName(StudioContent $content, bool $isChannel): string

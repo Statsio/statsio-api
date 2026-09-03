@@ -14,9 +14,9 @@ class ParserFactory
     public function make(DataSourceTypeEnum $type): FileParserInterface
     {
         return match ($type) {
-            DataSourceTypeEnum::CSV => new CsvParser(),
-            DataSourceTypeEnum::XLSX => new XlsxParser(),
-            DataSourceTypeEnum::JSON => new JsonParser(),
+            DataSourceTypeEnum::CSV => new CsvParser,
+            DataSourceTypeEnum::XLSX => new XlsxParser,
+            DataSourceTypeEnum::JSON => new JsonParser,
         };
     }
 

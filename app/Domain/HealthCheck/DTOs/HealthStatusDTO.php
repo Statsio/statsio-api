@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Domain\HealthCheck\DTOs;
 
 use App\Domain\HealthCheck\Enums\HealthStatus;
@@ -18,4 +19,3 @@ class HealthStatusDTO
         ];
     }
 }
-?>

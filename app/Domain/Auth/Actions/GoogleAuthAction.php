@@ -2,6 +2,7 @@
 
 namespace App\Domain\Auth\Actions;
 
+use App\Domain\Auth\DTOs\AuthTokenDTO;
 use App\Domain\Auth\Exceptions\GoogleAuthConfigurationException;
 use App\Domain\Auth\Exceptions\InvalidGoogleTokenException;
 use App\Models\User\User;
@@ -16,22 +17,22 @@ class GoogleAuthAction
         private readonly IssueAuthTokensAction $issueAuthTokensAction
     ) {}
 
-    public function execute(string $idToken): \App\Domain\Auth\DTOs\AuthTokenDTO
+    public function execute(string $idToken): AuthTokenDTO
     {
         $clientId = config('services.google.client_id');
 
-        if (!$clientId) {
-            throw new GoogleAuthConfigurationException();
+        if (! $clientId) {
+            throw new GoogleAuthConfigurationException;
         }
 
         $client = new GoogleClient(['client_id' => $clientId]);
         $payload = $client->verifyIdToken($idToken);
 
-        if (!$payload) {
-            throw new InvalidGoogleTokenException();
+        if (! $payload) {
+            throw new InvalidGoogleTokenException;
         }
 
-        if (!Arr::get($payload, 'email_verified')) {
+        if (! Arr::get($payload, 'email_verified')) {
             throw new InvalidGoogleTokenException(__('auth.google_email_unverified'));
         }
 
@@ -46,7 +47,7 @@ class GoogleAuthAction
 
             $locale = Arr::get($payload, 'locale');
 
-            if (!$user) {
+            if (! $user) {
                 $user = User::create([
                     'email' => $email,
                     'password' => Str::random(32),
@@ -68,7 +69,7 @@ class GoogleAuthAction
             ];
 
             $picture = Arr::get($payload, 'picture');
-            if ($picture && !$user->profile?->avatar) {
+            if ($picture && ! $user->profile?->avatar) {
                 $profileData['avatar'] = $picture;
             }
 

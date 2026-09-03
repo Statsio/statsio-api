@@ -7,6 +7,7 @@ use Carbon\CarbonImmutable;
 enum DataSourceRefreshFrequencyEnum: string
 {
     case NONE = 'none';
+    case HOURLY = 'hourly';
     case DAILY = 'daily';
     case WEEKLY = 'weekly';
     case MONTHLY = 'monthly';
@@ -15,7 +16,8 @@ enum DataSourceRefreshFrequencyEnum: string
     public function label(): string
     {
         return match ($this) {
-            self::NONE => 'Manuelle',
+            self::NONE => 'Jamais',
+            self::HOURLY => 'Toutes les heures',
             self::DAILY => 'Quotidienne',
             self::WEEKLY => 'Hebdomadaire',
             self::MONTHLY => 'Mensuelle',
@@ -27,6 +29,7 @@ enum DataSourceRefreshFrequencyEnum: string
     {
         return match ($this) {
             self::NONE => null,
+            self::HOURLY => $from->addHour(),
             self::DAILY => $from->addDay(),
             self::WEEKLY => $from->addWeek(),
             self::MONTHLY => $from->addMonth(),

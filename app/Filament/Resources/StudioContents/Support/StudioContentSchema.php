@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\StudioContents\Support;
 
+use App\Domain\Content\Enums\ContentCoverageEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Models\Channel\Channel;
 use Filament\Forms\Components\Component;
@@ -28,9 +29,6 @@ class StudioContentSchema
                     ->label('Description')
                     ->maxLength(2000)
                     ->columnSpanFull(),
-                TextInput::make('emoji')
-                    ->label('Emoji')
-                    ->maxLength(16),
 
                 Select::make('status')
                     ->label('Statut')
@@ -39,15 +37,6 @@ class StudioContentSchema
                         'published' => 'Publié',
                     ])
                     ->default('draft')
-                    ->required(),
-                Select::make('visibility')
-                    ->label('Visibilité')
-                    ->options([
-                        'public' => 'Public',
-                        'protege' => 'Protégé',
-                        'private' => 'Privé',
-                    ])
-                    ->default('private')
                     ->required(),
 
                 TagsInput::make('categories')
@@ -81,13 +70,9 @@ class StudioContentSchema
         }
 
         return [
-            Select::make('coverage_type')
+            Select::make('coverage')
                 ->label('Couverture géographique')
-                ->options([
-                    'monde' => 'Monde',
-                    'pays' => 'Pays',
-                    'ville' => 'Ville',
-                ]),
+                ->options(ContentCoverageEnum::options()),
         ];
     }
 

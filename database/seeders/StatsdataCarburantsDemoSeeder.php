@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Domain\Content\Actions\PublishStudioContentAction;
 use App\Models\DataIngestion\Dataset;
 use App\Models\DataIngestion\DatasetColumn;
 use App\Models\DataIngestion\DatasetVersion;
@@ -119,12 +120,10 @@ class StatsdataCarburantsDemoSeeder extends Seeder
             'user_id' => $userId,
             'title' => 'Le prix des carburants, station par station',
             'type' => 'statsdata',
-            'status' => 'published',
-            'visibility' => 'public',
+            'status' => 'draft',
             'description' => "11 132 stations relevées en France métropolitaine et outre-mer. Comparez les six carburants, mesurez l'écart entre régions, puis ouvrez la fiche détaillée de votre commune.",
             'categories' => ['energie', 'mobilite'],
-            'emoji' => '⛽',
-            'coverage_type' => 'pays',
+            'coverage' => 'nationale',
         ]);
 
         [$pages, $sections, $blocks] = $this->buildDocument($A, $B, $C);
@@ -132,6 +131,10 @@ class StatsdataCarburantsDemoSeeder extends Seeder
         $content->sections = $sections;
         $content->blocks = $blocks;
         $content->save();
+
+        // Publie (v1, ou nouvelle version si le contenu de démo existait déjà).
+        app(PublishStudioContentAction::class)
+            ->execute($content->fresh(), User::findOrFail($userId), 'user');
 
         Cache::forget('studio.public.index');
         Cache::forget('studio.public.index.statsdata');

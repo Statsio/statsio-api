@@ -14,6 +14,9 @@ Route::get('/studio/content/public/search', [StudioContentController::class, 'se
 Route::get('/studio/content/public/{slug}', [StudioContentController::class, 'showPublic']);
 Route::get('/studio/content/public/{slug}/datasets/{dataset}/query', [DatasetController::class, 'queryPublic']);
 
+// Aperçu du mini-graphe de la carte de catalogue (premier graphique ou `card_block_id`)
+Route::get('/studio/content/public/{slug}/card-preview', [DatasetController::class, 'cardPreviewPublic']);
+
 // Blocs embarquables d'un Statsdata publié (bloc « sd-embed » des articles)
 Route::get('/studio/content/public/{slug}/blocks', [StudioContentController::class, 'listPublicBlocks']);
 Route::get('/studio/content/public/{slug}/blocks/{blockId}', [StudioContentController::class, 'showPublicBlock'])
@@ -31,4 +34,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/studio/content/{slug}', [StudioContentController::class, 'show']);
     Route::match(['put', 'patch'], '/studio/content/{slug}', [StudioContentController::class, 'update']);
     Route::delete('/studio/content/{slug}', [StudioContentController::class, 'destroy']);
+
+    // Publication versionnée
+    Route::post('/studio/content/{slug}/publish', [StudioContentController::class, 'publish']);
+    Route::post('/studio/content/{slug}/unpublish', [StudioContentController::class, 'unpublish']);
+    Route::get('/studio/content/{slug}/versions', [StudioContentController::class, 'versions']);
+
+    // Dossiers éditoriaux d'un contenu (placement + suggestions)
+    Route::get('/studio/content/{slug}/dossiers', [StudioContentController::class, 'dossiers']);
+    Route::put('/studio/content/{slug}/dossiers', [StudioContentController::class, 'syncDossiers']);
+    Route::get('/studio/content/{slug}/dossier-suggestions', [StudioContentController::class, 'dossierSuggestions']);
+    Route::post('/studio/content/{slug}/versions/{version}/restore', [StudioContentController::class, 'restoreVersion'])
+        ->where('version', '[0-9]+');
 });

@@ -1,7 +1,8 @@
 <?php
 
-use App\Http\Controllers\Api\DataIngestion\DataSourceController;
+use App\Http\Controllers\Api\DataIngestion\DataGouvController;
 use App\Http\Controllers\Api\DataIngestion\DatasetController;
+use App\Http\Controllers\Api\DataIngestion\DataSourceController;
 use App\Http\Controllers\Api\DataIngestion\SourceProvenanceController;
 use Illuminate\Support\Facades\Route;
 
@@ -13,6 +14,8 @@ Route::middleware('auth:api')->group(function () {
         Route::post('/preview-spreadsheet', [DataSourceController::class, 'previewSpreadsheet'])->name('preview-spreadsheet');
         Route::post('/upload', [DataSourceController::class, 'upload'])->name('upload');
         Route::get('/public', [DataSourceController::class, 'publicCatalog'])->name('public');
+        Route::get('/datagouv/search', [DataGouvController::class, 'search'])->name('datagouv.search');
+        Route::get('/datagouv/dataset', [DataGouvController::class, 'show'])->name('datagouv.dataset');
         Route::get('/', [DataSourceController::class, 'index'])->name('index');
         Route::get('/{dataSource}', [DataSourceController::class, 'show'])->name('show');
         Route::patch('/{dataSource}', [DataSourceController::class, 'update'])->name('update');

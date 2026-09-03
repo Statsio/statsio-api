@@ -28,9 +28,9 @@ class ToggleBroadcastViewAction
             if ($existing === null) {
                 // Create new view
                 TvUserView::create([
-                    'user_id'      => $user->id,
+                    'user_id' => $user->id,
                     'broadcast_id' => $broadcast->id,
-                    'type'         => $type,
+                    'type' => $type,
                 ]);
                 $newType = $type;
 

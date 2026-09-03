@@ -10,7 +10,7 @@ class TvChannel extends Model
     protected $fillable = ['slug', 'number', 'display_name', 'description', 'epg_channel_id', 'logo_url', 'is_active'];
 
     protected $casts = [
-        'number'    => 'integer',
+        'number' => 'integer',
         'is_active' => 'boolean',
     ];
 

@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests\Api\Auth;
 
+use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\ValidationException;
 
 class ResendVerificationRequest extends FormRequest
 {
@@ -11,7 +13,7 @@ class ResendVerificationRequest extends FormRequest
         return true;
     }
 
-    protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator)
+    protected function failedValidation(Validator $validator)
     {
         $response = response()->json([
             'success' => false,
@@ -19,7 +21,7 @@ class ResendVerificationRequest extends FormRequest
             'message' => __('errors.validation_failed'),
         ], 422);
 
-        throw new \Illuminate\Validation\ValidationException($validator, $response);
+        throw new ValidationException($validator, $response);
     }
 
     public function rules(): array

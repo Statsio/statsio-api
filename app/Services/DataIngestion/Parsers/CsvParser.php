@@ -41,6 +41,7 @@ class CsvParser implements FileParserInterface
                 $headers = fgetcsv($handle, 0, ';');
                 if ($headers !== false && $headers !== null) {
                     $headers = array_map('trim', $headers);
+
                     return $this->readRows($handle, $headers, ';', $absolutePath, $maxRows);
                 }
                 rewind($handle);

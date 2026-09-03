@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Domain\HealthCheck\Actions;
 
 use App\Domain\HealthCheck\DTOs\HealthStatusDTO;
@@ -27,6 +28,7 @@ class CheckHealthAction
     {
         try {
             DB::connection()->getPdo();
+
             return true;
         } catch (\Throwable) {
             return false;
@@ -42,4 +44,3 @@ class CheckHealthAction
         }
     }
 }
-?>
