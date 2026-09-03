@@ -39,6 +39,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/studio/content/{slug}/publish', [StudioContentController::class, 'publish']);
     Route::post('/studio/content/{slug}/unpublish', [StudioContentController::class, 'unpublish']);
     Route::get('/studio/content/{slug}/versions', [StudioContentController::class, 'versions']);
+
+    // Dossiers éditoriaux d'un contenu (placement + suggestions)
+    Route::get('/studio/content/{slug}/dossiers', [StudioContentController::class, 'dossiers']);
+    Route::put('/studio/content/{slug}/dossiers', [StudioContentController::class, 'syncDossiers']);
+    Route::get('/studio/content/{slug}/dossier-suggestions', [StudioContentController::class, 'dossierSuggestions']);
     Route::post('/studio/content/{slug}/versions/{version}/restore', [StudioContentController::class, 'restoreVersion'])
         ->where('version', '[0-9]+');
 });

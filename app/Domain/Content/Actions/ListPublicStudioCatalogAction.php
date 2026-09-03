@@ -3,12 +3,15 @@
 namespace App\Domain\Content\Actions;
 
 use App\Domain\Content\Enums\SurveyKindEnum;
+use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\Content\Support\StudioContentBlocks;
 use App\Domain\Content\Support\StudioContentListing;
 use App\Domain\Content\Support\SurveyListingAggregates;
+use App\Models\DataIngestion\Dataset;
 use App\Models\StudioContent;
 use App\Models\User\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
@@ -99,6 +102,7 @@ class ListPublicStudioCatalogAction
             ->get();
 
         $favoriteIds = $this->favoriteIds($viewer, $pageItems->pluck('id')->all());
+        $freshnessByContent = $isSurvey ? [] : $this->freshnessByContent($pageItems);
 
         $surveyAggregates = $isSurvey ? new SurveyListingAggregates($pageItems) : null;
         $participatedIds = $isSurvey
@@ -115,6 +119,7 @@ class ListPublicStudioCatalogAction
                 isset($favoriteIds[$c->id]),
                 $surveyAggregates?->for($c),
                 isset($participatedIds[(int) $c->id]),
+                $freshnessByContent[(int) $c->id] ?? null,
             ))
             ->values()
             ->all();
@@ -320,6 +325,50 @@ class ListPublicStudioCatalogAction
                 'last_published_at' => $last?->toIso8601String(),
             ];
         });
+    }
+
+    /**
+     * Fraîcheur de la source « principale » de chaque contenu (badge des cartes).
+     * Un seul lot de datasets pour toute la page — pas de N+1.
+     *
+     * @param  Collection<int, StudioContent>  $contents
+     * @return array<int, array<string, mixed>|null>
+     */
+    private function freshnessByContent(Collection $contents): array
+    {
+        $idsByContent = [];
+        $allIds = [];
+        foreach ($contents as $content) {
+            $content->applyPublishedPayload();
+            $ids = ContentDatasetSources::extractDatasetIds($content);
+            $idsByContent[(int) $content->id] = $ids;
+            foreach ($ids as $id) {
+                $allIds[$id] = true;
+            }
+        }
+
+        if ($allIds === []) {
+            return [];
+        }
+
+        $datasetsById = Dataset::whereIn('id', array_keys($allIds))
+            ->with('dataSource')
+            ->get(['id', 'data_source_id'])
+            ->keyBy(fn ($d) => (string) $d->id);
+
+        $result = [];
+        foreach ($idsByContent as $contentId => $ids) {
+            $payloads = [];
+            foreach ($ids as $id) {
+                $dataset = $datasetsById->get((string) $id);
+                if ($dataset) {
+                    $payloads[] = ContentDatasetSources::freshnessPayload($dataset);
+                }
+            }
+            $result[$contentId] = ContentDatasetSources::pickPrimaryFreshness($payloads);
+        }
+
+        return $result;
     }
 
     /**

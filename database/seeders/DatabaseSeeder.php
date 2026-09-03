@@ -3,9 +3,9 @@
 namespace Database\Seeders;
 
 use App\Models\User\User;
+use Database\Seeders\UserProfile\ReferenceSeeder as UserProfileReferenceSeeder;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Database\Seeders\UserProfile\ReferenceSeeder as UserProfileReferenceSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -25,6 +25,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             UserProfileReferenceSeeder::class,
             AdminUserSeeder::class,
+            DossierSeeder::class,
         ]);
     }
 }
