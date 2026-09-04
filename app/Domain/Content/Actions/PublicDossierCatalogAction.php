@@ -3,6 +3,8 @@
 namespace App\Domain\Content\Actions;
 
 use App\Domain\Channel\Actions\ChannelCatalogAction;
+use App\Domain\Content\Enums\SubBrandEnum;
+use App\Models\Content\ContentCategory;
 use App\Models\Content\Dossier;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -22,7 +24,7 @@ class PublicDossierCatalogAction
     private const MAX_PER_PAGE = 48;
 
     /**
-     * @param  array{q?: ?string, category?: ?string, sort?: ?string, per_page?: mixed}  $filters
+     * @param  array{q?: ?string, category?: ?string, sort?: ?string, sub_brand?: ?string, per_page?: mixed}  $filters
      * @return array<string, mixed>
      */
     public function execute(array $filters): array
@@ -30,10 +32,12 @@ class PublicDossierCatalogAction
         $q = $this->normalize(trim((string) ($filters['q'] ?? '')));
         $category = $this->cleanSlug($filters['category'] ?? null);
         $sort = in_array($filters['sort'] ?? null, ['maj', 'count', 'az'], true) ? $filters['sort'] : 'maj';
+        $subBrand = SubBrandEnum::sanitize($filters['sub_brand'] ?? null);
         $perPage = max(1, min(self::MAX_PER_PAGE, (int) ($filters['per_page'] ?? self::DEFAULT_PER_PAGE)));
 
         /** @var Collection<int, Dossier> $dossiers */
         $dossiers = Dossier::active()
+            ->forSubBrand($subBrand)
             ->with('contentCategories:id,slug,name')
             ->orderBy('position')
             ->orderBy('name')
@@ -52,7 +56,7 @@ class PublicDossierCatalogAction
                 $i['name'].' '.($i['description'] ?? '').' '.implode(' ', $i['_keywords'])
             ), $q))->values();
 
-        $facets = ['categories' => $this->categoryFacets($searched)];
+        $facets = ['categories' => $this->categoryFacets($searched, $subBrand)];
 
         $filtered = $searched
             ->when($category !== null, fn (Collection $c) => $c->filter(
@@ -142,8 +146,16 @@ class PublicDossierCatalogAction
      * @param  Collection<int, array<string, mixed>>  $items
      * @return list<array{value: string, label: string, count: int}>
      */
-    private function categoryFacets(Collection $items): array
+    private function categoryFacets(Collection $items, ?string $subBrand): array
     {
+        // Sur une sous-marque, on n'expose que les catégories qui lui sont
+        // rattachées (ou « toutes marques ») : un dossier « all » tagué d'une
+        // catégorie Statsio ne doit pas faire apparaître cette catégorie sur
+        // TVStats / Medistats.
+        $allowed = $subBrand === null
+            ? null
+            : ContentCategory::forSubBrand($subBrand)->pluck('slug')->flip();
+
         $labels = [];
         $counts = [];
         foreach ($items as $item) {
@@ -151,6 +163,9 @@ class PublicDossierCatalogAction
                 continue;
             }
             $slug = $item['category']['slug'];
+            if ($allowed !== null && ! $allowed->has($slug)) {
+                continue;
+            }
             $labels[$slug] = $item['category']['label'];
             $counts[$slug] = ($counts[$slug] ?? 0) + 1;
         }

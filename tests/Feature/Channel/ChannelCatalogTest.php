@@ -96,6 +96,24 @@ class ChannelCatalogTest extends TestCase
         $this->assertSame(['Éco'], $names->all());
     }
 
+    public function test_filters_by_sub_brand(): void
+    {
+        $this->channel(['name' => 'Chaîne TV', 'sub_brand' => 'tvstats']);
+        $this->channel(['name' => 'Chaîne Santé', 'sub_brand' => 'medistats']);
+        $this->channel(['name' => 'Chaîne Partout', 'sub_brand' => 'all']);
+        $this->channel(['name' => 'Chaîne Statsio', 'sub_brand' => 'statsio']);
+
+        $res = $this->getJson('/api/channels/catalog?sub_brand=tvstats')->assertOk();
+        $names = collect($res->json('data.data'))
+            ->push($res->json('data.featured'))
+            ->filter()
+            ->pluck('name')->unique()->sort()->values()->all();
+        $this->assertSame(['Chaîne Partout', 'Chaîne TV'], $names);
+        $this->assertSame(2, $res->json('data.meta.total'));
+
+        $this->assertSame(4, $this->getJson('/api/channels/catalog')->json('data.meta.total'));
+    }
+
     public function test_search_matches_name_and_handle(): void
     {
         $this->channel(['name' => 'Zorglub Data', 'handle' => 'zorglub']);

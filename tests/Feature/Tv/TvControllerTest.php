@@ -4,13 +4,14 @@ namespace Tests\Feature\Tv;
 
 use App\Models\Tv\TvAudience;
 use App\Models\Tv\TvChannel;
-use App\Models\Tv\TvChannelFollow;
 use App\Models\Tv\TvReviewQuestion;
 use App\Models\User\User;
+use Carbon\Carbon;
 use Database\Factories\TvBroadcastFactory;
 use Database\Factories\TvChannelFactory;
 use Database\Factories\TvProgramFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class TvControllerTest extends TestCase
@@ -63,7 +64,7 @@ class TvControllerTest extends TestCase
         $response = $this->getJson("/api/tv/broadcasts/{$broadcast->id}");
 
         $response->assertStatus(200)
-                 ->assertJsonStructure(['id', 'startAt', 'endAt', 'program']);
+            ->assertJsonStructure(['id', 'startAt', 'endAt', 'program']);
     }
 
     public function test_broadcast_returns_404_for_unknown_id(): void
@@ -138,10 +139,15 @@ class TvControllerTest extends TestCase
 
     public function test_epg_returns_schedules_from_database_when_already_stored(): void
     {
+        // Seeded TNT channels without a broadcast for the date would otherwise
+        // trigger real epg.pw calls; keep the test offline and fast.
+        Http::preventStrayRequests();
+        Http::fake(['epg.pw/*' => Http::response(['epg_list' => []])]);
+
         $date = now()->setTimezone('Europe/Paris')->format('Y-m-d');
         $channel = TvChannelFactory::new()->create();
         $program = TvProgramFactory::new()->create(['tv_channel_id' => $channel->slug, 'type' => 'series']);
-        $start = \Carbon\Carbon::now('Europe/Paris')->setTime(0, 1, 0);
+        $start = Carbon::now('Europe/Paris')->setTime(0, 1, 0);
         $broadcast = TvBroadcastFactory::new()->create([
             'tv_channel_id' => $channel->slug,
             'program_id' => $program->id,
