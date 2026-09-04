@@ -3,6 +3,7 @@
 namespace App\Models\Content;
 
 use App\Domain\Content\Enums\SubBrandEnum;
+use App\Models\Concerns\FiltersBySubBrand;
 use App\Models\StudioContent;
 use Database\Factories\DossierFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -19,7 +20,7 @@ use Illuminate\Support\Facades\Storage;
 class Dossier extends Model
 {
     /** @use HasFactory<DossierFactory> */
-    use HasFactory;
+    use FiltersBySubBrand, HasFactory;
 
     protected $fillable = [
         'slug',

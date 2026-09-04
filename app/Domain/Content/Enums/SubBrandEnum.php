@@ -62,4 +62,13 @@ enum SubBrandEnum: string
             ->mapWithKeys(fn (self $c) => [$c->value => $c->label()])
             ->all();
     }
+
+    /**
+     * Normalise une entrée de requête publique vers une sous-marque concrète
+     * (`statsio|tvstats|medistats`) pour cadrer un listing. `null` = pas de filtre.
+     */
+    public static function sanitize(mixed $raw): ?string
+    {
+        return is_string($raw) && in_array($raw, self::contentValues(), true) ? $raw : null;
+    }
 }
