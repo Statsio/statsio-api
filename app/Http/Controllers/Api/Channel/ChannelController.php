@@ -213,7 +213,7 @@ class ChannelController extends Controller
     public function catalog(Request $request)
     {
         $userId = $request->user('api')?->id;
-        $filters = $request->only(['q', 'kind', 'category', 'pace', 'sort', 'verified', 'followed', 'per_page']);
+        $filters = $request->only(['q', 'kind', 'category', 'pace', 'sort', 'sub_brand', 'verified', 'followed', 'per_page']);
 
         $cacheKey = 'channels.catalog.'.md5(json_encode($filters).'|u'.($userId ?? 'guest'));
         $payload = Cache::remember($cacheKey, 60, fn () => $this->channelCatalogAction->getCatalog($filters, $userId));

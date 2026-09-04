@@ -4,6 +4,7 @@ namespace App\Models\Channel;
 
 use App\Domain\Channel\Enums\ChannelKindEnum;
 use App\Domain\Content\Enums\SubBrandEnum;
+use App\Models\Concerns\FiltersBySubBrand;
 use App\Models\Media;
 use App\Traits\HasMedia;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Auth;
 
 class ChannelProfile extends Model
 {
-    use HasFactory, HasMedia;
+    use FiltersBySubBrand, HasFactory, HasMedia;
 
     protected $fillable = [
         'channel_id',

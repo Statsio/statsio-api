@@ -5,6 +5,7 @@ namespace App\Domain\Channel\Actions;
 use App\Domain\Channel\Enums\ChannelBadgeEnum;
 use App\Domain\Channel\Enums\ChannelKindEnum;
 use App\Domain\Channel\Enums\ChannelStatusEnum;
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Channel\Channel;
 use App\Models\Channel\ChannelCategory;
 use App\Models\StudioContent;
@@ -36,7 +37,7 @@ class ChannelCatalogAction
     private const MAX_PER_PAGE = 60;
 
     /**
-     * @param  array{q?: ?string, kind?: ?string, category?: ?string, pace?: ?string, sort?: ?string, verified?: mixed, followed?: mixed, per_page?: mixed}  $filters
+     * @param  array{q?: ?string, kind?: ?string, category?: ?string, pace?: ?string, sort?: ?string, sub_brand?: ?string, verified?: mixed, followed?: mixed, per_page?: mixed}  $filters
      */
     public function getCatalog(array $filters, ?int $userId = null): array
     {
@@ -45,6 +46,7 @@ class ChannelCatalogAction
         $category = $this->cleanEnum($filters['category'] ?? null);
         $pace = $this->cleanEnum($filters['pace'] ?? null);
         $sort = in_array($filters['sort'] ?? null, ['trend', 'recent', 'followers'], true) ? $filters['sort'] : 'trend';
+        $subBrand = SubBrandEnum::sanitize($filters['sub_brand'] ?? null);
         $verified = filter_var($filters['verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $followed = filter_var($filters['followed'] ?? false, FILTER_VALIDATE_BOOLEAN) && $userId !== null;
         $perPage = max(1, min(self::MAX_PER_PAGE, (int) ($filters['per_page'] ?? self::DEFAULT_PER_PAGE)));
@@ -54,6 +56,7 @@ class ChannelCatalogAction
         // pouvoir calculer des compteurs de facettes cohérents.
         $universe = $this->baseQuery($userId)
             ->when($q !== '', fn ($query) => $this->applySearch($query, $q))
+            ->when($subBrand, fn ($query) => $query->whereHas('profile', fn ($p) => $p->forSubBrand($subBrand)))
             ->when($verified, fn ($query) => $query->whereHas('channelBadges', fn ($b) => $b->where('slug', ChannelBadgeEnum::VERIFIED->value)))
             ->when($followed, fn ($query) => $query->whereHas('subscribers', fn ($s) => $s->where('users.id', $userId)))
             ->get();
@@ -63,7 +66,7 @@ class ChannelCatalogAction
 
         $facets = [
             'kinds' => $this->facet($items, 'kind', $this->matcher($category, $pace, null), fn ($i) => [$i['kind']]),
-            'themes' => $this->facet($items, 'theme', $this->matcher(null, $pace, $kind), fn ($i) => $i['categories']),
+            'themes' => $this->facet($items, 'theme', $this->matcher(null, $pace, $kind), fn ($i) => $i['categories'], $subBrand),
             'paces' => $this->facet($items, 'pace', $this->matcher($category, null, $kind), fn ($i) => [$i['pace']]),
         ];
 
@@ -89,7 +92,7 @@ class ChannelCatalogAction
                 'has_more' => $total > count($data),
             ],
             'facets' => $facets,
-            'stats' => $this->heroStats(),
+            'stats' => $this->heroStats($subBrand),
             'featured' => $anyFilter ? null : $this->featured($universe, $aggregates),
         ];
     }
@@ -210,7 +213,7 @@ class ChannelCatalogAction
     /**
      * @param  Collection<int, array>  $items
      */
-    private function facet(Collection $items, string $dimension, \Closure $predicate, \Closure $keys): array
+    private function facet(Collection $items, string $dimension, \Closure $predicate, \Closure $keys, ?string $subBrand = null): array
     {
         $scoped = $items->filter($predicate);
         $counts = [];
@@ -243,8 +246,10 @@ class ChannelCatalogAction
             return [$all, ...$options];
         }
 
-        // themes → catégories de chaîne réelles
-        $options = ChannelCategory::orderBy('position')
+        // themes → catégories de chaîne réelles, restreintes à la sous-marque
+        // courante (une catégorie propre à Statsio ne s'affiche pas sur TVStats).
+        $options = ChannelCategory::forSubBrand($subBrand)
+            ->orderBy('position')
             ->get(['slug', 'label'])
             ->map(fn ($c) => [
                 'value' => $c->slug,
@@ -324,17 +329,24 @@ class ChannelCatalogAction
         ];
     }
 
-    private function heroStats(): array
+    private function heroStats(?string $subBrand = null): array
     {
-        $active = Channel::where('status', ChannelStatusEnum::ACTIVE->value)->whereHas('profile')->count();
-        $verified = Channel::where('status', ChannelStatusEnum::ACTIVE->value)
-            ->whereHas('channelBadges', fn ($b) => $b->where('slug', ChannelBadgeEnum::VERIFIED->value))
-            ->count();
+        $scoped = fn ($query) => $query->when(
+            $subBrand,
+            fn ($q) => $q->whereHas('profile', fn ($p) => $p->forSubBrand($subBrand)),
+        );
+
+        $active = $scoped(Channel::where('status', ChannelStatusEnum::ACTIVE->value)->whereHas('profile'))->count();
+        $verified = $scoped(
+            Channel::where('status', ChannelStatusEnum::ACTIVE->value)
+                ->whereHas('channelBadges', fn ($b) => $b->where('slug', ChannelBadgeEnum::VERIFIED->value)),
+        )->count();
         $publicationsMonth = StudioContent::where('published_as', 'channel')
             ->where('status', 'published')
             ->where('updated_at', '>=', now()->subDays(self::RECENT_WINDOW_DAYS))
+            ->when($subBrand, fn ($q) => $q->whereHas('channel.profile', fn ($p) => $p->forSubBrand($subBrand)))
             ->count();
-        $lastChannelAt = Channel::where('status', ChannelStatusEnum::ACTIVE->value)->max('created_at');
+        $lastChannelAt = $scoped(Channel::where('status', ChannelStatusEnum::ACTIVE->value)->whereHas('profile'))->max('created_at');
 
         return [
             'active' => $active,

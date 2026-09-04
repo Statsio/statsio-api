@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Studio;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Channel\Channel;
+use App\Models\Content\ContentCategory;
 use App\Models\User\User;
 use Database\Factories\DossierFactory;
 use Database\Factories\StudioContentFactory;
@@ -237,5 +239,27 @@ class PublicStudioCatalogTest extends TestCase
             ->assertJsonPath('meta.total', 1)
             ->assertJsonPath('data.0.id', (string) $tv->id)
             ->assertJsonPath('data.0.sub_brand', 'tvstats');
+    }
+
+    public function test_category_facets_are_scoped_to_the_sub_brand(): void
+    {
+        ContentCategory::create(['slug' => 'brand-tv', 'name' => 'TV', 'position' => 90, 'sub_brand' => SubBrandEnum::Tvstats]);
+        ContentCategory::create(['slug' => 'brand-eco', 'name' => 'Éco', 'position' => 91, 'sub_brand' => SubBrandEnum::Statsio]);
+
+        StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'sub_brand' => 'tvstats',
+            'categories' => ['brand-tv', 'brand-eco'],
+        ]);
+
+        $facets = collect(
+            $this->getJson('/api/studio/content/public/catalog?type=article&sub_brand=tvstats')
+                ->assertOk()
+                ->json('facets.categories')
+        )->pluck('value')->all();
+
+        $this->assertContains('brand-tv', $facets);
+        $this->assertNotContains('brand-eco', $facets);
     }
 }

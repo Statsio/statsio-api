@@ -10,6 +10,8 @@ use DateTimeZone;
 
 class GetChannelSchedulesAction
 {
+    private const MAX_CONSECUTIVE_EMPTY_FETCHES = 3;
+
     public function __construct(
         private readonly FetchEpgAction $fetchEpg,
         private readonly StoreBroadcastsFromEpgAction $storeBroadcasts,
@@ -21,38 +23,66 @@ class GetChannelSchedulesAction
      */
     public function execute(string $date): array
     {
-        if (! $this->hasDataForDate($date)) {
-            $channels = TvChannel::where('is_active', true)
-                ->whereNotNull('epg_channel_id')
-                ->get(['slug', 'epg_channel_id']);
+        [$dayStart, $dayEnd] = $this->dayBoundsUtc($date);
 
-            foreach ($channels as $channel) {
-                $entries = $this->fetchEpg->execute($channel->epg_channel_id);
-                if (! empty($entries)) {
-                    $this->storeBroadcasts->execute($entries, $channel->slug, $date);
-                }
+        // Channels that already have at least one broadcast for this Paris date.
+        $channelsWithData = TvBroadcast::query()
+            ->whereBetween('start_at', [$dayStart, $dayEnd])
+            ->distinct()
+            ->pluck('tv_channel_id')
+            ->all();
+        $channelsWithData = array_flip($channelsWithData);
+
+        $channels = TvChannel::where('is_active', true)
+            ->whereNotNull('epg_channel_id')
+            ->get(['slug', 'epg_channel_id']);
+
+        $consecutiveEmpty = 0;
+
+        foreach ($channels as $channel) {
+            // Per-channel check: a partial import (only TF1, say) must not block the rest.
+            if (isset($channelsWithData[$channel->slug])) {
+                continue;
             }
+
+            $entries = $this->fetchEpg->execute($channel->epg_channel_id);
+
+            if (empty($entries)) {
+                // epg.pw down or rate-limiting: bail out rather than burning
+                // ~10s per remaining channel. Missing channels backfill on a later request.
+                if (++$consecutiveEmpty >= self::MAX_CONSECUTIVE_EMPTY_FETCHES) {
+                    break;
+                }
+
+                continue;
+            }
+
+            $consecutiveEmpty = 0;
+            $this->storeBroadcasts->execute($entries, $channel->slug, $date);
         }
 
         return $this->loadFromDatabase($date);
     }
 
-    private function hasDataForDate(string $date): bool
+    /**
+     * @return array{0: DateTimeImmutable, 1: DateTimeImmutable}
+     */
+    private function dayBoundsUtc(string $date): array
     {
         $tz = new DateTimeZone('Europe/Paris');
+        $utc = new DateTimeZone('UTC');
 
-        $dayStart = (new DateTimeImmutable($date.' 00:00:00', $tz))->setTimezone(new DateTimeZone('UTC'));
-        $dayEnd = (new DateTimeImmutable($date.' 23:59:59', $tz))->setTimezone(new DateTimeZone('UTC'));
-
-        return TvBroadcast::whereBetween('start_at', [$dayStart, $dayEnd])->exists();
+        return [
+            (new DateTimeImmutable($date.' 00:00:00', $tz))->setTimezone($utc),
+            (new DateTimeImmutable($date.' 23:59:59', $tz))->setTimezone($utc),
+        ];
     }
 
     private function loadFromDatabase(string $date): array
     {
         $tz = new DateTimeZone('Europe/Paris');
 
-        $dayStart = (new DateTimeImmutable($date.' 00:00:00', $tz))->setTimezone(new DateTimeZone('UTC'));
-        $dayEnd = (new DateTimeImmutable($date.' 23:59:59', $tz))->setTimezone(new DateTimeZone('UTC'));
+        [$dayStart, $dayEnd] = $this->dayBoundsUtc($date);
 
         $now = new DateTimeImmutable('now', $tz);
 
