@@ -341,7 +341,13 @@ class StatsdataCarburantsDemoSeeder extends Seeder
         $block('b-param', 'param', 's-param-0', [
             'datasetId' => $A,
             'fieldMapping' => ['paramColumn' => 'carburant', 'paramName' => 'carburant'],
-            'config' => ['title' => 'Carburant', 'paramControl' => 'segmented', 'paramDefault' => 'Gazole'],
+            'config' => [
+                'title' => 'Carburant',
+                'paramControl' => 'segmented',
+                'paramDefault' => 'Gazole',
+                'heroButton' => true,
+                'heroButtonLabel' => 'Choisir un carburant',
+            ],
         ]);
 
         // KPI ---------------------------------------------------------------
@@ -425,7 +431,12 @@ class StatsdataCarburantsDemoSeeder extends Seeder
                 'resultTitleColumn' => 'commune',
                 'resultDescColumns' => ['code_postal', 'departement'],
             ],
-            'config' => ['searchPlaceholder' => 'Lyon, 33000, Rennes…', 'title' => 'Rechercher une commune'],
+            'config' => [
+                'searchPlaceholder' => 'Lyon, 33000, Rennes…',
+                'title' => 'Rechercher une commune',
+                'heroButton' => true,
+                'heroButtonLabel' => 'Chercher ma commune',
+            ],
         ]);
 
         // Tableau régions --------------------------------------------------

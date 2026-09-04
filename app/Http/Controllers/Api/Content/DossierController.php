@@ -69,6 +69,7 @@ class DossierController extends Controller
             'q' => $request->query('q'),
             'category' => $request->query('category'),
             'sort' => $request->query('sort'),
+            'sub_brand' => $request->query('sub_brand'),
             'per_page' => $request->query('per_page'),
         ]);
 

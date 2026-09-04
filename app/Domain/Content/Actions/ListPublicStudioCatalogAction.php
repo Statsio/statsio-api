@@ -8,6 +8,7 @@ use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\Content\Support\StudioContentBlocks;
 use App\Domain\Content\Support\StudioContentListing;
 use App\Domain\Content\Support\SurveyListingAggregates;
+use App\Models\Content\ContentCategory;
 use App\Models\DataIngestion\Dataset;
 use App\Models\StudioContent;
 use App\Models\User\User;
@@ -40,7 +41,7 @@ class ListPublicStudioCatalogAction
         $type = $this->sanitizeType($request->query('type'));
         $channelId = $request->query('channel_id') ? (int) $request->query('channel_id') : null;
         $allowlist = $this->sanitizeCategories($request->query('categories'));
-        $subBrand = $this->sanitizeSubBrand($request->query('sub_brand'));
+        $subBrand = SubBrandEnum::sanitize($request->query('sub_brand'));
         $category = $this->sanitizeSingleCategory($request->query('category'));
         $format = $this->sanitizeFormat($request->query('format'));
         $search = $this->sanitizeSearch($request->query('q'));
@@ -151,7 +152,7 @@ class ListPublicStudioCatalogAction
                 'has_more' => $total > count($data),
             ],
             'facets' => [
-                'categories' => $this->categoryFacets($searched, $allowlist),
+                'categories' => $this->categoryFacets($searched, $allowlist, $subBrand),
                 'formats' => $this->formatFacets($searched),
                 'survey_kinds' => $isSurvey ? $this->surveyKindFacets($searched) : [],
             ],
@@ -224,9 +225,14 @@ class ListPublicStudioCatalogAction
     /**
      * @return list<array{value: string, label: string, count: int}>
      */
-    private function categoryFacets(Builder $searched, array $allowlist): array
+    private function categoryFacets(Builder $searched, array $allowlist, ?string $subBrand = null): array
     {
         $rows = (clone $searched)->get(['categories']);
+        // Sur une sous-marque, on n'expose que les catégories qui lui sont
+        // rattachées (ou « toutes marques ») — pas les rubriques d'une autre marque.
+        $brandSlugs = $subBrand === null
+            ? null
+            : ContentCategory::forSubBrand($subBrand)->pluck('slug')->flip();
         $counts = [];
         foreach ($rows as $row) {
             foreach ($row->categories ?? [] as $category) {
@@ -237,6 +243,9 @@ class ListPublicStudioCatalogAction
                     continue;
                 }
                 if ($allowlist && ! in_array($category, $allowlist, true)) {
+                    continue;
+                }
+                if ($brandSlugs !== null && ! $brandSlugs->has($category)) {
                     continue;
                 }
                 $counts[$category] = ($counts[$category] ?? 0) + 1;
@@ -429,12 +438,6 @@ class ListPublicStudioCatalogAction
     private function sanitizeSurveyKind(mixed $raw): ?string
     {
         return is_string($raw) && in_array($raw, SurveyKindEnum::values(), true) ? $raw : null;
-    }
-
-    /** Sous-marque concrète (`statsio|tvstats|medistats`) pour cadrer un listing. */
-    private function sanitizeSubBrand(mixed $raw): ?string
-    {
-        return is_string($raw) && in_array($raw, SubBrandEnum::contentValues(), true) ? $raw : null;
     }
 
     private function sanitizeSurveyStatus(mixed $raw): ?string

@@ -169,14 +169,16 @@ class StudioContentController extends Controller
         $type = $request->query('type');
         $channelId = $request->query('channel_id') ? (int) $request->query('channel_id') : null;
         $categories = $this->sanitizePublicCategories($request->query('categories'));
+        $subBrand = SubBrandEnum::sanitize($request->query('sub_brand'));
 
-        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($channelId ? ".ch{$channelId}" : '').($categories ? '.'.implode(',', $categories) : '');
+        $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($channelId ? ".ch{$channelId}" : '').($subBrand ? ".{$subBrand}" : '').($categories ? '.'.implode(',', $categories) : '');
 
-        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories) {
+        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories, $subBrand) {
             $contents = StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
                 ->where('status', 'published')
                 ->when($type, fn ($q) => $q->where('type', $type))
                 ->when($channelId, fn ($q) => $q->where('channel_id', $channelId)->where('published_as', 'channel'))
+                ->when($subBrand, fn ($q) => $q->where('sub_brand', $subBrand))
                 ->when($categories, fn ($q) => $q->where(function ($sub) use ($categories) {
                     foreach ($categories as $category) {
                         $sub->orWhereJsonContains('categories', $category);

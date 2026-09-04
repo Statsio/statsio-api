@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Content;
 
+use App\Domain\Content\Enums\SubBrandEnum;
+use App\Models\Content\ContentCategory;
 use App\Models\User\User;
 use Database\Factories\DossierFactory;
 use Database\Factories\StudioContentFactory;
@@ -174,6 +176,44 @@ class DossierTest extends TestCase
             ->assertJsonPath('data.featured.content_count', 2);
 
         $this->assertSame(1, collect($res->json('data.data'))->firstWhere('slug', $climat->slug)['content_count']);
+    }
+
+    public function test_public_catalog_filters_by_sub_brand(): void
+    {
+        DossierFactory::new()->subBrand(SubBrandEnum::Tvstats)->create(['name' => 'Dossier TV']);
+        DossierFactory::new()->subBrand(SubBrandEnum::Medistats)->create(['name' => 'Dossier Santé']);
+        DossierFactory::new()->subBrand(SubBrandEnum::All)->create(['name' => 'Dossier Partout']);
+
+        $res = $this->getJson('/api/dossiers/catalog?sub_brand=tvstats')->assertOk();
+        $names = collect($res->json('data.data'))
+            ->push($res->json('data.featured'))
+            ->filter()
+            ->pluck('name')->sort()->values()->all();
+        $this->assertSame(['Dossier Partout', 'Dossier TV'], $names);
+        $this->assertSame(2, $res->json('data.meta.total'));
+
+        $this->assertSame(3, $this->getJson('/api/dossiers/catalog')->json('data.meta.total'));
+    }
+
+    public function test_public_catalog_category_facets_are_scoped_to_the_sub_brand(): void
+    {
+        ContentCategory::create(['slug' => 'brand-tv', 'name' => 'Émissions', 'position' => 90, 'sub_brand' => SubBrandEnum::Tvstats]);
+        ContentCategory::create(['slug' => 'brand-politique', 'name' => 'Politique', 'position' => 91, 'sub_brand' => SubBrandEnum::Statsio]);
+        ContentCategory::create(['slug' => 'brand-monde', 'name' => 'Monde', 'position' => 92, 'sub_brand' => SubBrandEnum::All]);
+
+        // Un dossier « toutes marques » tagué d'une rubrique Statsio : il apparaît
+        // sur TVStats, mais sa rubrique Statsio ne doit pas remonter dans les facettes.
+        DossierFactory::new()->subBrand(SubBrandEnum::All)->withCategories(['brand-politique'])->create(['name' => 'Partout Politique']);
+        DossierFactory::new()->subBrand(SubBrandEnum::Tvstats)->withCategories(['brand-tv'])->create(['name' => 'TV Émissions']);
+        DossierFactory::new()->subBrand(SubBrandEnum::All)->withCategories(['brand-monde'])->create(['name' => 'Partout Monde']);
+
+        $facets = collect(
+            $this->getJson('/api/dossiers/catalog?sub_brand=tvstats')->assertOk()->json('data.facets.categories')
+        )->pluck('value')->all();
+
+        $this->assertContains('brand-tv', $facets);
+        $this->assertContains('brand-monde', $facets);
+        $this->assertNotContains('brand-politique', $facets);
     }
 
     public function test_public_catalog_filters_by_search(): void
