@@ -265,7 +265,8 @@ class StudioBlockCatalog
                 'label' => 'Recherche',
                 'description' => 'Barre de recherche sur un ou plusieurs datasets. Au choix d\'un résultat, TOUTES les colonnes '
                     .'de la ligne deviennent des paramètres de page {{colonne}} et les blocs qui filtrent dessus se rechargent. '
-                    .'`targetPageId` optionnel : ouvre une AUTRE page au clic (sinon filtre la page courante).',
+                    .'`targetPageId` optionnel : ouvre une AUTRE page au clic (sinon filtre la page courante). '
+                    .'`filters` (mêmes opérateurs que les autres blocs) restreint le périmètre interrogé.',
                 'contentTypes' => ['statsdata'],
                 'requiresDataset' => false,
                 'fieldMapping' => [
@@ -295,7 +296,8 @@ class StudioBlockCatalog
                 'label' => 'Paramètre',
                 'description' => 'Sélecteur (pastilles ou liste déroulante) alimenté par les valeurs distinctes d\'une colonne. '
                     .'À chaque choix il écrit pageParams[<paramName>] ; les blocs de la page qui filtrent sur {{<paramName>}} '
-                    .'se rechargent. paramName doit être un nom simple (lettres/chiffres/underscore).',
+                    .'se rechargent. paramName doit être un nom simple (lettres/chiffres/underscore). '
+                    .'`filters` restreint les valeurs distinctes proposées (et les pages générées).',
                 'contentTypes' => ['statsdata'],
                 'requiresDataset' => true,
                 'fieldMapping' => [
