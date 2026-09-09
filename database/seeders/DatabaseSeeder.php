@@ -26,6 +26,7 @@ class DatabaseSeeder extends Seeder
             UserProfileReferenceSeeder::class,
             AdminUserSeeder::class,
             DossierSeeder::class,
+            OfferSeeder::class,
         ]);
     }
 }

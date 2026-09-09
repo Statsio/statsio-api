@@ -16,6 +16,11 @@ use Illuminate\Support\Carbon;
  *    (verrouillé ensuite) et renseigne `first_published_at`.
  *  - Publications suivantes : incrémente simplement le numéro de version ; l'auteur
  *    reste celui de la v1 (modifiable via l'onglet Publication du dashboard).
+ *
+ * Aucun contrôle Premium ici (blocs, vérification d'identité) : la publication ne fait
+ * que figer l'état du brouillon courant, déjà validé bloc par bloc à chaque sauvegarde
+ * (voir StudioContentController::update() / PremiumBlockGate) — un contenu contenant des
+ * blocs Premium déjà en place doit rester publiable même si l'auteur perd le Premium.
  */
 class PublishStudioContentAction
 {

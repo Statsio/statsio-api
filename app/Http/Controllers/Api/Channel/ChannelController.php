@@ -9,6 +9,8 @@ use App\Domain\Channel\Actions\ChannelInvitationAction;
 use App\Domain\Channel\Actions\ChannelStatsAction;
 use App\Domain\Channel\Actions\ToggleChannelFollowAction;
 use App\Domain\Channel\Enums\ChannelPermissionEnum;
+use App\Domain\Channel\Enums\ChannelUserRoleEnum;
+use App\Domain\Content\Support\PremiumLimits;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Channel\CreateChannelRequest;
 use App\Http\Requests\Channel\DeleteChannelRequest;
@@ -59,6 +61,16 @@ class ChannelController extends Controller
     public function create(CreateChannelRequest $request)
     {
         $data = $request->validated();
+        $user = $request->user();
+
+        $maxChannels = PremiumLimits::offerFor($user)?->max_channels;
+        if ($maxChannels !== null && $user->ownedChannels()->count() >= $maxChannels) {
+            return response()->json([
+                'success' => false,
+                'message' => __('errors.premium_channel_limit', ['max' => $maxChannels]),
+            ], 403);
+        }
+
         $channel = $this->channelAction->createChannel($data);
 
         return response()->json([
@@ -279,6 +291,22 @@ class ChannelController extends Controller
 
         if (! $channel) {
             return response()->json(['success' => false, 'message' => __('channel.not_found')], 404);
+        }
+
+        $emails = $request->validated('emails');
+
+        $maxMembers = PremiumLimits::offerForChannelOwner($channel)?->max_channel_members;
+        if ($maxMembers !== null) {
+            $teamRoles = array_map(fn ($r) => $r->value, ChannelUserRoleEnum::getManagementRoles());
+            $currentMembers = ChannelUser::where('channel_id', $channel->id)->whereIn('role', $teamRoles)->count();
+            $pendingInvitations = ChannelInvitation::where('channel_id', $channel->id)->pending()->count();
+
+            if ($currentMembers + $pendingInvitations + count($emails) > $maxMembers) {
+                return response()->json([
+                    'success' => false,
+                    'message' => __('errors.premium_channel_members_limit', ['max' => $maxMembers]),
+                ], 403);
+            }
         }
 
         $result = $this->channelInvitationAction->invite(

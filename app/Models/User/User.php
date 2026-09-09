@@ -2,6 +2,8 @@
 
 namespace App\Models\User;
 
+use App\Domain\Content\Enums\PremiumPlanEnum;
+use App\Models\Billing\Subscription;
 use App\Models\Channel\Channel;
 use App\Models\Identity\IdentityVerification;
 use App\Models\StudioContent;
@@ -61,6 +63,9 @@ class User extends Authenticatable implements FilamentUser, HasName
         'email_verified_at',
         'status',
         'is_admin',
+        'premium_plan',
+        'premium_until',
+        'stripe_customer_id',
         'suspended_until',
         'anonymized_at',
     ];
@@ -83,6 +88,7 @@ class User extends Authenticatable implements FilamentUser, HasName
     protected $appends = [
         'profile_complete',
         'identity_verified',
+        'is_premium',
     ];
 
     /**
@@ -97,6 +103,8 @@ class User extends Authenticatable implements FilamentUser, HasName
             'identity_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
+            'premium_plan' => PremiumPlanEnum::class,
+            'premium_until' => 'datetime',
             'suspended_until' => 'datetime',
             'anonymized_at' => 'datetime',
         ];
@@ -140,6 +148,33 @@ class User extends Authenticatable implements FilamentUser, HasName
     public function hasVerifiedIdentity(): bool
     {
         return $this->identity_verified_at !== null;
+    }
+
+    /**
+     * Accesseur "is_premium" — true si l'offre Premium est active. `premium_plan`/
+     * `premium_until` sont mis à jour soit par un abonnement Stripe payant (webhook,
+     * voir App\Domain\Billing\Actions\HandleStripeWebhookAction), soit par une bascule
+     * manuelle en back-office (compte offert, sans paiement). `premium_until` optionnel :
+     * passée cette date, l'utilisateur redevient freemium sans repasser `premium_plan`.
+     */
+    public function getIsPremiumAttribute(): bool
+    {
+        return $this->isPremium();
+    }
+
+    public function isPremium(): bool
+    {
+        if ($this->premium_plan !== PremiumPlanEnum::Premium) {
+            return false;
+        }
+
+        return $this->premium_until === null || $this->premium_until->isFuture();
+    }
+
+    /** Abonnements Stripe du compte (historique inclus — voir Subscription::isActive()). */
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
     }
 
     /**

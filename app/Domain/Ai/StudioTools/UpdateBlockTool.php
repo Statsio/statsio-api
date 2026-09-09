@@ -5,18 +5,26 @@ namespace App\Domain\Ai\StudioTools;
 use App\Domain\Ai\StudioAgentContext;
 use App\Domain\Ai\StudioTools\Concerns\DecodesJsonArg;
 use App\Domain\Ai\Support\StudioSourceReader;
+use App\Domain\Content\Support\PremiumBlockGate;
 
 /**
  * Met à jour un bloc existant (config, mapping, filtres, dataset).
  *
  * Autorisé aussi sur les blocs `locked` : on ne peut pas les déplacer/supprimer,
  * mais on peut les configurer (searchSources, resultTitleColumn, …).
+ *
+ * Un bloc premium déjà en place reste grandfathéré (affiché, déplaçable, supprimable)
+ * si l'auteur perd le Premium — mais ne peut plus être modifié via cet outil (voir
+ * PremiumBlockGate::canMutateBlock()).
  */
 class UpdateBlockTool implements StudioAgentTool
 {
     use DecodesJsonArg;
 
-    public function __construct(private readonly StudioSourceReader $reader) {}
+    public function __construct(
+        private readonly StudioSourceReader $reader,
+        private readonly PremiumBlockGate $premiumGate,
+    ) {}
 
     public function name(): string
     {
@@ -56,6 +64,11 @@ class UpdateBlockTool implements StudioAgentTool
 
         if ($block === null) {
             return ['error' => "Bloc « {$blockRef} » inconnu."];
+        }
+
+        $channel = $this->premiumGate->channelForContent($context->content);
+        if (! $this->premiumGate->canMutateBlock($context->user, $channel, $block)) {
+            return ['error' => "Le bloc « {$blockRef} » ({$block['type']}) est réservé à l'offre Premium — passe à Premium pour le modifier."];
         }
 
         $datasetId = isset($input['dataset_id']) ? (int) $input['dataset_id'] : null;

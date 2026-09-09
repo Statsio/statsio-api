@@ -46,6 +46,7 @@ class AdminPanelProvider extends PanelProvider
                 'Utilisateurs',
                 'Chaînes',
                 'Contenus',
+                'Offres',
                 'TV',
                 'Data',
                 'Support',
