@@ -13,7 +13,7 @@ class ContentCategory extends Model
 
     protected $table = 'content_categories';
 
-    protected $fillable = ['slug', 'name', 'position', 'sub_brand'];
+    protected $fillable = ['slug', 'name', 'icon', 'position', 'sub_brand'];
 
     public $timestamps = true;
 

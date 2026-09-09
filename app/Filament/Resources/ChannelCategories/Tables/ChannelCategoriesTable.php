@@ -22,6 +22,11 @@ class ChannelCategoriesTable
                     ->label('Slug')
                     ->badge()
                     ->color('gray'),
+                TextColumn::make('icon')
+                    ->label('Icône')
+                    ->badge()
+                    ->color('gray')
+                    ->placeholder('—'),
                 TextColumn::make('sub_brand')
                     ->label('Domaine')
                     ->badge()

@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Tv\TvBroadcast;
 use App\Models\Tv\TvBroadcastReview;
 use App\Models\Tv\TvBroadcastScore;
+use App\Models\Tv\TvCategory;
 use App\Models\Tv\TvChannel;
 use App\Models\Tv\TvReviewQuestion;
 use App\Models\Tv\TvUserView;
@@ -28,6 +29,15 @@ class TvController extends Controller
             ->get(['id', 'slug', 'number', 'display_name', 'epg_channel_id', 'logo_url']);
 
         return response()->json($channels);
+    }
+
+    /** GET /tv/categories — liste des catégories TV (nom, slug, couleur, icône). */
+    public function categories(): JsonResponse
+    {
+        $categories = TvCategory::orderBy('name')
+            ->get(['id', 'name', 'slug', 'color', 'icon']);
+
+        return response()->json(['success' => true, 'data' => $categories]);
     }
 
     public function epg(
@@ -96,6 +106,7 @@ class TvController extends Controller
             'name' => $c->name,
             'slug' => $c->slug,
             'color' => $c->color,
+            'icon' => $c->icon,
         ])->values();
 
         return response()->json([

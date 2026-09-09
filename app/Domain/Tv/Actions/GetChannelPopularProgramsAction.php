@@ -13,7 +13,7 @@ class GetChannelPopularProgramsAction
      *
      * @return array<array{
      *   broadcastId: int, programId: int, title: string, category: ?string, categoryColor: ?string,
-     *   imageUrl: ?string, score: int, rating: ?float,
+     *   categoryIcon: ?string, imageUrl: ?string, score: int, rating: ?float,
      * }>
      */
     public function execute(string $slug, int $days = 30, int $limit = 6): array
@@ -62,6 +62,7 @@ class GetChannelPopularProgramsAction
                     'title' => $program->title,
                     'category' => $category->name ?? $program->type,
                     'categoryColor' => $category->color ?? null,
+                    'categoryIcon' => $category->icon ?? null,
                     'imageUrl' => $program->image_url,
                     'score' => (int) round($row->avg_viewers),
                     'rating' => $rating !== null ? round((float) $rating, 1) : null,
