@@ -14,7 +14,7 @@ class ContentCategoryController extends Controller
         $categories = ContentCategory::query()
             ->forSubBrand($request->query('sub_brand'))
             ->orderBy('position')
-            ->get(['id', 'slug', 'name', 'sub_brand']);
+            ->get(['id', 'slug', 'name', 'icon', 'sub_brand']);
 
         return response()->json([
             'success' => true,

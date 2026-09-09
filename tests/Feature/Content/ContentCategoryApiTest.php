@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Content;
 
+use App\Models\Content\ContentCategory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -16,6 +17,16 @@ class ContentCategoryApiTest extends TestCase
         $this->assertSame('tvstats', $data->firstWhere('slug', 'tv')['sub_brand']);
         $this->assertSame('medistats', $data->firstWhere('slug', 'sante')['sub_brand']);
         $this->assertSame('all', $data->firstWhere('slug', 'politique')['sub_brand']);
+    }
+
+    public function test_index_exposes_the_icon_of_each_category(): void
+    {
+        ContentCategory::where('slug', 'sante')->update(['icon' => 'heart']);
+
+        $data = collect($this->getJson('/api/content-categories')->assertOk()->json('data'));
+
+        $this->assertSame('heart', $data->firstWhere('slug', 'sante')['icon']);
+        $this->assertArrayHasKey('icon', $data->first());
     }
 
     public function test_index_filters_by_sub_brand_keeping_all_brand_categories(): void

@@ -61,6 +61,16 @@ class ChannelControllerTest extends TestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_channel_categories_expose_their_icon(): void
+    {
+        ChannelCategory::where('slug', 'sport')->update(['icon' => 'trophy']);
+
+        $data = collect($this->getJson('/api/channels/categories')->assertOk()->json('data'));
+
+        $this->assertSame('trophy', $data->firstWhere('slug', 'sport')['icon']);
+        $this->assertArrayHasKey('icon', $data->first());
+    }
+
     public function test_authenticated_user_can_create_channel(): void
     {
         $response = $this->withToken($this->token)->postJson('/api/channels', [

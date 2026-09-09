@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ContentCategories\Schemas;
 
 use App\Domain\Content\Enums\SubBrandEnum;
+use App\Support\CategoryIcons;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
@@ -17,6 +18,8 @@ class ContentCategoryForm
                     ->label('Nom')
                     ->required()
                     ->maxLength(100),
+
+                CategoryIcons::formField(),
 
                 Select::make('sub_brand')
                     ->label('Sous-marque')

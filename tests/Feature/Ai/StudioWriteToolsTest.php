@@ -160,6 +160,22 @@ class StudioWriteToolsTest extends TestCase
         $this->assertTrue($tool->execute(['ref' => 's1', 'page_ref' => 'p1', 'layout' => '2-cols'], $ctx)['ok']);
     }
 
+    public function test_add_section_with_a_title_always_gets_a_kicker(): void
+    {
+        $ctx = $this->context();
+        (app(AddPageTool::class))->execute(['ref' => 'p1', 'title' => 'X'], $ctx);
+
+        (new AddSectionTool)->execute(['ref' => 's1', 'page_ref' => 'p1', 'layout' => '1-col', 'title' => 'Le contexte'], $ctx);
+        (new AddSectionTool)->execute(['ref' => 's2', 'page_ref' => 'p1', 'layout' => '1-col', 'title' => 'Les chiffres', 'kicker' => 'Données'], $ctx);
+        (new AddSectionTool)->execute(['ref' => 's3', 'page_ref' => 'p1', 'layout' => '1-col'], $ctx);
+
+        $ops = collect($ctx->patchOps())->where('op', 'addSection')->keyBy('ref');
+
+        $this->assertSame('Partie 1', $ops['s1']['kicker']); // auto-rempli
+        $this->assertSame('Données', $ops['s2']['kicker']);   // respecté
+        $this->assertArrayNotHasKey('kicker', $ops['s3']);    // pas de titre → pas de kicker
+    }
+
     public function test_add_block_rejects_disallowed_type_for_content_type(): void
     {
         $ctx = $this->context('statsdata');

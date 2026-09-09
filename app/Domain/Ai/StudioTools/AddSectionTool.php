@@ -22,7 +22,9 @@ class AddSectionTool implements StudioAgentTool
     {
         return 'Ajoute une section à une page. layout ∈ '.implode(' | ', self::LAYOUTS).'. '
             .'En-tête optionnel : kicker (sur-titre), title, description ; theme (fond) ∈ '
-            .implode(' | ', self::THEMES).'. Un title génère automatiquement l\'ancre + l\'entrée du sommaire.';
+            .implode(' | ', self::THEMES).'. Un title génère automatiquement l\'ancre + l\'entrée du sommaire. '
+            .'Dès que tu passes un `title`, passe AUSSI un `kicker` court et thématique (2-4 mots, '
+            .'ex. « Contexte », « Chiffres clés », « Méthodologie », « Ce qu\'il faut retenir »).';
     }
 
     public function parameters(): array
@@ -34,7 +36,7 @@ class AddSectionTool implements StudioAgentTool
                 'page_ref' => ['type' => 'string', 'description' => 'Ref ou id de la page cible.'],
                 'layout' => ['type' => 'string', 'enum' => self::LAYOUTS],
                 'index' => ['type' => 'integer', 'description' => 'Position d\'insertion (optionnel).'],
-                'kicker' => ['type' => 'string', 'description' => 'Sur-titre court (ex. "Graphique · Barres").'],
+                'kicker' => ['type' => 'string', 'description' => 'Sur-titre court, obligatoire dès qu\'il y a un title (ex. "Contexte", "Chiffres clés").'],
                 'title' => ['type' => 'string'],
                 'description' => ['type' => 'string'],
                 'theme' => ['type' => 'string', 'enum' => self::THEMES],
@@ -72,6 +74,10 @@ class AddSectionTool implements StudioAgentTool
             if (isset($input[$key]) && is_string($input[$key]) && $input[$key] !== '') {
                 $op[$key] = $input[$key];
             }
+        }
+        // Filet de sécurité : une section titrée a toujours un sur-titre (eyebrow).
+        if (isset($op['title']) && ! isset($op['kicker'])) {
+            $op['kicker'] = 'Partie '.$context->sectionCountForPage($pageRef);
         }
         if (isset($input['theme']) && in_array($input['theme'], self::THEMES, true) && $input['theme'] !== 'default') {
             $op['theme'] = $input['theme'];

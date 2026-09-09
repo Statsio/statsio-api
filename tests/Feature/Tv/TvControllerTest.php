@@ -3,6 +3,7 @@
 namespace Tests\Feature\Tv;
 
 use App\Models\Tv\TvAudience;
+use App\Models\Tv\TvCategory;
 use App\Models\Tv\TvChannel;
 use App\Models\Tv\TvReviewQuestion;
 use App\Models\User\User;
@@ -28,6 +29,16 @@ class TvControllerTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertCount(3, $response->json());
+    }
+
+    public function test_can_list_tv_categories_with_their_icon(): void
+    {
+        TvCategory::where('slug', 'sport')->update(['icon' => 'trophy']);
+
+        $data = collect($this->getJson('/api/tv/categories')->assertOk()->json('data'));
+
+        $this->assertSame('trophy', $data->firstWhere('slug', 'sport')['icon']);
+        $this->assertArrayHasKey('color', $data->first());
     }
 
     public function test_channels_are_ordered_by_number(): void

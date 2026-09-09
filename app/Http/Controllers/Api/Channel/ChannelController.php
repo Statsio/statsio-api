@@ -48,7 +48,7 @@ class ChannelController extends Controller
         $categories = ChannelCategory::query()
             ->forSubBrand($request->query('sub_brand'))
             ->orderBy('position')
-            ->get(['id', 'slug', 'label', 'sub_brand']);
+            ->get(['id', 'slug', 'label', 'icon', 'sub_brand']);
 
         return response()->json(['success' => true, 'data' => $categories]);
     }

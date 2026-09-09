@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class TvCategory extends Model
 {
-    protected $fillable = ['name', 'slug', 'color'];
+    protected $fillable = ['name', 'slug', 'color', 'icon'];
 
     public function programs(): BelongsToMany
     {
