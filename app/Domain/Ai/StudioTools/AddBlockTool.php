@@ -6,6 +6,7 @@ use App\Domain\Ai\BlockCatalog\StudioBlockCatalog;
 use App\Domain\Ai\StudioAgentContext;
 use App\Domain\Ai\StudioTools\Concerns\DecodesJsonArg;
 use App\Domain\Ai\Support\StudioSourceReader;
+use App\Domain\Content\Support\PremiumBlockGate;
 
 /**
  * Ajoute un bloc dans une zone (colonne) d'une section, avec son mapping de champs
@@ -19,6 +20,7 @@ class AddBlockTool implements StudioAgentTool
     public function __construct(
         private readonly StudioBlockCatalog $catalog,
         private readonly StudioSourceReader $reader,
+        private readonly PremiumBlockGate $premiumGate,
     ) {}
 
     public function name(): string
@@ -69,6 +71,12 @@ class AddBlockTool implements StudioAgentTool
         $meta = $this->catalog->get($type);
         if ($meta === null || ! $this->catalog->isAllowed($type, $context->contentType())) {
             return ['error' => "Le bloc « {$type} » n'est pas autorisé pour le type « {$context->contentType()} »."];
+        }
+
+        $channel = $this->premiumGate->channelForContent($context->content);
+        if (! $this->premiumGate->isEffectivelyPremium($context->user, $channel)
+            && in_array($type, $this->premiumGate->premiumTypes(), true)) {
+            return ['error' => "Le bloc « {$type} » est réservé à l'offre Premium."];
         }
 
         if ($loopRef !== null) {

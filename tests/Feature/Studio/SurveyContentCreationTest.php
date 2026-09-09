@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Studio;
 
+use App\Models\Offer;
 use App\Models\User\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -17,7 +18,15 @@ class SurveyContentCreationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->user = User::factory()->create();
+
+        // Offre payante autorisant la vérification d'identité — pilotée par l'admin
+        // (voir Tests\Feature\Premium\SurveyIdentityVerificationTest pour le gating lui-même).
+        Offer::create([
+            'key' => 'premium', 'name' => 'Premium', 'price_cents' => 200, 'period' => 'mois',
+            'cta_label' => 'Passer à Premium', 'position' => 1, 'allows_identity_verification' => true,
+        ]);
+
+        $this->user = User::factory()->premium()->create();
         $this->token = $this->user->createToken('test')->plainTextToken;
     }
 
