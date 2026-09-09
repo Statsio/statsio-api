@@ -93,6 +93,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Stripe — abonnement Premium (paiement, portail client, webhooks)
+    |--------------------------------------------------------------------------
+    |
+    | Laisser `secret` vide désactive proprement le paiement (StripeGateway::isConfigured()
+    | retombe sur false) : l'offre Premium reste activable manuellement en admin, mais le
+    | client ne peut plus payer lui-même. `webhook_secret` sert à vérifier la signature des
+    | événements reçus sur /api/billing/webhook (Stripe::Webhook::constructEvent).
+    |
+    */
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Assistant IA du Studio
     |--------------------------------------------------------------------------
     |

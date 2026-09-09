@@ -28,6 +28,11 @@ class UserFactory extends Factory
         return $this->state(fn () => ['is_admin' => true]);
     }
 
+    public function premium(): static
+    {
+        return $this->state(fn () => ['premium_plan' => 'premium']);
+    }
+
     public function unverified(): static
     {
         return $this->state(fn () => ['email_verified_at' => null]);

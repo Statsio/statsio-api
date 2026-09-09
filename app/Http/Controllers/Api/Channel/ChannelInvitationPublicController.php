@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\Channel;
 
 use App\Domain\Channel\Actions\ChannelInvitationAction;
 use App\Domain\Channel\Enums\ChannelUserRoleEnum;
+use App\Domain\Content\Support\PremiumLimits;
 use App\Http\Controllers\Controller;
+use App\Models\Channel\ChannelUser;
 use Illuminate\Http\Request;
 
 class ChannelInvitationPublicController extends Controller
@@ -49,6 +51,26 @@ class ChannelInvitationPublicController extends Controller
      */
     public function accept(Request $request, string $token)
     {
+        $invitation = $this->channelInvitationAction->findByToken($token);
+        $channel = $invitation?->status === 'pending' ? $invitation->channel : null;
+
+        // Re-vérifié à l'acceptation (pas seulement à l'envoi) : plusieurs invitations
+        // envoyées avant d'atteindre la limite peuvent être acceptées après coup.
+        $maxMembers = $channel ? PremiumLimits::offerForChannelOwner($channel)?->max_channel_members : null;
+        if ($channel && $maxMembers !== null) {
+            $teamRoles = array_map(fn ($r) => $r->value, ChannelUserRoleEnum::getManagementRoles());
+            $currentMembers = ChannelUser::where('channel_id', $channel->id)
+                ->whereIn('role', $teamRoles)
+                ->count();
+
+            if ($currentMembers >= $maxMembers) {
+                return response()->json([
+                    'success' => false,
+                    'message' => __('errors.premium_channel_members_limit', ['max' => $maxMembers]),
+                ], 403);
+            }
+        }
+
         try {
             $channelUser = $this->channelInvitationAction->accept($token, $request->user());
         } catch (\RuntimeException $e) {

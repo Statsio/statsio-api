@@ -1,11 +1,15 @@
 <?php
 
 use App\Http\Controllers\Api\DataIngestion\DatasetController;
+use App\Http\Controllers\Studio\StudioBlockGateController;
 use App\Http\Controllers\Studio\StudioBlockResponseController;
 use App\Http\Controllers\StudioContentController;
 use Illuminate\Support\Facades\Route;
 
 // Public read-only access (no auth required)
+// Classification premium/freemium des blocs (palette du Studio) — voir /offres.
+Route::get('/studio/block-gates', [StudioBlockGateController::class, 'index']);
+
 Route::get('/studio/content/public', [StudioContentController::class, 'indexPublic']);
 Route::get('/studio/content/public/catalog', [StudioContentController::class, 'catalogPublic']);
 Route::get('/studio/content/public/mentions', [StudioContentController::class, 'mentionsPublic']);
