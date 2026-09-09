@@ -22,6 +22,7 @@ class StudioAgentPromptBuilder
             $this->dataModel(),
             $this->palette($type),
             $this->composition($type),
+            $this->pagePlan($type),
             $this->currentTree($content),
             $this->pendingIssues($content),
             $this->guardrails(),
@@ -80,6 +81,9 @@ class StudioAgentPromptBuilder
           (kicker + title + description) et un `theme` de fond (default | dark | accent).
           Renseignés à la création via `add_section`. Un `title` alimente automatiquement
           l'ancre `#…` et l'entrée du sommaire de la page.
+          RÈGLE : dès qu'une section a un `title`, elle DOIT aussi avoir un `kicker`
+          (sur-titre / eyebrow court et thématique, 2-4 mots : « Contexte », « Chiffres clés »,
+          « Méthodologie », « Ce qu'il faut retenir »…). Jamais de section titrée sans kicker.
         - Une section a des *zones* (colonnes), identifiées `"{sectionId}-{colIndex}"` (colIndex commence à 0).
         - Un *bloc* vit dans une zone. Un bloc de données porte `datasetId`, `fieldMapping`, `config`,
           et optionnellement `filters` ([{column, operator, value}], operators = = != > >= < <= contains not_contains in not_in ;
@@ -94,6 +98,13 @@ class StudioAgentPromptBuilder
           Prioritaire sur `valueColumn`.
         - Camembert : `config.pieMode` = "column" (label+value) ou "segments" ; en mode segments,
           `fieldMapping.pieSegments` = `[{fn, column, label?}]`, fn ajoute "remainder" (= complément des autres parts).
+        - LIBELLÉS D'AFFICHAGE (bar/line/pie/table/record/list) :
+          * `fieldMapping.columnLabels` = `{ "<ref colonne>": "<libellé>" }` renomme un CHAMP
+            (en-tête de tableau, légende, titre d'axe). Ex. `{"pop_2024":"Population"}`.
+          * `fieldMapping.valueLabels` = `{ "<ref colonne>": { "<valeur brute>": "<libellé>" } }`
+            renomme les VALEURS affichées d'un champ (axe, légende, cellule, fiche).
+            Ex. `{"sexe":{"M":"Hommes","F":"Femmes"}}`. Affichage seulement : la valeur brute
+            reste la clé pour les filtres, l'agrégation et le tri (donc `value` d'un filtre = "M", pas "Hommes").
         - Blocs CONTENEURS (catégorie script), enfants ajoutés via `add_block` avec `loop_ref` = leur ref :
           * `loop` : répète ses enfants pour chaque valeur distincte de `fieldMapping.loopColumn`.
             Les enfants insèrent la valeur courante via `{{item}}` (ou `{{<loopVar>}}`).
@@ -140,7 +151,8 @@ class StudioAgentPromptBuilder
         1. Section « Introduction » (layout 1-col, sans en-tête) : UN bloc `paragraph` de chapô
            (3-4 phrases qui posent l'enjeu et le chiffre-clé).
         2. Puis 3 à 5 sections d'analyse. Chaque section est créée avec `add_section` en passant
-           `title` (le titre de la partie) — c'est l'en-tête de section qui alimente le sommaire
+           `title` (le titre de la partie) ET `kicker` (sur-titre court, ex. « Contexte »,
+           « Chiffres clés », « Analyse ») — c'est l'en-tête de section qui alimente le sommaire
            de l'article (ancre générée depuis le titre), n'ajoute PAS de bloc `heading` séparé. La section
            contient 1 à 2 blocs `paragraph` d'analyse, et, quand c'est pertinent, UN visuel :
            * un bloc `sd-embed` reprenant un bloc précis d'un Statsdata référencé par l'utilisateur
@@ -161,6 +173,40 @@ class StudioAgentPromptBuilder
         exacts issus de la liste « CONTENUS RÉFÉRENCÉS » du message. Sans référence : pas de
         `sd-embed` — illustre alors avec `image` / `quote`, ou construis un vrai graphique de
         données à partir des sources du contenu (`list_sources`).
+        TXT;
+    }
+
+    /**
+     * Stratégie de pagination pour un statsdata — suivie quand on demande de
+     * construire / étoffer le contenu entier. Un statsdata n'est PAS une page unique.
+     */
+    private function pagePlan(string $type): ?string
+    {
+        if ($type !== 'statsdata') {
+            return null;
+        }
+
+        return <<<'TXT'
+        STRUCTURE EN PAGES D'UN STATSDATA (quand on te demande de « construire / faire / étoffer » le statsdata)
+        Ne pose JAMAIS tout le contenu sur la seule page par défaut. Découpe systématiquement,
+        via des `add_page` successifs, en respectant « 1 page = 1 thème » :
+
+        1. Page 1 « Vue d'ensemble » (la page par défaut) : synthèse — quelques KPI, 1 ou 2
+           graphiques clés, l'essentiel à retenir. Elle doit se lire seule.
+        2. Puis UNE page par angle d'analyse distinct du sujet (une dimension, une période,
+           une sous-population, une comparaison…). Vise 3 à 5 pages au total. Exemples :
+           « Par région », « Évolution 2015-2025 », « Comparaison européenne », « Par catégorie ».
+           Chaque page = 2 à 4 sections cohérentes avec son thème, pas un fourre-tout.
+        3. FAN-OUT SYSTÉMATIQUE : dès qu'un dataset porte une dimension clé à forte cardinalité
+           (région, département, commune, produit, carburant, secteur…) et que le sujet se
+           décline « par <valeur> », ajoute EN PLUS une page paramétrée :
+           `add_page` params_json=[{name, dataset_id, column, fan_out:true}], puis pose un bloc
+           `search` (ou `param`) sur cette page, puis les blocs de données filtrant sur `{{name}}`.
+           Cette page génère une URL indexable par valeur (/slug/{valeur}).
+
+        Crée d'abord toutes les pages, puis leurs sections, puis les blocs. Tu peux enchaîner
+        plusieurs `add_page` / `add_section` / `add_block` dans le même tour d'outils.
+        Pour une demande ciblée (« ajoute un graphe ici »), ne réorganise pas les pages.
         TXT;
     }
 

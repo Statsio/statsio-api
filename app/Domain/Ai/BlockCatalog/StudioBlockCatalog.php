@@ -243,7 +243,28 @@ class StudioBlockCatalog
             'button' => $this->editorial('Bouton', 'Bouton d\'appel à l\'action.', ['buttonLabel', 'buttonUrl', 'buttonVariant', 'buttonAlign', 'buttonSize']),
             'link-card' => $this->editorial('Carte de lien', 'Carte de prévisualisation d\'un lien externe.', ['linkUrl', 'linkTitle', 'linkDescription', 'linkImage', 'linkDomain']),
             'retenir' => $this->editorial('À retenir', 'Liste de points clés mis en avant.', ['retenirTitle', 'retenirItems', 'retenirColor']),
-            'map' => $this->editorial('Carte', 'Point GPS unique (vignette + coordonnées + lien OpenStreetMap). mapLat / mapLng acceptent des jetons {{colonne}}.', ['mapLat', 'mapLng', 'mapLabel']),
+            'map' => [
+                'category' => 'data',
+                'label' => 'Carte',
+                'description' => 'Carte MapLibre : un point par ligne du dataset. Coordonnées soit en 2 colonnes '
+                    .'(latColumn + lngColumn), soit dans une colonne unique (mapPointColumn : "lat, lon" / WKT / GeoJSON). '
+                    .'Fiche au survol = colonne titre + colonnes libellé/valeur. Applique les filtres du bloc.',
+                'contentTypes' => self::ALL_TYPES,
+                'requiresDataset' => true,
+                'fieldMapping' => [
+                    'latColumn' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne latitude (si coordonnées en 2 colonnes).'],
+                    'lngColumn' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne longitude (si coordonnées en 2 colonnes).'],
+                    'mapPointColumn' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne unique contenant lat + lon (data.gouv geo_point_2d "48.85, 2.35", WKT POINT(lon lat), tableau GeoJSON). Alternative à latColumn/lngColumn.'],
+                    'mapPointOrder' => ['enum' => ['latlng', 'lnglat'], 'required' => false, 'default' => 'latlng', 'description' => 'Ordre des 2 nombres dans mapPointColumn pour les formats "x, y" non typés.'],
+                    'mapTitleColumn' => ['role' => 'any', 'required' => false, 'description' => 'Colonne titre de la fiche de survol.'],
+                    'columns' => ['role' => 'any', 'list' => true, 'required' => false, 'description' => 'Colonnes de la fiche de survol, dans l\'ordre (paires libellé / valeur).'],
+                    'mapColorColumn' => ['role' => 'dimension', 'required' => false, 'description' => 'Colonne (catégorielle) pilotant la couleur des points.'],
+                    'mapSizeColumn' => ['role' => 'measure', 'required' => false, 'description' => 'Colonne numérique pilotant la taille des points.'],
+                    ...$this->columnLabelsField(),
+                    ...$this->valueLabelsField(),
+                ],
+                'config' => ['title', 'mapBasemap', 'mapMarkerColor', 'mapAutoFit', 'mapHeight'],
+            ],
             'field-grid' => $this->editorial('Grille de champs', 'Grille compacte de paires libellé / valeur (bandeau méta du héro, encadré méthodologie). Les valeurs acceptent les jetons {{colonne}} et expressions.', ['fieldGridItems', 'fieldGridColumns']),
 
             // ─── Formulaire (survey uniquement) ─────────────────────────────

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ChannelCategories\Schemas;
 
 use App\Domain\Content\Enums\SubBrandEnum;
+use App\Support\CategoryIcons;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
@@ -23,6 +24,8 @@ class ChannelCategoryForm
                     ->disabled()
                     ->dehydrated(false)
                     ->helperText('Fixé par le code (ChannelCategoryEnum).'),
+
+                CategoryIcons::formField(),
 
                 Select::make('sub_brand')
                     ->label('Domaine')

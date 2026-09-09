@@ -115,6 +115,26 @@ class StudioAgentPromptBuilderTest extends TestCase
         $this->assertStringContainsString('À retenir', $prompt);
     }
 
+    public function test_statsdata_prompt_carries_a_multi_page_plan(): void
+    {
+        $prompt = $this->builder()->build($this->content(['type' => 'statsdata']));
+
+        $this->assertStringContainsString('STRUCTURE EN PAGES', $prompt);
+        $this->assertStringContainsString('Ne pose JAMAIS tout le contenu sur la seule page', $prompt);
+        $this->assertStringContainsString('FAN-OUT SYSTÉMATIQUE', $prompt);
+    }
+
+    public function test_multi_page_plan_is_statsdata_only(): void
+    {
+        foreach (['article', 'survey'] as $type) {
+            $this->assertStringNotContainsString(
+                'STRUCTURE EN PAGES',
+                $this->builder()->build($this->content(['type' => $type])),
+                $type,
+            );
+        }
+    }
+
     public function test_composition_plan_is_article_only(): void
     {
         foreach (['statsdata', 'survey'] as $type) {

@@ -80,6 +80,15 @@ class StudioAgentContext
         return $this->sections[$ref] ?? null;
     }
 
+    /** Nombre de sections connues (existantes + ajoutées ce run) pour une page. */
+    public function sectionCountForPage(string $pageRef): int
+    {
+        return count(array_filter(
+            $this->sections,
+            fn (array $s) => $s['pageRef'] === $pageRef,
+        ));
+    }
+
     public function registerPage(string $ref): void
     {
         $this->pages[$ref] = ['ref' => $ref];

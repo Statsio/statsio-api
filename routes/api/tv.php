@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 // Public TV routes (no auth required)
 Route::prefix('tv')->name('tv.')->group(function () {
     Route::get('/channels', [TvController::class, 'channels'])->name('channels');
+    Route::get('/categories', [TvController::class, 'categories'])->name('categories');
     Route::get('/channels/{slug}', [TvController::class, 'channelDetail'])->name('channel.detail');
     Route::get('/channels/{slug}/popular', [TvController::class, 'channelPopularProgrammes'])->name('channel.popular');
     Route::get('/epg', [TvController::class, 'epg'])->name('epg');

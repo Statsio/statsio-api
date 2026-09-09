@@ -605,7 +605,16 @@ class StatsdataCarburantsDemoSeeder extends Seeder
 
         $section('sc-map', $com);
         $block('bc-map', 'map', 'sc-map-0', [
-            'config' => ['title' => 'Localisation', 'mapLat' => '{{latitude}}', 'mapLng' => '{{longitude}}', 'mapLabel' => '{{enseigne}} · {{commune}}'],
+            'datasetId' => $A, 'filters' => $cpFilter,
+            'fieldMapping' => [
+                'latColumn' => 'latitude',
+                'lngColumn' => 'longitude',
+                'mapTitleColumn' => 'enseigne',
+                'columns' => ['adresse', 'carburant', 'prix'],
+                'columnLabels' => ['adresse' => 'Adresse', 'carburant' => 'Carburant', 'prix' => 'Prix'],
+                'columnFormats' => ['prix' => ['format' => 'number', 'align' => 'right']],
+            ],
+            'config' => ['title' => 'Localisation des stations de {{commune}}'],
         ]);
 
         $section('sc-retenir', $com, ['theme' => 'accent', 'kicker' => 'À retenir · {{commune}}']);
