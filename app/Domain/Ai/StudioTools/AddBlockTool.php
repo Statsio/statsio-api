@@ -142,7 +142,7 @@ class AddBlockTool implements StudioAgentTool
     {
         $referenced = [];
 
-        foreach (['xAxis', 'yAxis', 'label', 'value', 'series', 'valueColumn', 'comparisonColumn', 'searchColumn', 'sortColumn', 'distinctColumn', 'resultTitleColumn', 'loopColumn', 'paramColumn'] as $key) {
+        foreach (['xAxis', 'yAxis', 'label', 'value', 'series', 'valueColumn', 'comparisonColumn', 'searchColumn', 'sortColumn', 'distinctColumn', 'resultTitleColumn', 'loopColumn', 'paramColumn', 'latColumn', 'lngColumn', 'mapPointColumn', 'mapTitleColumn', 'mapColorColumn', 'mapSizeColumn'] as $key) {
             if (isset($fieldMapping[$key]) && is_string($fieldMapping[$key])) {
                 $referenced[] = $fieldMapping[$key];
             }

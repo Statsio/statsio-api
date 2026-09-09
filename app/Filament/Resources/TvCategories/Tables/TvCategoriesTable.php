@@ -22,6 +22,11 @@ class TvCategoriesTable
                     ->sortable(),
                 ColorColumn::make('color')
                     ->label('Couleur'),
+                TextColumn::make('icon')
+                    ->label('Icône')
+                    ->badge()
+                    ->color('gray')
+                    ->placeholder('—'),
                 TextColumn::make('programs_count')
                     ->label('Programmes')
                     ->sortable(),

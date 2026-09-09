@@ -11,7 +11,7 @@ class ChannelCategory extends Model
 {
     use FiltersBySubBrand;
 
-    protected $fillable = ['slug', 'label', 'position', 'sub_brand'];
+    protected $fillable = ['slug', 'label', 'icon', 'position', 'sub_brand'];
 
     protected $casts = [
         'position' => 'integer',

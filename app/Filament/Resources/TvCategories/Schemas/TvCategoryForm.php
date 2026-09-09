@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\TvCategories\Schemas;
 
+use App\Support\CategoryIcons;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Schemas\Schema;
@@ -18,6 +19,7 @@ class TvCategoryForm
                     ->maxLength(100),
                 ColorPicker::make('color')
                     ->label('Couleur'),
+                CategoryIcons::formField(),
             ]);
     }
 }
