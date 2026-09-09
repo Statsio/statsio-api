@@ -11,9 +11,13 @@ use App\Domain\Content\Actions\SuggestDossiersAction;
 use App\Domain\Content\Enums\ContentCoverageEnum;
 use App\Domain\Content\Enums\SubBrandEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
+use App\Domain\Content\Exceptions\PremiumFeatureRequiredException;
 use App\Domain\Content\Support\ContentDatasetSources;
+use App\Domain\Content\Support\PremiumBlockGate;
+use App\Domain\Content\Support\PremiumLimits;
 use App\Domain\Content\Support\StudioContentBlocks;
 use App\Domain\User\Actions\RecordContentViewAction;
+use App\Models\Channel\Channel;
 use App\Models\Channel\ChannelUser;
 use App\Models\DataIngestion\Dataset;
 use App\Models\Studio\StudioContentVersion;
@@ -74,7 +78,7 @@ class StudioContentController extends Controller
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, PremiumBlockGate $premiumGate): JsonResponse
     {
         $data = $request->validate([
             'title' => 'required|string|max:255',
@@ -95,6 +99,27 @@ class StudioContentController extends Controller
 
         $type = $data['type'] ?? 'statsdata';
         $isSurvey = $type === 'survey';
+
+        try {
+            // Pas de canal à la création (le champ n'existe pas encore ici) : gate basé
+            // sur l'auteur seul, pas de bloc existant à préserver.
+            $premiumGate->assertChange($request->user(), null, [], $data);
+        } catch (PremiumFeatureRequiredException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'blocked_blocks' => $e->blockedBlockTypes(),
+            ], 403);
+        }
+
+        if ($isSurvey
+            && ($data['requires_identity_verification'] ?? false)
+            && ! PremiumLimits::effectiveOffer($request->user(), null)?->allows_identity_verification) {
+            return response()->json([
+                'success' => false,
+                'message' => __('errors.premium_identity_verification'),
+            ], 403);
+        }
 
         // Un contenu naît toujours en brouillon : la publication (et le choix
         // « en mon nom / au nom d'une chaîne ») se fait ensuite depuis le Studio.
@@ -409,7 +434,7 @@ class StudioContentController extends Controller
         return [];
     }
 
-    public function update(Request $request, string $slug): JsonResponse
+    public function update(Request $request, PremiumBlockGate $premiumGate, string $slug): JsonResponse
     {
         $content = $this->findBySlug($request->user()->id, $slug);
 
@@ -450,6 +475,44 @@ class StudioContentController extends Controller
         $thumbnailMediaId = $request->filled('thumbnail_media_id') ? (int) $request->input('thumbnail_media_id') : null;
         $removeThumbnail = $request->boolean('remove_thumbnail');
         unset($data['thumbnail'], $data['thumbnail_media_id'], $data['remove_thumbnail']);
+
+        // Canal cible de ce contenu (déjà publié au nom d'une chaîne, ou en train de le
+        // devenir dans cette requête) : sa chaîne hérite du Premium de son propriétaire.
+        $targetChannelId = $data['channel_id'] ?? $content->channel_id;
+        $targetPublishedAs = $data['published_as'] ?? $content->published_as;
+        $targetChannel = ($targetPublishedAs === 'channel' && $targetChannelId)
+            ? Channel::find($targetChannelId)
+            : null;
+
+        // Blocs premium : uniquement si le payload touche blocks/pages/sections. Diff avec
+        // l'état persisté — un bloc premium déjà en place et inchangé n'est jamais bloquant
+        // (grandfathering), seuls l'ajout ou la modification d'un bloc premium le sont.
+        if (array_intersect(['blocks', 'pages', 'sections'], array_keys($data)) !== []) {
+            try {
+                $premiumGate->assertChange($request->user(), $targetChannel, StudioContentBlocks::all($content), $data);
+            } catch (PremiumFeatureRequiredException $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $e->getMessage(),
+                    'blocked_blocks' => $e->blockedBlockTypes(),
+                ], 403);
+            }
+        }
+
+        // Gate uniquement la TRANSITION désactivé → activé — un sondage déjà configuré
+        // avec vérification d'identité reste publiable/modifiable même si l'auteur (ou le
+        // propriétaire de la chaîne) perd le Premium ensuite.
+        $enablingIdentityVerification = ($data['requires_identity_verification'] ?? false)
+            && ! $content->requires_identity_verification;
+
+        if ($content->type === 'survey'
+            && $enablingIdentityVerification
+            && ! PremiumLimits::effectiveOffer($request->user(), $targetChannel)?->allows_identity_verification) {
+            return response()->json([
+                'success' => false,
+                'message' => __('errors.premium_identity_verification'),
+            ], 403);
+        }
 
         // Purge le cache public de l'ancien slug avant qu'il ne change.
         $previousSlug = $content->slug;
