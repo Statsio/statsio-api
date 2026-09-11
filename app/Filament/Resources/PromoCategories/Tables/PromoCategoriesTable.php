@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\PromoCategories\Tables;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 
 class PromoCategoriesTable
@@ -38,8 +40,19 @@ class PromoCategoriesTable
                 TextColumn::make('position')
                     ->label('Position')
                     ->sortable(),
+                TextColumn::make('sub_brand')
+                    ->label('Sous-marque')
+                    ->badge()
+                    ->sortable()
+                    ->formatStateUsing(fn (SubBrandEnum $state): string => $state->label())
+                    ->color(fn (SubBrandEnum $state): string => $state === SubBrandEnum::All ? 'gray' : 'primary'),
             ])
             ->defaultSort('position')
+            ->filters([
+                SelectFilter::make('sub_brand')
+                    ->label('Sous-marque')
+                    ->options(SubBrandEnum::options()),
+            ])
             ->recordActions([
                 EditAction::make(),
                 DeleteAction::make(),
