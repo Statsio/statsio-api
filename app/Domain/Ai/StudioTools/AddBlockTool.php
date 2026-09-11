@@ -120,7 +120,7 @@ class AddBlockTool implements StudioAgentTool
             }
         }
 
-        $context->registerBlock($ref, $type, $sectionRef, $col, false, $loopRef);
+        $context->registerBlock($ref, $type, $sectionRef, $col, false, $loopRef, $datasetId);
 
         $op = array_filter([
             'op' => 'addBlock',
@@ -155,10 +155,17 @@ class AddBlockTool implements StudioAgentTool
                 $referenced[] = $fieldMapping[$key];
             }
         }
-        foreach (['yAxes', 'columns', 'resultDescColumns'] as $key) {
+        foreach (['yAxes', 'columns', 'searchColumns', 'searchAltColumns'] as $key) {
             foreach ((array) ($fieldMapping[$key] ?? []) as $c) {
                 if (is_string($c)) {
                     $referenced[] = $c;
+                }
+            }
+        }
+        foreach (['resultTitleParts', 'resultDescParts'] as $key) {
+            foreach ((array) ($fieldMapping[$key] ?? []) as $part) {
+                if (is_array($part) && isset($part['ref']) && is_string($part['ref'])) {
+                    $referenced[] = $part['ref'];
                 }
             }
         }

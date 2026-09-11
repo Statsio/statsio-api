@@ -102,7 +102,7 @@ class StudioBlockCatalogTest extends TestCase
 
     public function test_data_blocks_require_a_dataset(): void
     {
-        foreach (['bar', 'line', 'pie', 'table', 'kpi', 'loop', 'map'] as $type) {
+        foreach (['bar', 'line', 'pie', 'table', 'kpi', 'loop', 'map', 'search'] as $type) {
             $this->assertTrue($this->catalog->get($type)['requiresDataset'], $type);
         }
 
@@ -111,7 +111,7 @@ class StudioBlockCatalogTest extends TestCase
         $this->assertArrayHasKey('latColumn', $this->catalog->get('map')['fieldMapping']);
         $this->assertArrayHasKey('lngColumn', $this->catalog->get('map')['fieldMapping']);
 
-        foreach (['heading', 'image', 'choice', 'search', 'if'] as $type) {
+        foreach (['heading', 'image', 'choice', 'if'] as $type) {
             $this->assertFalse($this->catalog->get($type)['requiresDataset'], $type);
         }
     }
