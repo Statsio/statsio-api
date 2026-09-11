@@ -2,8 +2,9 @@
 
 namespace App\Domain\Billing\Actions;
 
-use App\Domain\Content\Enums\PremiumPlanEnum;
+use App\Domain\Content\Support\PremiumLimits;
 use App\Models\Billing\Subscription;
+use App\Models\Offer;
 use App\Models\User\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -76,12 +77,16 @@ class HandleStripeWebhookAction
             // "past_due" garde le Premium : Stripe relance le paiement pendant plusieurs
             // jours (Smart Retries) avant de marquer l'abonnement "unpaid"/"canceled".
             if (in_array($subscription->status, Subscription::ACTIVE_STATUSES, true)) {
+                $priceId = $item?->price?->id;
+                $offer = ($priceId !== null ? Offer::where('stripe_price_id', $priceId)->first() : null)
+                    ?? PremiumLimits::paidOffer();
+
                 $user->forceFill([
-                    'premium_plan' => PremiumPlanEnum::Premium->value,
+                    'offer_id' => $offer?->id,
                     'premium_until' => $periodEnd ? Carbon::createFromTimestamp($periodEnd) : null,
                 ])->save();
             } else {
-                $user->forceFill(['premium_plan' => PremiumPlanEnum::Free->value])->save();
+                $user->forceFill(['offer_id' => PremiumLimits::freeOffer()?->id])->save();
             }
         });
     }
@@ -96,6 +101,6 @@ class HandleStripeWebhookAction
         ]);
 
         $user = User::where('stripe_customer_id', $subscription->customer)->first();
-        $user?->forceFill(['premium_plan' => PremiumPlanEnum::Free->value])->save();
+        $user?->forceFill(['offer_id' => PremiumLimits::freeOffer()?->id])->save();
     }
 }

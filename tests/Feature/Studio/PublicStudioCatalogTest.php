@@ -262,4 +262,36 @@ class PublicStudioCatalogTest extends TestCase
         $this->assertContains('brand-tv', $facets);
         $this->assertNotContains('brand-eco', $facets);
     }
+
+    public function test_catalog_sorts_by_created_and_updated_dates(): void
+    {
+        $older = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'title' => 'Ancien',
+        ]);
+        $newer = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'article',
+            'title' => 'Récent',
+        ]);
+
+        // forceFill : les timestamps passés à create() peuvent être retouchés par les events modèle.
+        $older->forceFill([
+            'created_at' => now()->subDays(10),
+            'updated_at' => now()->subDay(),
+        ])->saveQuietly();
+        $newer->forceFill([
+            'created_at' => now()->subDay(),
+            'updated_at' => now()->subDays(5),
+        ])->saveQuietly();
+
+        $byCreated = $this->getJson('/api/studio/content/public/catalog?type=article&sort=created');
+        $byCreated->assertOk();
+        $this->assertSame([(string) $newer->id, (string) $older->id], collect($byCreated->json('data'))->pluck('id')->all());
+
+        $byUpdated = $this->getJson('/api/studio/content/public/catalog?type=article&sort=recent');
+        $byUpdated->assertOk();
+        $this->assertSame([(string) $older->id, (string) $newer->id], collect($byUpdated->json('data'))->pluck('id')->all());
+    }
 }

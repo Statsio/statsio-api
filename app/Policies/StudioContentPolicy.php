@@ -2,32 +2,39 @@
 
 namespace App\Policies;
 
-use App\Models\Channel\ChannelUser;
+use App\Domain\Content\Enums\StudioContentAccessLevelEnum;
+use App\Domain\Content\Support\StudioContentAccess;
 use App\Models\StudioContent;
 use App\Models\User\User;
 
 class StudioContentPolicy
 {
     /**
-     * Peut éditer le contenu : le propriétaire, ou un owner/admin de la chaîne
-     * lorsque le contenu est publié au nom d'une chaîne.
-     *
-     * Extrait de StudioContentController::canEditContent() pour être partagé avec
-     * les endpoints de l'assistant IA.
+     * Peut éditer le contenu dans le Studio : propriétaire, owner/admin de la
+     * chaîne (si publié en chaîne), ou collaborateur avec studio.write.
      */
     public function update(User $user, StudioContent $content): bool
     {
-        if ($content->user_id === $user->id) {
-            return true;
-        }
+        return StudioContentAccess::canAccess(
+            $user,
+            $content,
+            'studio',
+            StudioContentAccessLevelEnum::Write,
+        );
+    }
 
-        if ($content->published_as === 'channel' && $content->channel_id) {
-            return ChannelUser::where('channel_id', $content->channel_id)
-                ->where('user_id', $user->id)
-                ->whereIn('role', ['owner', 'admin'])
-                ->exists();
-        }
+    public function view(User $user, StudioContent $content): bool
+    {
+        return StudioContentAccess::canView($user, $content);
+    }
 
-        return false;
+    public function delete(User $user, StudioContent $content): bool
+    {
+        return StudioContentAccess::isOwner($user, $content);
+    }
+
+    public function manageAccess(User $user, StudioContent $content): bool
+    {
+        return StudioContentAccess::isOwner($user, $content);
     }
 }

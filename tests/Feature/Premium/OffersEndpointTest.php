@@ -62,4 +62,18 @@ class OffersEndpointTest extends TestCase
 
         $this->getJson('/api/studio/block-gates')->assertJsonPath('data.premium_block_types', []);
     }
+
+    public function test_block_gates_endpoint_returns_the_real_offer_name_for_each_block(): void
+    {
+        $offer = Offer::create([
+            'key' => 'premium', 'name' => 'Pro', 'price_cents' => 200, 'period' => 'mois',
+            'cta_label' => 'Passer à Pro', 'position' => 2,
+        ]);
+        PremiumBlockType::create(['block_type' => 'map', 'offer_id' => $offer->id]);
+
+        $this->getJson('/api/studio/block-gates')
+            ->assertStatus(200)
+            ->assertJsonPath('data.premium_block_offers.map.name', 'Pro')
+            ->assertJsonPath('data.premium_block_offers.map.key', 'premium');
+    }
 }

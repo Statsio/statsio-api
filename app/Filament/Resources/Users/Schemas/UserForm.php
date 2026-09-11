@@ -2,8 +2,9 @@
 
 namespace App\Filament\Resources\Users\Schemas;
 
-use App\Domain\Content\Enums\PremiumPlanEnum;
+use App\Domain\Content\Support\PremiumLimits;
 use App\Domain\User\Enums\UserStatusEnum;
+use App\Models\Offer;
 use App\Models\User\User;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Select;
@@ -34,18 +35,17 @@ class UserForm
                     ->label('Administrateur plateforme')
                     ->helperText('Donne accès à ce back-office.')
                     ->disabled(fn (?User $record): bool => $record !== null && $record->id === auth()->id()),
-                Select::make('premium_plan')
+                Select::make('offer_id')
                     ->label('Offre')
-                    ->helperText('Mis à jour automatiquement par l\'abonnement Stripe — modifiable ici pour un compte offert.')
-                    ->options(PremiumPlanEnum::options())
-                    ->default(PremiumPlanEnum::Free->value)
+                    ->helperText('Mis à jour automatiquement par l\'abonnement Stripe — modifiable ici pour un compte offert. Offres gérées dans le CRUD « Offres ».')
+                    ->relationship('offer', 'name', fn ($query) => $query->orderBy('position'))
+                    ->default(fn () => PremiumLimits::freeOffer()?->id)
                     ->native(false)
-                    ->live()
-                    ->required(),
+                    ->live(),
                 DateTimePicker::make('premium_until')
                     ->label('Premium jusqu\'au')
                     ->helperText('Laisser vide pour une offre Premium sans date d\'expiration.')
-                    ->visible(fn ($get) => $get('premium_plan') === PremiumPlanEnum::Premium->value),
+                    ->visible(fn ($get) => (int) (Offer::find($get('offer_id'))?->price_cents ?? 0) > 0),
                 TextEntry::make('stripe_customer_id')
                     ->label('Client Stripe')
                     ->state(fn (?User $record): string => $record?->stripe_customer_id ?? '—')

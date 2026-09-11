@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PremiumBlocks\Schemas;
 
 use App\Domain\Ai\BlockCatalog\StudioBlockCatalog;
+use App\Domain\Content\Support\PremiumLimits;
 use App\Models\PremiumBlockType;
 use Filament\Forms\Components\Select;
 use Filament\Schemas\Schema;
@@ -27,6 +28,14 @@ class PremiumBlockForm
                     ->required()
                     // Défense en profondeur : les options excluent déjà les blocs premium existants.
                     ->unique(ignoreRecord: true),
+
+                Select::make('offer_id')
+                    ->label('Offre requise')
+                    ->helperText('Offre du CRUD « Offres » à partir de laquelle ce bloc est débloqué.')
+                    ->relationship('offer', 'name', fn ($query) => $query->orderBy('position'))
+                    ->default(fn () => PremiumLimits::paidOffer()?->id)
+                    ->native(false)
+                    ->required(),
             ]);
     }
 

@@ -2,16 +2,18 @@
 
 namespace App\Models\User;
 
-use App\Domain\Content\Enums\PremiumPlanEnum;
 use App\Models\Billing\Subscription;
 use App\Models\Channel\Channel;
+use App\Models\Help\HelpArticleFeedback;
 use App\Models\Identity\IdentityVerification;
+use App\Models\Offer;
 use App\Models\StudioContent;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasName;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -63,7 +65,7 @@ class User extends Authenticatable implements FilamentUser, HasName
         'email_verified_at',
         'status',
         'is_admin',
-        'premium_plan',
+        'offer_id',
         'premium_until',
         'stripe_customer_id',
         'suspended_until',
@@ -103,7 +105,6 @@ class User extends Authenticatable implements FilamentUser, HasName
             'identity_verified_at' => 'datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
-            'premium_plan' => PremiumPlanEnum::class,
             'premium_until' => 'datetime',
             'suspended_until' => 'datetime',
             'anonymized_at' => 'datetime',
@@ -151,11 +152,21 @@ class User extends Authenticatable implements FilamentUser, HasName
     }
 
     /**
-     * Accesseur "is_premium" — true si l'offre Premium est active. `premium_plan`/
-     * `premium_until` sont mis à jour soit par un abonnement Stripe payant (webhook,
-     * voir App\Domain\Billing\Actions\HandleStripeWebhookAction), soit par une bascule
-     * manuelle en back-office (compte offert, sans paiement). `premium_until` optionnel :
-     * passée cette date, l'utilisateur redevient freemium sans repasser `premium_plan`.
+     * Offre à laquelle l'utilisateur est rattaché (ligne réelle de `offers`, gérée
+     * depuis le CRUD back-office) — NULL = freemium, pas d'offre payante liée.
+     * Mise à jour soit par un abonnement Stripe payant (webhook, voir
+     * App\Domain\Billing\Actions\HandleStripeWebhookAction), soit par une bascule
+     * manuelle en back-office (compte offert, sans paiement).
+     */
+    public function offer(): BelongsTo
+    {
+        return $this->belongsTo(Offer::class);
+    }
+
+    /**
+     * Accesseur "is_premium" — true si l'offre liée est payante et non expirée.
+     * `premium_until` optionnel : passée cette date, l'utilisateur redevient freemium
+     * sans qu'il faille détacher `offer_id`.
      */
     public function getIsPremiumAttribute(): bool
     {
@@ -164,7 +175,7 @@ class User extends Authenticatable implements FilamentUser, HasName
 
     public function isPremium(): bool
     {
-        if ($this->premium_plan !== PremiumPlanEnum::Premium) {
+        if ($this->offer === null || (int) $this->offer->price_cents === 0) {
             return false;
         }
 
@@ -254,6 +265,14 @@ class User extends Authenticatable implements FilamentUser, HasName
             'favoritable',
             'user_favorites',
         )->withTimestamps();
+    }
+
+    /**
+     * Votes "utile" / "pas utile" de l'utilisateur sur les articles du centre d'aide.
+     */
+    public function helpArticleFeedback(): HasMany
+    {
+        return $this->hasMany(HelpArticleFeedback::class);
     }
 
     /**

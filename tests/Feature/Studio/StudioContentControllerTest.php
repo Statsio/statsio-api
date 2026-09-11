@@ -254,7 +254,7 @@ class StudioContentControllerTest extends TestCase
             'title' => 'Tentative',
         ]);
 
-        $response->assertStatus(404);
+        $response->assertStatus(403);
     }
 
     public function test_authenticated_user_can_delete_own_content(): void
@@ -265,5 +265,49 @@ class StudioContentControllerTest extends TestCase
 
         $response->assertStatus(200);
         $this->assertDatabaseMissing('studio_contents', ['id' => $content->id]);
+    }
+
+    public function test_public_content_exposes_datasets_with_provenance_and_freshness(): void
+    {
+        $provenance = \App\Models\DataIngestion\SourceProvenance::query()->where('slug', 'insee')->firstOrFail();
+
+        $dataSource = \App\Models\DataIngestion\DataSource::create([
+            'user_id' => $this->user->id,
+            'name' => 'Source INSEE',
+            'type' => 'csv',
+            'original_filename' => 'insee.csv',
+            'raw_storage_path' => 'data-sources/insee.csv',
+            'file_size_bytes' => 100,
+            'provenance_id' => $provenance->id,
+            'refresh_frequency' => 'monthly',
+            'last_refreshed_at' => now()->subDays(3),
+        ]);
+
+        $dataset = \App\Models\DataIngestion\Dataset::create([
+            'data_source_id' => $dataSource->id,
+            'user_id' => $this->user->id,
+            'name' => 'Population',
+            'row_count' => 12_000,
+            'status' => 'ready',
+        ]);
+
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $this->user->id,
+            'type' => 'statsdata',
+            'blocks' => [[
+                'id' => 'blk1',
+                'type' => 'kpi',
+                'datasetId' => (string) $dataset->id,
+            ]],
+        ]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}")
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data.datasets')
+            ->assertJsonPath('data.datasets.0.name', 'Population')
+            ->assertJsonPath('data.datasets.0.row_count', 12000)
+            ->assertJsonPath('data.datasets.0.provenance', 'INSEE')
+            ->assertJsonPath('data.datasets.0.refresh_frequency', 'monthly')
+            ->assertJsonPath('data.datasets.0.downloadable', false);
     }
 }
