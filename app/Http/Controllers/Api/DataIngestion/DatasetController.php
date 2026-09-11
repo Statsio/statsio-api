@@ -20,6 +20,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DatasetController extends Controller
 {
@@ -175,50 +177,7 @@ class DatasetController extends Controller
 
     public function queryPublic(Request $request, string $slug, Dataset $dataset): JsonResponse
     {
-        $content = StudioContent::where(function ($q) use ($slug) {
-            $q->where('slug', $slug);
-            if (is_numeric($slug)) {
-                $q->orWhere('id', (int) $slug);
-            }
-        })->firstOrFail();
-
-        // Publié = lisible par tous ; brouillon = seulement pour son éditeur
-        // (aperçu d'un bloc `sd-embed` pointant son propre Statsdata dans le Studio).
-        if ($content->status !== 'published') {
-            $viewer = $request->user('sanctum');
-            abort_unless($viewer !== null && $viewer->can('update', $content), 404);
-        } else {
-            // Les filtres/params résolus doivent correspondre à la version en ligne.
-            $content->applyPublishedPayload();
-        }
-
-        $docDatasetIds = collect($this->collectContentBlocks($content))
-            ->flatMap(function ($block) {
-                $ids = [$block['datasetId'] ?? null];
-                foreach ($block['sources'] ?? [] as $source) {
-                    $ids[] = $source['datasetId'] ?? null;
-                }
-                foreach ($block['joins'] ?? [] as $join) {
-                    $ids[] = $join['datasetId'] ?? null;
-                }
-                foreach ($block['fieldMapping']['searchSources'] ?? [] as $source) {
-                    $ids[] = $source['datasetId'] ?? null;
-                }
-                foreach ($block['fieldMapping']['searchJoins'] ?? [] as $j) {
-                    $ids[] = $j['datasetId'] ?? null;
-                }
-
-                return $ids;
-            })
-            ->filter()
-            ->unique()
-            ->values()
-            ->map(fn ($id) => (string) $id)
-            ->toArray();
-
-        if (! in_array((string) $dataset->id, $docDatasetIds, true)) {
-            return response()->json(['success' => false, 'message' => 'Dataset non autorisé.'], 403);
-        }
+        $content = $this->authorizePublicDataset($request, $slug, $dataset);
 
         try {
             $p = $this->parseQueryParams($request, $dataset->id);
@@ -262,6 +221,102 @@ class DatasetController extends Controller
             'success' => true,
             'data' => $this->formatQueryResult($result, $p['columns']),
         ]);
+    }
+
+    /**
+     * Téléchargement du fichier parquet d'un dataset référencé par un StatsData
+     * public. Même garde-fous que `queryPublic` ; les sources live (sans snapshot)
+     * renvoient 404.
+     */
+    public function downloadPublic(Request $request, string $slug, Dataset $dataset): StreamedResponse|JsonResponse
+    {
+        $content = $this->authorizePublicDataset($request, $slug, $dataset);
+
+        if (! ($content->download_enabled ?? true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Le téléchargement des données est désactivé pour ce contenu.',
+            ], 403);
+        }
+
+        $dataset->loadMissing(['latestVersion', 'dataSource']);
+
+        if ($dataset->isLive()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Les sources en direct ne proposent pas de fichier parquet à télécharger.',
+            ], 404);
+        }
+
+        $version = $dataset->latestVersion;
+        $path = $version?->parquet_storage_path;
+        if (! $path) {
+            return response()->json(['success' => false, 'message' => 'Fichier parquet introuvable.'], 404);
+        }
+
+        $disk = config('statsio.data_ingestion.datasets_disk', 'local');
+        if (! Storage::disk($disk)->exists($path)) {
+            return response()->json(['success' => false, 'message' => 'Fichier parquet introuvable.'], 404);
+        }
+
+        $base = Str::slug($dataset->name) ?: 'dataset';
+
+        return Storage::disk($disk)->download(
+            $path,
+            "{$base}.parquet",
+            ['Content-Type' => 'application/vnd.apache.parquet'],
+        );
+    }
+
+    /**
+     * Résout un contenu public par slug et vérifie que le dataset y est référencé.
+     * Publié = lisible par tous ; brouillon = éditeur uniquement (aperçu Studio).
+     */
+    private function authorizePublicDataset(Request $request, string $slug, Dataset $dataset): StudioContent
+    {
+        $content = StudioContent::where(function ($q) use ($slug) {
+            $q->where('slug', $slug);
+            if (is_numeric($slug)) {
+                $q->orWhere('id', (int) $slug);
+            }
+        })->firstOrFail();
+
+        if ($content->status !== 'published') {
+            $viewer = $request->user('sanctum');
+            abort_unless($viewer !== null && $viewer->can('update', $content), 404);
+        } else {
+            $content->applyPublishedPayload();
+        }
+
+        $docDatasetIds = collect($this->collectContentBlocks($content))
+            ->flatMap(function ($block) {
+                $ids = [$block['datasetId'] ?? null];
+                foreach ($block['sources'] ?? [] as $source) {
+                    $ids[] = $source['datasetId'] ?? null;
+                }
+                foreach ($block['joins'] ?? [] as $join) {
+                    $ids[] = $join['datasetId'] ?? null;
+                }
+                foreach ($block['fieldMapping']['searchSources'] ?? [] as $source) {
+                    $ids[] = $source['datasetId'] ?? null;
+                }
+                foreach ($block['fieldMapping']['searchJoins'] ?? [] as $j) {
+                    $ids[] = $j['datasetId'] ?? null;
+                }
+
+                return $ids;
+            })
+            ->filter()
+            ->unique()
+            ->values()
+            ->map(fn ($id) => (string) $id)
+            ->toArray();
+
+        if (! in_array((string) $dataset->id, $docDatasetIds, true)) {
+            abort(response()->json(['success' => false, 'message' => 'Dataset non autorisé.'], 403));
+        }
+
+        return $content;
     }
 
     /**

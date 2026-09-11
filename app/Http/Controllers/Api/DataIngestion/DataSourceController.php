@@ -13,12 +13,14 @@ use App\Domain\DataIngestion\Enums\DataSourceRefreshFrequencyEnum;
 use App\Domain\DataIngestion\Exceptions\ApiSourceFetchException;
 use App\Domain\DataIngestion\Exceptions\FileParsingException;
 use App\Domain\DataIngestion\Exceptions\UnsupportedFileTypeException;
+use App\Domain\Content\Support\StudioContentAssetOwner;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DataIngestion\CreateApiDataSourceRequest;
 use App\Http\Requests\DataIngestion\PreviewSpreadsheetRequest;
 use App\Http\Requests\DataIngestion\UpdateDataSourceRequest;
 use App\Http\Requests\DataIngestion\UploadDataSourceRequest;
 use App\Models\DataIngestion\DataSource;
+use App\Models\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -62,9 +64,11 @@ class DataSourceController extends Controller
     public function upload(UploadDataSourceRequest $request): JsonResponse
     {
         try {
+            $owner = $this->resolveAssetOwner($request);
+
             $dataSource = $this->uploadAction->execute(
                 file: $request->file('file'),
-                user: $request->user(),
+                user: $owner,
                 name: $request->input('name'),
                 visibility: $request->input('visibility', 'private'),
                 categories: $request->input('categories', []),
@@ -78,7 +82,7 @@ class DataSourceController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Fichier reçu. Le traitement est en cours.',
-                'data' => $this->formatDataSource($dataSource, $request->user()->id),
+                'data' => $this->formatDataSource($dataSource, $owner->id),
             ], 202);
         } catch (UnsupportedFileTypeException $e) {
             return response()->json([
@@ -97,11 +101,12 @@ class DataSourceController extends Controller
     public function createFromApi(CreateApiDataSourceRequest $request): JsonResponse
     {
         $isLive = $request->input('materialization', 'snapshot') === 'live';
+        $owner = $this->resolveAssetOwner($request);
 
         try {
             if ($isLive) {
                 $dataSource = $this->createLiveApiAction->execute(
-                    user: $request->user(),
+                    user: $owner,
                     name: $request->input('name'),
                     url: $request->input('url'),
                     method: $request->input('method', 'GET'),
@@ -119,12 +124,12 @@ class DataSourceController extends Controller
                 return response()->json([
                     'success' => true,
                     'message' => 'Source API en direct créée.',
-                    'data' => $this->formatDataSource($dataSource, $request->user()->id),
+                    'data' => $this->formatDataSource($dataSource, $owner->id),
                 ], 201);
             }
 
             $dataSource = $this->createApiAction->execute(
-                user: $request->user(),
+                user: $owner,
                 name: $request->input('name'),
                 url: $request->input('url'),
                 method: $request->input('method', 'GET'),
@@ -142,7 +147,7 @@ class DataSourceController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Source API créée. Le traitement est en cours.',
-                'data' => $this->formatDataSource($dataSource, $request->user()->id),
+                'data' => $this->formatDataSource($dataSource, $owner->id),
             ], 202);
         } catch (ApiSourceFetchException $e) {
             return response()->json([
@@ -199,6 +204,11 @@ class DataSourceController extends Controller
     public function index(Request $request): JsonResponse
     {
         $userId = $request->user()->id;
+        $slug = $request->query('studio_content_slug');
+        if ($slug) {
+            $resolved = StudioContentAssetOwner::resolveForWrite($request->user(), (string) $slug);
+            $userId = $resolved['user_id'];
+        }
 
         $dataSources = DataSource::where('user_id', $userId)
             ->orWhereHas('users', fn ($q) => $q->where('user_id', $userId))
@@ -391,5 +401,21 @@ class DataSourceController extends Controller
         }
 
         return $data;
+    }
+
+    /**
+     * Propriétaire effectif pour création d'asset : content owner si contexte
+     * studio_content_slug, sinon l'utilisateur authentifié.
+     */
+    private function resolveAssetOwner(Request $request): User
+    {
+        $slug = $request->input('studio_content_slug') ?: $request->query('studio_content_slug');
+        if ($slug) {
+            $resolved = StudioContentAssetOwner::resolveForWrite($request->user(), (string) $slug);
+
+            return User::findOrFail($resolved['user_id']);
+        }
+
+        return $request->user();
     }
 }

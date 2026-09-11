@@ -24,6 +24,10 @@ class PremiumBlocksTable
                     ->label('Catégorie')
                     ->getStateUsing(fn ($record) => $catalog->get($record->block_type)['category'] ?? '—')
                     ->color('gray'),
+                TextColumn::make('offer.name')
+                    ->label('Offre requise')
+                    ->badge()
+                    ->default('—'),
                 TextColumn::make('created_at')
                     ->label('Marqué premium le')
                     ->dateTime('d/m/Y')

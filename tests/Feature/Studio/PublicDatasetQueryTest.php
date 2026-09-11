@@ -7,6 +7,7 @@ use App\Models\DataIngestion\DataSource;
 use App\Models\User\User;
 use Database\Factories\StudioContentFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class PublicDatasetQueryTest extends TestCase
@@ -153,5 +154,65 @@ class PublicDatasetQueryTest extends TestCase
             .'?search_q='.rawurlencode('jean dupond')
             .'&search_columns[0]=prenom&search_columns[1]=nom'
         )->assertStatus(200)->assertJsonPath('success', true);
+    }
+
+    public function test_download_public_streams_parquet_for_referenced_dataset(): void
+    {
+        Storage::fake('local');
+
+        $user = User::factory()->create();
+        $dataset = $this->createDataset($user);
+
+        $path = "datasets/{$dataset->id}/v1.parquet";
+        $payload = json_encode(['__mock__' => true, 'schema' => ['a'], 'data' => [['a' => 1]]]);
+        Storage::disk('local')->put($path, $payload);
+
+        \App\Models\DataIngestion\DatasetVersion::create([
+            'dataset_id' => $dataset->id,
+            'version_number' => 1,
+            'parquet_storage_path' => $path,
+            'file_size_bytes' => strlen($payload),
+            'row_count' => 1,
+        ]);
+
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $user->id,
+            'blocks' => [['datasetId' => (string) $dataset->id]],
+        ]);
+
+        $response = $this->get("/api/studio/content/public/{$content->slug}/datasets/{$dataset->id}/download");
+
+        $response->assertOk();
+        $this->assertStringContainsString('attachment', (string) $response->headers->get('content-disposition'));
+        $this->assertStringContainsString('.parquet', (string) $response->headers->get('content-disposition'));
+        $this->assertSame($payload, $response->streamedContent());
+    }
+
+    public function test_download_public_returns_403_when_dataset_not_referenced(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createDataset($user);
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $user->id,
+            'blocks' => [['datasetId' => '999999']],
+        ]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}/datasets/{$dataset->id}/download")
+            ->assertStatus(403)
+            ->assertJson(['success' => false]);
+    }
+
+    public function test_download_public_returns_404_when_parquet_missing(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createDataset($user);
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $user->id,
+            'blocks' => [['datasetId' => (string) $dataset->id]],
+        ]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}/datasets/{$dataset->id}/download")
+            ->assertStatus(404)
+            ->assertJson(['success' => false]);
     }
 }

@@ -19,6 +19,7 @@ class StudioBlockGateController extends Controller
             'success' => true,
             'data' => [
                 'premium_block_types' => $premiumGate->premiumTypes(),
+                'premium_block_offers' => $premiumGate->requiredOffersByType(),
             ],
         ]);
     }

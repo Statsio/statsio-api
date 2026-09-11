@@ -44,7 +44,7 @@ class StudioAgentPromptBuilder
         IMPORTANT :
         - Ne prétends jamais qu'un élément est « déjà bien configuré » sans l'avoir vérifié dans la
           structure JSON ci-dessous (une barre de recherche est configurée uniquement si son
-          `fieldMapping.searchSources` est non vide).
+          `fieldMapping.searchColumns` est non vide).
         - Si tu as besoin des colonnes d'un dataset, appelle `list_sources` / `get_dataset_schema`.
         TXT;
     }
@@ -60,10 +60,20 @@ class StudioAgentPromptBuilder
           titres et textes. Il est piloté à l'exécution par :
           * un bloc `param` (sélecteur pastilles/liste) posé sur la page, ou
           * un bloc `search` : au choix d'un résultat, TOUTES les colonnes de la ligne deviennent
-            des paramètres `{{colonne}}`.
+            des paramètres `{{colonne}}` (un paramètre technique caché est en plus auto-géré pour
+            l'URL indexable — ne le déclare jamais toi-même).
           Les blocs filtrent dessus avec `{"column":"<name>","operator":"=","value":"{{<name>}}"}`.
           Un paramètre `fanOut:true` sera publié comme une page indexable par valeur (/slug/{valeur}).
           Un `name` doit être un nom simple (lettres/chiffres/underscore).
+        - GARDE-FOU RECHERCHE/PARAMÈTRE (À FAIRE SYSTÉMATIQUEMENT) : tant que le visiteur n'a rien
+          cherché / choisi, `{{name}}` est vide — un bloc qui filtre dessus ignore alors ce filtre
+          (au lieu d'afficher une erreur) et montre donc TOUT le dataset non filtré, ce qui n'est
+          presque jamais voulu. Dès que tu poses un bloc `search` ou `param` sur une page qui n'est
+          PAS une page fan-out (où l'URL fournit déjà la valeur), entoure les blocs qui filtrent sur
+          `{{name}}` d'un bloc `if` : `add_block` type `if` avec `config_json =
+          {"ifConditions":[{"param":"<name>","operator":"!=","value":""}]}`, puis ajoute les blocs
+          dépendants en passant `loop_ref` = la ref de ce bloc `if`. Ils ne s'affichent alors qu'une
+          fois une recherche/un choix effectué.
         - Pour une page « une vue par valeur » : `add_page` avec params_json=[{name, dataset_id,
           column, fan_out:true}], puis `add_block` type `search` (ou `param`) sur la page, puis les
           blocs de données filtrant sur `{{name}}`.
@@ -105,11 +115,19 @@ class StudioAgentPromptBuilder
             renomme les VALEURS affichées d'un champ (axe, légende, cellule, fiche).
             Ex. `{"sexe":{"M":"Hommes","F":"Femmes"}}`. Affichage seulement : la valeur brute
             reste la clé pour les filtres, l'agrégation et le tri (donc `value` d'un filtre = "M", pas "Hommes").
-        - Blocs CONTENEURS (catégorie script), enfants ajoutés via `add_block` avec `loop_ref` = leur ref :
-          * `loop` : répète ses enfants pour chaque valeur distincte de `fieldMapping.loopColumn`.
-            Les enfants insèrent la valeur courante via `{{item}}` (ou `{{<loopVar>}}`).
-          * `if` : n'affiche ses enfants que si `config.ifParam <ifOperator> ifValue` est vrai.
-          Scripts imbriqués autorisés ; seuls search, param et les blocs de formulaire y sont interdits.
+        - Blocs SCRIPT (catégorie script), enfants ajoutés via `add_block` avec `loop_ref` = leur ref :
+          * `loop` (boucle « for » / répétition) : répète ses enfants une fois par valeur DISTINCTE
+            de `fieldMapping.loopColumn` (obligatoire). Les enfants insèrent la valeur courante via
+            `{{item}}` (ou `{{<loopVar>}}` si `fieldMapping.loopVar` est renseigné) dans leurs
+            filtres, titres et textes. `config.loopLimit` plafonne le nombre d'itérations.
+          * `if` (condition) : n'affiche ses enfants que si les clauses de `config.ifConditions`
+            (`[{"param","operator","value"}]`, operator parmi = != > >= < <= contains not_contains,
+            `value` accepte `{{autre_param}}`) sont vraies ; `config.ifMatch` combine plusieurs
+            clauses en "all" (ET, défaut) ou "any" (OU). Via le chat, une seule branche est
+            disponible (pas de « Sinon si » / « Sinon » — c'est une fonctionnalité de l'éditeur
+            visuel / de l'import JSON uniquement).
+          Scripts imbriqués autorisés (`if` dans `loop`, `loop` dans `if`…) ; seuls search, param et
+          les blocs de formulaire y sont interdits.
         TXT;
     }
 
@@ -254,12 +272,14 @@ class StudioAgentPromptBuilder
             $type = $b['type'] ?? '';
             $fm = $b['fieldMapping'] ?? [];
 
-            if ($type === 'search' && empty($fm['searchSources'])) {
+            if ($type === 'search' && empty($fm['searchColumns'])) {
                 $lines[] = "- Barre de recherche (bloc id \"{$b['id']}\") non configurée — "
-                    .'complète-la avec un SEUL update_block : field_mapping_json = '
-                    .'{"searchSources":[{"datasetId":"<id>","columns":["<colonnes cherchables>"]}],'
-                    .'"resultTitleColumn":"<col titre>","resultDescColumns":["<1-3 cols>"]} '
-                    .'(colonnes via list_sources / get_dataset_schema).';
+                    .'complète-la avec un SEUL update_block : dataset_id = <id>, field_mapping_json = '
+                    .'{"searchColumns":["<colonnes cherchables>"],"resultTitleParts":[{"ref":"<col titre>"}],'
+                    .'"resultDescParts":[{"ref":"<col>"}]} '
+                    .'(colonnes via list_sources / get_dataset_schema). Pense aussi à entourer les blocs qui '
+                    .'filtrent sur les paramètres de cette recherche d\'un bloc `if` (voir GARDE-FOU '
+                    .'RECHERCHE/PARAMÈTRE ci-dessus).';
             }
             if ($type === 'param' && empty($fm['paramColumn'])) {
                 $lines[] = "- Bloc Paramètre (id \"{$b['id']}\") non configuré — update_block avec "

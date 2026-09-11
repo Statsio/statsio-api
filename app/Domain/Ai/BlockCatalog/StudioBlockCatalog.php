@@ -202,7 +202,8 @@ class StudioBlockCatalog
                     ],
                     'valueColumn' => ['role' => 'measure', 'required' => false, 'description' => 'Legacy : colonne unique (préférer kpiValue).'],
                     'aggregate' => ['enum' => self::AGGREGATES, 'required' => false, 'default' => 'sum'],
-                    'comparisonColumn' => ['role' => 'measure', 'required' => false, 'description' => 'Colonne de la valeur de comparaison.'],
+                    'comparisonValue' => ['role' => 'any', 'list' => true, 'required' => false, 'description' => 'Valeur de comparaison = combinaison d\'agrégats, même forme que kpiValue. Prioritaire sur comparisonColumn.'],
+                    'comparisonColumn' => ['role' => 'measure', 'required' => false, 'description' => 'Legacy : colonne unique de comparaison (préférer comparisonValue).'],
                     ...$this->calcColumnsField(),
                 ],
                 'config' => ['format', 'prefix', 'suffix', 'comparisonFormat', 'comparisonLabel', 'trendLabel', 'trendDirection', 'valueExpression'],
@@ -241,7 +242,13 @@ class StudioBlockCatalog
             'image' => $this->editorial('Image', 'Image avec légende.', ['imageUrl', 'imageAlt', 'imageCaption', 'imageAlign', 'imageWidth']),
             'video' => $this->editorial('Vidéo', 'Vidéo embarquée (YouTube, Vimeo, Dailymotion).', ['videoUrl', 'videoCaption']),
             'button' => $this->editorial('Bouton', 'Bouton d\'appel à l\'action.', ['buttonLabel', 'buttonUrl', 'buttonVariant', 'buttonAlign', 'buttonSize']),
-            'link-card' => $this->editorial('Carte de lien', 'Carte de prévisualisation d\'un lien externe.', ['linkUrl', 'linkTitle', 'linkDescription', 'linkImage', 'linkDomain']),
+            'link-card' => $this->editorial(
+                'Carte de lien',
+                'Carte de prévisualisation d\'un lien. linkMode choisit la cible : "url" (externe, défaut) → linkUrl ; '
+                    .'"content" → linkContentType (article|statsdata|survey) + linkContentSlug (contenu publié du site) ; '
+                    .'"page" → linkPageId (une page du Statsdata en cours d\'édition).',
+                ['linkMode', 'linkUrl', 'linkContentType', 'linkContentSlug', 'linkPageId', 'linkTitle', 'linkDescription', 'linkImage', 'linkDomain'],
+            ),
             'retenir' => $this->editorial('À retenir', 'Liste de points clés mis en avant.', ['retenirTitle', 'retenirItems', 'retenirColor']),
             'map' => [
                 'category' => 'data',
@@ -295,14 +302,16 @@ class StudioBlockCatalog
             'if' => [
                 'category' => 'script',
                 'label' => 'Condition',
-                'description' => 'Conteneur qui n\'affiche ses blocs enfants QUE si un paramètre de page remplit une condition '
-                    .'(config.ifParam <ifOperator> ifValue, ifOperator parmi = != > >= < <= contains not_contains ; '
-                    .'ifValue accepte des jetons {{autre_param}}). Ajoute les enfants avec add_block en passant '
-                    .'loop_ref = la ref du bloc if.',
+                'description' => 'Conteneur qui n\'affiche ses blocs enfants QUE si les paramètres de page remplissent une '
+                    .'condition. config.ifConditions = [{ param, operator, value }] (operator parmi = != > >= < <= contains '
+                    .'not_contains ; value accepte des jetons {{autre_param}}). config.ifMatch combine plusieurs clauses : '
+                    .'"all" (ET, défaut) ou "any" (OU). Ajoute les enfants avec add_block en passant loop_ref = la ref du '
+                    .'bloc if. USAGE CLÉ : masquer les blocs qui dépendent d\'une recherche/d\'un paramètre pas encore '
+                    .'renseigné, ex. ifConditions:[{"param":"<nom>","operator":"!=","value":""}].',
                 'contentTypes' => self::ALL_TYPES,
                 'requiresDataset' => false,
                 'fieldMapping' => [],
-                'config' => ['ifParam', 'ifOperator', 'ifValue'],
+                'config' => ['ifConditions', 'ifMatch'],
                 'isContainer' => true,
             ],
 
@@ -310,19 +319,22 @@ class StudioBlockCatalog
             'search' => [
                 'category' => 'special',
                 'label' => 'Recherche',
-                'description' => 'Barre de recherche sur un ou plusieurs datasets. Au choix d\'un résultat, TOUTES les colonnes '
-                    .'de la ligne deviennent des paramètres de page {{colonne}} et les blocs qui filtrent dessus se rechargent. '
-                    .'`targetPageId` optionnel : ouvre une AUTRE page au clic (sinon filtre la page courante). '
-                    .'`filters` (mêmes opérateurs que les autres blocs) restreint le périmètre interrogé.',
+                'description' => 'Barre de recherche sur UN dataset (dataset_id). Au choix d\'un résultat, TOUTES les colonnes '
+                    .'de la ligne deviennent des paramètres de page {{colonne}} et les blocs qui filtrent dessus se rechargent ; '
+                    .'un paramètre technique caché (fan-out) est en plus auto-géré pour l\'URL indexable — inutile de le déclarer. '
+                    .'`filters` (mêmes opérateurs que les autres blocs) restreint le périmètre interrogé. IMPORTANT : les autres '
+                    .'blocs de la page qui filtrent sur {{colonne}} doivent être entourés d\'un bloc `if` '
+                    .'(config_json = {"ifConditions":[{"param":"<colonne>","operator":"!=","value":""}]}) pour rester masqués '
+                    .'tant qu\'aucune recherche n\'a été faite (sinon ils affichent tout le dataset, non filtré).',
                 'contentTypes' => ['statsdata'],
-                'requiresDataset' => false,
+                'requiresDataset' => true,
                 'fieldMapping' => [
-                    'searchSources' => ['role' => 'searchSources', 'required' => true, 'description' => 'Sources interrogées : [{ datasetId, columns: [...] }].'],
-                    'targetPageId' => ['role' => 'pageRef', 'required' => false, 'description' => 'Page ouverte au clic (optionnel).'],
-                    'resultTitleColumn' => ['role' => 'any', 'required' => false],
-                    'resultDescColumns' => ['role' => 'any', 'list' => true, 'required' => false],
+                    'searchColumns' => ['role' => 'any', 'list' => true, 'required' => true, 'description' => 'Colonnes interrogées (recherche multi-mots) et qui alimentent {{colonne}} au clic.'],
+                    'searchAltColumns' => ['role' => 'any', 'list' => true, 'required' => false, 'description' => 'Colonnes de recherche secondaires en "OU" (n\'apparaissent pas dans le titre/description auto).'],
+                    'resultTitleParts' => ['role' => 'any', 'list' => true, 'required' => false, 'description' => 'Titre d\'un résultat : [{ ref, prefix?, suffix? }] (concaténation ordonnée). À défaut, la 1re colonne de searchColumns sert de titre.'],
+                    'resultDescParts' => ['role' => 'any', 'list' => true, 'required' => false, 'description' => 'Lignes "label : valeur" de la description d\'un résultat : [{ ref, label? }].'],
                 ],
-                'config' => ['searchPlaceholder', 'title'],
+                'config' => ['searchPlaceholder', 'title', 'resultTitleSeparator', 'heroButton', 'heroButtonLabel'],
             ],
             // ─── Statsio (article uniquement) ──────────────────────────────
             'sd-embed' => [
@@ -351,7 +363,7 @@ class StudioBlockCatalog
                     'paramColumn' => ['role' => 'dimension', 'required' => true, 'description' => 'Colonne dont les valeurs distinctes peuplent le contrôle.'],
                     'paramName' => ['role' => 'varName', 'required' => false, 'description' => 'Nom du paramètre écrit dans la page (défaut = paramColumn).'],
                 ],
-                'config' => ['title', 'paramControl', 'paramDefault', 'paramAllowAll', 'paramAllLabel'],
+                'config' => ['title', 'paramControl', 'paramDefault', 'paramAllowAll', 'paramAllLabel', 'heroButton', 'heroButtonLabel'],
             ],
         ];
     }

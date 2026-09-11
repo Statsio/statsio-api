@@ -25,7 +25,7 @@ class StudioAgentContext
     /** @var array<string,array{ref:string,pageRef:string,layout:string,cols:int}> */
     private array $sections = [];
 
-    /** @var array<string,array{ref:string,type:string,sectionRef:string,col:int,locked:bool,loopRef:?string}> */
+    /** @var array<string,array{ref:string,type:string,sectionRef:string,col:int,locked:bool,loopRef:?string,datasetId:?int}> */
     private array $blocks = [];
 
     /** @var array<int,array<string,mixed>> */
@@ -62,7 +62,7 @@ class StudioAgentContext
         return isset($this->sections[$ref]);
     }
 
-    /** @return array{ref:string,type:string,sectionRef:string,col:int,locked:bool,loopRef:?string}|null */
+    /** @return array{ref:string,type:string,sectionRef:string,col:int,locked:bool,loopRef:?string,datasetId:?int}|null */
     public function block(string $ref): ?array
     {
         return $this->blocks[$ref] ?? null;
@@ -104,9 +104,9 @@ class StudioAgentContext
         ];
     }
 
-    public function registerBlock(string $ref, string $type, string $sectionRef, int $col, bool $locked = false, ?string $loopRef = null): void
+    public function registerBlock(string $ref, string $type, string $sectionRef, int $col, bool $locked = false, ?string $loopRef = null, ?int $datasetId = null): void
     {
-        $this->blocks[$ref] = compact('ref', 'type', 'sectionRef', 'col', 'locked', 'loopRef');
+        $this->blocks[$ref] = compact('ref', 'type', 'sectionRef', 'col', 'locked', 'loopRef', 'datasetId');
     }
 
     public function forgetBlock(string $ref): void
@@ -187,6 +187,7 @@ class StudioAgentContext
                 'col' => $col,
                 'locked' => (bool) ($block['locked'] ?? false),
                 'loopRef' => $loopRef,
+                'datasetId' => isset($block['datasetId']) ? (int) $block['datasetId'] : null,
             ];
         }
     }

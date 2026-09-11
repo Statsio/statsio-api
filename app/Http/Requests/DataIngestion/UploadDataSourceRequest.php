@@ -34,6 +34,7 @@ class UploadDataSourceRequest extends FormRequest
             'header_row' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
             'excluded_rows' => ['sometimes', 'nullable', 'array'],
             'excluded_rows.*' => ['integer', 'min:1'],
+            'studio_content_slug' => ['sometimes', 'nullable', 'string', 'max:255'],
         ];
     }
 

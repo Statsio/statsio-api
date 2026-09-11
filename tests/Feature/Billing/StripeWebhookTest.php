@@ -3,6 +3,7 @@
 namespace Tests\Feature\Billing;
 
 use App\Models\Billing\Subscription;
+use App\Models\Offer;
 use App\Models\User\User;
 use App\Services\Billing\StripeGateway;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,6 +14,20 @@ use Tests\TestCase;
 class StripeWebhookTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Offer::create([
+            'key' => 'freemium', 'name' => 'Freemium', 'price_cents' => 0, 'period' => 'mois',
+            'cta_label' => 'Continuer', 'position' => 1,
+        ]);
+        Offer::create([
+            'key' => 'premium', 'name' => 'Premium', 'price_cents' => 200, 'period' => 'mois',
+            'cta_label' => 'Passer à Premium', 'position' => 2, 'stripe_price_id' => 'price_test',
+        ]);
+    }
 
     private function subscriptionEvent(string $type, array $overrides = []): Event
     {

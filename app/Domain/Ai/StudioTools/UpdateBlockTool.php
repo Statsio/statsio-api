@@ -11,7 +11,7 @@ use App\Domain\Content\Support\PremiumBlockGate;
  * Met à jour un bloc existant (config, mapping, filtres, dataset).
  *
  * Autorisé aussi sur les blocs `locked` : on ne peut pas les déplacer/supprimer,
- * mais on peut les configurer (searchSources, resultTitleColumn, …).
+ * mais on peut les configurer (searchColumns, resultTitleParts, …).
  *
  * Un bloc premium déjà en place reste grandfathéré (affiché, déplaçable, supprimable)
  * si l'auteur perd le Premium — mais ne peut plus être modifié via cet outil (voir
@@ -34,11 +34,10 @@ class UpdateBlockTool implements StudioAgentTool
     public function description(): string
     {
         return 'Modifie un bloc existant (y compris verrouillé) : config_json / field_mapping_json / '
-            .'filters_json (objets JSON encodés en chaîne, fusionnés), dataset_id. Barre de recherche : '
-            .'field_mapping_json = {"searchSources":[{"datasetId":"<id>","columns":[...]}],'
-            .'"resultTitleColumn":"<col>","resultDescColumns":["<col>"]} et config_json = '
-            .'{"title":"...","searchPlaceholder":"..."}. Bloc param : field_mapping_json = '
-            .'{"paramColumn":"<col>","paramName":"<nom simple>"} + dataset_id.';
+            .'filters_json (objets JSON encodés en chaîne, fusionnés), dataset_id. Barre de recherche : dataset_id '
+            .'+ field_mapping_json = {"searchColumns":["<col>",...],"resultTitleParts":[{"ref":"<col>"}],'
+            .'"resultDescParts":[{"ref":"<col>"}]} et config_json = {"searchPlaceholder":"..."}. Bloc param : '
+            .'field_mapping_json = {"paramColumn":"<col>","paramName":"<nom simple>"} + dataset_id.';
     }
 
     public function parameters(): array
@@ -78,7 +77,7 @@ class UpdateBlockTool implements StudioAgentTool
 
         $fieldMapping = $this->jsonArg($input, 'field_mapping_json');
 
-        if ($error = $this->validateSearchSources($fieldMapping, $context)) {
+        if ($error = $this->validateSearchColumns($block, $fieldMapping, $datasetId, $context)) {
             return ['error' => $error];
         }
 
@@ -102,40 +101,41 @@ class UpdateBlockTool implements StudioAgentTool
     }
 
     /**
+     * @param  array{ref:string,type:string,sectionRef:string,col:int,locked:bool,loopRef:?string,datasetId:?int}  $block
      * @param  array<string,mixed>  $fieldMapping
      */
-    private function validateSearchSources(array $fieldMapping, StudioAgentContext $context): ?string
+    private function validateSearchColumns(array $block, array $fieldMapping, ?int $datasetId, StudioAgentContext $context): ?string
     {
-        $sourceColumns = [];
-
-        foreach ($fieldMapping['searchSources'] ?? [] as $source) {
-            if (! is_array($source)) {
-                continue;
-            }
-            $datasetId = (int) ($source['datasetId'] ?? 0);
-            $schema = $datasetId ? $this->reader->datasetSchema($context->user, $datasetId) : null;
-            if ($schema === null) {
-                return "searchSources : dataset {$datasetId} introuvable ou non accessible.";
-            }
-            $known = array_column($schema['columns'], 'name');
-            $cols = array_map('strval', $source['columns'] ?? []);
-            if ($unknown = array_diff($cols, $known)) {
-                return 'searchSources : colonnes inconnues — '.implode(', ', $unknown);
-            }
-            $sourceColumns = [...$sourceColumns, ...$cols];
+        if ($block['type'] !== 'search' || ! isset($fieldMapping['searchColumns'])) {
+            return null;
         }
 
-        // resultTitleColumn / resultDescColumns / urlParams doivent être des colonnes de recherche.
-        if ($sourceColumns !== []) {
-            $referenced = array_filter([
-                ...(array) ($fieldMapping['urlParams'] ?? []),
-                ...(array) ($fieldMapping['resultDescColumns'] ?? []),
-                $fieldMapping['resultTitleColumn'] ?? null,
-            ]);
-            if ($bad = array_diff(array_map('strval', $referenced), $sourceColumns)) {
-                return 'La barre de recherche référence des colonnes absentes de searchSources : '
-                    .implode(', ', $bad).'. Ajoute-les à searchSources.columns.';
+        // Le dataset validé est celui fourni dans cet appel, sinon celui déjà connu du bloc.
+        $effectiveDatasetId = $datasetId ?? $block['datasetId'];
+        if ($effectiveDatasetId === null) {
+            return null; // pas encore de dataset connu (ex. add_block dans le même tour, pas encore rejoué) — rien à valider.
+        }
+
+        $schema = $this->reader->datasetSchema($context->user, $effectiveDatasetId);
+        if ($schema === null) {
+            return "searchColumns : dataset {$effectiveDatasetId} introuvable ou non accessible.";
+        }
+        $known = array_column($schema['columns'], 'name');
+
+        $referenced = array_map('strval', array_merge(
+            (array) ($fieldMapping['searchColumns'] ?? []),
+            (array) ($fieldMapping['searchAltColumns'] ?? []),
+        ));
+        foreach (['resultTitleParts', 'resultDescParts'] as $key) {
+            foreach ((array) ($fieldMapping[$key] ?? []) as $part) {
+                if (is_array($part) && isset($part['ref'])) {
+                    $referenced[] = (string) $part['ref'];
+                }
             }
+        }
+
+        if ($unknown = array_diff(array_unique($referenced), $known)) {
+            return 'Colonnes inconnues dans ce dataset : '.implode(', ', $unknown);
         }
 
         return null;

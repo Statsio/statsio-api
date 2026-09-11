@@ -31,10 +31,10 @@ class PremiumLimits
         return Offer::active()->paid()->orderBy('position')->first();
     }
 
-    /** Offre applicable à un utilisateur selon son statut Premium actuel. */
+    /** Offre applicable à un utilisateur : celle qui lui est liée, sinon l'offre gratuite. */
     public static function offerFor(User $user): ?Offer
     {
-        return $user->isPremium() ? self::paidOffer() : self::freeOffer();
+        return $user->offer ?? self::freeOffer();
     }
 
     /**

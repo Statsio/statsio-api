@@ -307,11 +307,12 @@ class StudioWriteToolsTest extends TestCase
         // update_block : autorisé sur le bloc search verrouillé.
         $upd = app(UpdateBlockTool::class)->execute([
             'block_ref' => 'blk1',
-            'field_mapping_json' => '{"searchSources":[{"datasetId":"'.$dataset->id.'","columns":["region"]}],"resultTitleColumn":"region"}',
+            'dataset_id' => $dataset->id,
+            'field_mapping_json' => '{"searchColumns":["region"],"resultTitleParts":[{"ref":"region"}]}',
         ], $ctx);
         $this->assertTrue($upd['ok']);
         $op = collect($ctx->patchOps())->firstWhere('op', 'updateBlock');
-        $this->assertSame('region', $op['fieldMapping']['searchSources'][0]['columns'][0]);
+        $this->assertSame('region', $op['fieldMapping']['searchColumns'][0]);
 
         // remove_block : toujours refusé.
         $this->assertArrayHasKey('error', (new RemoveBlockTool)->execute(['block_ref' => 'blk1'], $ctx));
@@ -330,7 +331,8 @@ class StudioWriteToolsTest extends TestCase
 
         $res = app(UpdateBlockTool::class)->execute([
             'block_ref' => 'blk1',
-            'field_mapping_json' => '{"searchSources":[{"datasetId":"'.$dataset->id.'","columns":["ville"]}]}',
+            'dataset_id' => $dataset->id,
+            'field_mapping_json' => '{"searchColumns":["ville"]}',
         ], $ctx);
         $this->assertArrayHasKey('error', $res);
     }
