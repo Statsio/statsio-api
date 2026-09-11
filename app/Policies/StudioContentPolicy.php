@@ -10,6 +10,15 @@ use App\Models\User\User;
 class StudioContentPolicy
 {
     /**
+     * Les admins du back-office (Filament) gèrent tous les contenus, quel
+     * qu'en soit le propriétaire.
+     */
+    public function before(User $user, string $ability): ?bool
+    {
+        return $user->is_admin ? true : null;
+    }
+
+    /**
      * Peut éditer le contenu dans le Studio : propriétaire, owner/admin de la
      * chaîne (si publié en chaîne), ou collaborateur avec studio.write.
      */

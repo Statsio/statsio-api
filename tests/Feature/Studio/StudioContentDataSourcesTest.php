@@ -41,14 +41,14 @@ class StudioContentDataSourcesTest extends TestCase
         ]);
     }
 
-    public function test_returns_404_for_content_of_another_user(): void
+    public function test_returns_403_for_content_of_another_user(): void
     {
         [, $token] = $this->actingAsUser();
 
         $other = StudioContentFactory::new()->create();
 
         $this->withToken($token)->getJson("/api/studio/content/{$other->slug}/data-sources")
-            ->assertStatus(404);
+            ->assertStatus(403);
     }
 
     public function test_returns_empty_list_when_content_has_no_dataset(): void
