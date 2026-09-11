@@ -75,14 +75,14 @@ class DossierTest extends TestCase
             ->assertJsonPath('data.0.name', 'Guerre en Ukraine');
     }
 
-    public function test_suggestions_404_for_a_non_owner(): void
+    public function test_suggestions_403_for_a_non_owner(): void
     {
         $other = User::factory()->create();
         $content = StudioContentFactory::new()->create(['user_id' => $other->id, 'title' => 'Titre']);
 
         $this->withToken($this->token)
             ->getJson("/api/studio/content/{$content->slug}/dossier-suggestions")
-            ->assertStatus(404);
+            ->assertStatus(403);
     }
 
     public function test_sync_dossiers_replaces_the_current_set(): void
