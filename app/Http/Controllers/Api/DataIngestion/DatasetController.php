@@ -1230,10 +1230,10 @@ class DatasetController extends Controller
         // Colonnes calculées : on aplatit le JOIN dans `msbase` (projection + calc),
         // et tout ce qui suit (filtres, tri, distinct, agrégat) opère sur `msbase`.
         if ($this->calcSpecs !== []) {
-            $keyOf = function (string $ref) use ($graph, $plan, $q): string {
+            $keyOf = function (string $ref) use ($graph, $q): string {
                 $r = $graph->resolveRef($ref);
 
-                return $q($plan[$r['source_id']][$r['name']] ?? $r['name']);
+                return "{$r['alias']}.{$q($r['name'])}";
             };
             $calcCols = array_map(
                 fn ($spec) => $this->calcColumnSql($spec['operands'], $keyOf).' AS '.$q('calc:'.$spec['id']),
