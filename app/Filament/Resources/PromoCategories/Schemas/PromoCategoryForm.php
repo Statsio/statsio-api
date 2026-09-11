@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PromoCategories\Schemas;
 
+use App\Domain\Content\Enums\SubBrandEnum;
 use App\Domain\Marketing\Enums\PromoTitleAlignEnum;
 use App\Filament\RichEditor\Plugins\TextStrokeRichContentPlugin;
 use Filament\Forms\Components\Repeater;
@@ -98,6 +99,16 @@ class PromoCategoryForm
                     ->helperText('Ordre de passage des catégories dans la rotation du bandeau.')
                     ->numeric()
                     ->default(0),
+
+                Select::make('sub_brand')
+                    ->label('Sous-marque')
+                    ->helperText(
+                        'La catégorie n\'est affichée que sur le site de cette marque. « Toutes les marques » = affichée partout.'
+                    )
+                    ->options(SubBrandEnum::options())
+                    ->default(SubBrandEnum::All->value)
+                    ->selectablePlaceholder(false)
+                    ->required(),
             ]);
     }
 
