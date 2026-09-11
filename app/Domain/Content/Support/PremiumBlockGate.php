@@ -30,6 +30,17 @@ class PremiumBlockGate
         return PremiumBlockType::types();
     }
 
+    /**
+     * Offre requise par type de bloc — pour l'affichage front (nom réel de l'offre,
+     * plus de libellé « Premium » codé en dur).
+     *
+     * @return array<string, array{id: int, key: string, name: string}>
+     */
+    public function requiredOffersByType(): array
+    {
+        return PremiumBlockType::offersByType();
+    }
+
     /** Acteur premium, OU chaîne dont le propriétaire est premium (contenu publié au nom d'une chaîne). */
     public function isEffectivelyPremium(User $user, ?Channel $channel): bool
     {

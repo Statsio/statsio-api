@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\Users\Tables;
 
-use App\Domain\Content\Enums\PremiumPlanEnum;
 use App\Domain\User\Enums\UserStatusEnum;
 use App\Models\User\User;
 use Filament\Actions\DeleteAction;
@@ -49,11 +48,11 @@ class UsersTable
                 IconColumn::make('is_admin')
                     ->label('Admin')
                     ->boolean(),
-                TextColumn::make('premium_plan')
+                TextColumn::make('offer.name')
                     ->label('Offre')
                     ->badge()
-                    ->formatStateUsing(fn (PremiumPlanEnum $state): string => $state->label())
-                    ->color(fn (PremiumPlanEnum $state): string => $state === PremiumPlanEnum::Premium ? 'primary' : 'gray'),
+                    ->default('Freemium')
+                    ->color(fn (User $record): string => $record->isPremium() ? 'primary' : 'gray'),
                 TextColumn::make('created_at')
                     ->label('Inscrit le')
                     ->dateTime('d/m/Y')
@@ -74,9 +73,9 @@ class UsersTable
                         UserStatusEnum::SUSPENDED->value => 'Suspendu',
                         UserStatusEnum::BANNED->value => 'Banni',
                     ]),
-                SelectFilter::make('premium_plan')
+                SelectFilter::make('offer_id')
                     ->label('Offre')
-                    ->options(PremiumPlanEnum::options()),
+                    ->relationship('offer', 'name', fn ($query) => $query->orderBy('position')),
             ])
             ->recordActions([
                 EditAction::make(),

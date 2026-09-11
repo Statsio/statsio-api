@@ -6,6 +6,9 @@ use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Channel\Channel;
 use App\Models\Content\Dossier;
 use App\Models\Studio\StudioBlockResponse;
+use App\Models\Studio\StudioContentCollaborator;
+use App\Models\Studio\StudioContentComment;
+use App\Models\Studio\StudioContentInvitation;
 use App\Models\Studio\StudioContentVersion;
 use App\Models\User\User;
 use App\Traits\HasMedia;
@@ -46,6 +49,10 @@ class StudioContent extends Model
         'published_version',
         'first_published_at',
         'last_published_at',
+        'scheduled_publish_at',
+        'comments_enabled',
+        'download_enabled',
+        'embed_enabled',
     ];
 
     protected $casts = [
@@ -58,6 +65,10 @@ class StudioContent extends Model
         'response_deadline' => 'datetime',
         'first_published_at' => 'datetime',
         'last_published_at' => 'datetime',
+        'scheduled_publish_at' => 'datetime',
+        'comments_enabled' => 'boolean',
+        'download_enabled' => 'boolean',
+        'embed_enabled' => 'boolean',
         'requires_identity_verification' => 'boolean',
         'petition_goal' => 'integer',
         'sub_brand' => SubBrandEnum::class,
@@ -87,6 +98,27 @@ class StudioContent extends Model
     public function blockResponses(): HasMany
     {
         return $this->hasMany(StudioBlockResponse::class);
+    }
+
+    /**
+     * Commentaires des lecteurs sous le contenu publié.
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(StudioContentComment::class);
+    }
+
+    /**
+     * Collaborateurs invitès avec droits lecture/modification par ressource.
+     */
+    public function collaborators(): HasMany
+    {
+        return $this->hasMany(StudioContentCollaborator::class);
+    }
+
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(StudioContentInvitation::class);
     }
 
     /**

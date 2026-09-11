@@ -32,6 +32,7 @@ class CreateApiDataSourceRequest extends FormRequest
             // s'il est fourni, il corrige/complète la détection. materialization=snapshot (défaut) :
             // téléchargement complet en tâche de fond, converti en Parquet — voir CreateApiDataSourceAction.
             'materialization' => ['sometimes', 'in:snapshot,live'],
+            'studio_content_slug' => ['sometimes', 'nullable', 'string', 'max:255'],
         ], $this->paginationRules(), $this->queryMappingRules());
     }
 

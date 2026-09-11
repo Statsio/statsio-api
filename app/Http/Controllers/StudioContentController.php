@@ -9,12 +9,14 @@ use App\Domain\Content\Actions\PublishStudioContentAction;
 use App\Domain\Content\Actions\StudioContentDataSourcesAction;
 use App\Domain\Content\Actions\SuggestDossiersAction;
 use App\Domain\Content\Enums\ContentCoverageEnum;
+use App\Domain\Content\Enums\StudioContentAccessLevelEnum;
 use App\Domain\Content\Enums\SubBrandEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
 use App\Domain\Content\Exceptions\PremiumFeatureRequiredException;
 use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\Content\Support\PremiumBlockGate;
 use App\Domain\Content\Support\PremiumLimits;
+use App\Domain\Content\Support\StudioContentAccess;
 use App\Domain\Content\Support\StudioContentBlocks;
 use App\Domain\User\Actions\RecordContentViewAction;
 use App\Models\Channel\Channel;
@@ -34,12 +36,12 @@ class StudioContentController extends Controller
     private const PUBLIC_CACHE_TTL = 300; // 5 minutes
 
     /**
-     * Types de blocs qu'un article peut réutiliser via un bloc `sd-embed`
+     * Types de blocs réutilisables via `sd-embed` / iframe publique
      * (« Bloc Statsdata »). Miroir de EMBEDDABLE_BLOCK_TYPES côté front.
      *
      * @var list<string>
      */
-    public const EMBEDDABLE_BLOCK_TYPES = ['bar', 'line', 'pie', 'kpi', 'table', 'search'];
+    public const EMBEDDABLE_BLOCK_TYPES = ['bar', 'line', 'pie', 'kpi', 'table', 'search', 'map'];
 
     public function index(Request $request): JsonResponse
     {
@@ -63,8 +65,12 @@ class StudioContentController extends Controller
                 ->where('channel_id', $channelId)
                 ->where('published_as', 'channel');
         } else {
-            $query = StudioContent::with(['channel.profile', 'dossiers'])
-                ->where('user_id', $request->user()->id);
+            $userId = $request->user()->id;
+            $query = StudioContent::with(['channel.profile', 'dossiers', 'collaborators'])
+                ->where(function ($q) use ($userId) {
+                    $q->where('user_id', $userId)
+                        ->orWhereHas('collaborators', fn ($c) => $c->where('user_id', $userId));
+                });
         }
 
         $contents = $query
@@ -74,7 +80,13 @@ class StudioContentController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $contents->map(fn ($c) => $this->format($c)),
+            'data' => $contents->map(function ($c) use ($request) {
+                $row = $this->format($c);
+                $row['access'] = StudioContentAccess::payload($request->user(), $c);
+                $row['is_shared'] = ! StudioContentAccess::isOwner($request->user(), $c);
+
+                return $row;
+            }),
         ]);
     }
 
@@ -150,11 +162,13 @@ class StudioContentController extends Controller
 
     public function show(Request $request, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible($request->user(), $slug);
+        $data = $this->format($content);
+        $data['access'] = StudioContentAccess::payload($request->user(), $content);
 
         return response()->json([
             'success' => true,
-            'data' => $this->format($content),
+            'data' => $data,
         ]);
     }
 
@@ -165,7 +179,12 @@ class StudioContentController extends Controller
      */
     public function dataSources(Request $request, StudioContentDataSourcesAction $action, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'sources',
+            StudioContentAccessLevelEnum::Read,
+        );
 
         return response()->json([
             'success' => true,
@@ -436,7 +455,7 @@ class StudioContentController extends Controller
 
     public function update(Request $request, PremiumBlockGate $premiumGate, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible($request->user(), $slug);
 
         $data = $request->validate([
             'title' => 'sometimes|required|string|max:255',
@@ -449,7 +468,7 @@ class StudioContentController extends Controller
                 'string',
                 'max:255',
                 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/',
-                // $content->id est la clé primaire du modèle résolu par findBySlug(), pas une entrée
+                // $content->id est la clé primaire du modèle résolu par findAccessible(), pas une entrée
                 // utilisateur — usage canonique de Rule::unique()->ignore().
                 // nosemgrep: php.laravel.security.laravel-unsafe-validator.laravel-unsafe-validator
                 Rule::unique('studio_contents', 'slug')->ignore($content->id),
@@ -466,10 +485,16 @@ class StudioContentController extends Controller
             'published_as' => 'sometimes|nullable|string|in:user,channel',
             'channel_id' => 'sometimes|nullable|integer|exists:channels,id',
             'response_deadline' => 'sometimes|nullable|date',
+            'scheduled_publish_at' => 'sometimes|nullable|date',
+            'comments_enabled' => 'sometimes|boolean',
+            'download_enabled' => 'sometimes|boolean',
+            'embed_enabled' => 'sometimes|boolean',
             'thumbnail' => 'sometimes|file|image|max:5120',
             'thumbnail_media_id' => 'sometimes|nullable|integer|exists:media,id',
             'remove_thumbnail' => 'sometimes|boolean',
         ]);
+
+        $this->assertUpdatePermissions($request->user(), $content, $data, $request);
 
         $thumbnailFile = $request->file('thumbnail');
         $thumbnailMediaId = $request->filled('thumbnail_media_id') ? (int) $request->input('thumbnail_media_id') : null;
@@ -517,6 +542,13 @@ class StudioContentController extends Controller
         // Purge le cache public de l'ancien slug avant qu'il ne change.
         $previousSlug = $content->slug;
 
+        // Retirer la date de programmation d'un contenu déjà programmé le ramène en brouillon.
+        if (array_key_exists('scheduled_publish_at', $data)
+            && $data['scheduled_publish_at'] === null
+            && $content->status === 'scheduled') {
+            $data['status'] = 'draft';
+        }
+
         $content->update($data);
 
         if ($previousSlug !== $content->slug) {
@@ -527,22 +559,34 @@ class StudioContentController extends Controller
             $content->getMedia('thumbnail')->each(fn ($m) => $content->deleteMedia($m));
             $content->addMedia($thumbnailFile, 'studio-content-thumbnails', 'thumbnail');
         } elseif ($thumbnailMediaId !== null) {
-            $content->attachMediaFromLibrary($thumbnailMediaId, 'studio-content-thumbnails', 'thumbnail', $request->user()->id);
+            // La bibliothèque source doit appartenir au propriétaire du contenu.
+            $content->attachMediaFromLibrary(
+                $thumbnailMediaId,
+                'studio-content-thumbnails',
+                'thumbnail',
+                (int) $content->user_id,
+            );
         } elseif ($removeThumbnail) {
             $content->getMedia('thumbnail')->each(fn ($m) => $content->deleteMedia($m));
         }
 
         $this->forgetPublicCache($content);
 
+        $fresh = $content->fresh(['channel.profile', 'dossiers', 'collaborators']);
+        $payload = $this->format($fresh);
+        $payload['access'] = StudioContentAccess::payload($request->user(), $fresh);
+
         return response()->json([
             'success' => true,
-            'data' => $this->format($content->fresh()),
+            'data' => $payload,
         ]);
     }
 
     public function destroy(Request $request, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible($request->user(), $slug);
+        abort_unless(StudioContentAccess::isOwner($request->user(), $content), 403);
+
         $content->clearMedia();
         $content->delete();
         $this->forgetPublicCache($content);
@@ -557,13 +601,20 @@ class StudioContentController extends Controller
      */
     public function publish(Request $request, PublishStudioContentAction $action, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'publication',
+            StudioContentAccessLevelEnum::Write,
+        );
 
         $data = $request->validate([
             'published_as' => 'nullable|string|in:user,channel',
             'channel_id' => 'nullable|integer|exists:channels,id',
             'dossier_ids' => 'sometimes|array',
             'dossier_ids.*' => 'integer|exists:dossiers,id',
+            /** Force la mise en ligne immédiate même si une date future est enregistrée. */
+            'immediate' => 'sometimes|boolean',
         ]);
 
         $content = $action->execute(
@@ -571,6 +622,7 @@ class StudioContentController extends Controller
             $request->user(),
             $data['published_as'] ?? null,
             $data['channel_id'] ?? null,
+            (bool) ($data['immediate'] ?? false),
         );
 
         // Placement dans les dossiers éditoriaux (facultatif, non versionné).
@@ -588,8 +640,16 @@ class StudioContentController extends Controller
      */
     public function unpublish(Request $request, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
-        $content->update(['status' => 'draft']);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'publication',
+            StudioContentAccessLevelEnum::Write,
+        );
+        $content->update([
+            'status' => 'draft',
+            'scheduled_publish_at' => null,
+        ]);
         $this->forgetPublicCache($content);
 
         return response()->json(['success' => true, 'data' => $this->format($content->fresh())]);
@@ -600,7 +660,12 @@ class StudioContentController extends Controller
      */
     public function versions(Request $request, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'historique',
+            StudioContentAccessLevelEnum::Read,
+        );
 
         $rows = $content->versions()
             ->with(['publishedBy.profile', 'channel.profile'])
@@ -626,7 +691,12 @@ class StudioContentController extends Controller
      */
     public function restoreVersion(Request $request, string $slug, int $version): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'historique',
+            StudioContentAccessLevelEnum::Write,
+        );
         $target = $content->versions()->where('version', $version)->firstOrFail();
 
         $content->update($target->payload());
@@ -639,7 +709,12 @@ class StudioContentController extends Controller
      */
     public function dossiers(Request $request, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'publication',
+            StudioContentAccessLevelEnum::Read,
+        );
 
         return response()->json(['success' => true, 'data' => $this->formatDossiers($content)]);
     }
@@ -650,7 +725,12 @@ class StudioContentController extends Controller
      */
     public function syncDossiers(Request $request, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'publication',
+            StudioContentAccessLevelEnum::Write,
+        );
 
         $data = $request->validate([
             'dossier_ids' => 'present|array',
@@ -668,7 +748,12 @@ class StudioContentController extends Controller
      */
     public function dossierSuggestions(Request $request, SuggestDossiersAction $action, string $slug): JsonResponse
     {
-        $content = $this->findBySlug($request->user()->id, $slug);
+        $content = $this->findAccessible(
+            $request->user(),
+            $slug,
+            'publication',
+            StudioContentAccessLevelEnum::Read,
+        );
 
         $suggestions = $action->execute($content->title, $content->categories ?? [])
             ->map(fn ($d) => [
@@ -736,6 +821,13 @@ class StudioContentController extends Controller
             abort_unless($viewer !== null && $viewer->can('update', $content), 404);
 
             return $content;
+        }
+
+        // Intégration désactivée : seuls les éditeurs du contenu peuvent encore
+        // résoudre un bloc (aperçu Studio / article en brouillon de l'auteur).
+        if (! ($content->embed_enabled ?? true)) {
+            $viewer = $request->user('sanctum');
+            abort_unless($viewer !== null && $viewer->can('update', $content), 404);
         }
 
         // Contenu publié : le bloc réutilisé provient de la version en ligne.
@@ -820,10 +912,13 @@ class StudioContentController extends Controller
         return StudioContentBlocks::ordered($content);
     }
 
-    private function findBySlug(int $userId, string $slug): StudioContent
-    {
-        return StudioContent::with(['channel.profile', 'dossiers'])
-            ->where('user_id', $userId)
+    private function findAccessible(
+        User $user,
+        string $slug,
+        ?string $resource = null,
+        ?StudioContentAccessLevelEnum $level = null,
+    ): StudioContent {
+        $content = StudioContent::with(['channel.profile', 'dossiers', 'collaborators'])
             ->where(function ($q) use ($slug) {
                 $q->where('slug', $slug);
                 if (is_numeric($slug)) {
@@ -831,6 +926,84 @@ class StudioContentController extends Controller
                 }
             })
             ->firstOrFail();
+
+        if ($resource !== null && $level !== null) {
+            abort_unless(
+                StudioContentAccess::canAccess($user, $content, $resource, $level),
+                403,
+            );
+        } else {
+            abort_unless(StudioContentAccess::canView($user, $content), 403);
+        }
+
+        return $content;
+    }
+
+    /**
+     * Vérifie les permissions write selon les champs présents dans le payload update.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function assertUpdatePermissions(User $user, StudioContent $content, array $data, Request $request): void
+    {
+        $studioKeys = ['pages', 'sections', 'blocks', 'card_block_id'];
+        $publicationKeys = [
+            'published_as',
+            'channel_id',
+            'scheduled_publish_at',
+            'comments_enabled',
+            'download_enabled',
+            'embed_enabled',
+            'response_deadline',
+        ];
+        $contenuKeys = [
+            'title',
+            'description',
+            'slug',
+            'categories',
+            'coverage',
+            'sub_brand',
+            'survey_kind',
+            'requires_identity_verification',
+            'petition_goal',
+            'petition_target',
+        ];
+
+        $needsStudio = array_intersect($studioKeys, array_keys($data)) !== [];
+        $needsPublication = array_intersect($publicationKeys, array_keys($data)) !== [];
+        $needsContenu = array_intersect($contenuKeys, array_keys($data)) !== []
+            || $request->hasFile('thumbnail')
+            || $request->filled('thumbnail_media_id')
+            || $request->boolean('remove_thumbnail');
+
+        if ($needsStudio) {
+            abort_unless(
+                StudioContentAccess::canAccess($user, $content, 'studio', StudioContentAccessLevelEnum::Write),
+                403,
+            );
+        }
+        if ($needsPublication) {
+            abort_unless(
+                StudioContentAccess::canAccess($user, $content, 'publication', StudioContentAccessLevelEnum::Write),
+                403,
+            );
+        }
+        if ($needsContenu) {
+            abort_unless(
+                StudioContentAccess::canAccess($user, $content, 'contenu', StudioContentAccessLevelEnum::Write),
+                403,
+            );
+        }
+
+        // Payload vide ou non classé : au moins une permission write quelconque.
+        if (! $needsStudio && ! $needsPublication && ! $needsContenu) {
+            abort_unless(
+                StudioContentAccess::canAccess($user, $content, 'contenu', StudioContentAccessLevelEnum::Write)
+                || StudioContentAccess::canAccess($user, $content, 'studio', StudioContentAccessLevelEnum::Write)
+                || StudioContentAccess::canAccess($user, $content, 'publication', StudioContentAccessLevelEnum::Write),
+                403,
+            );
+        }
     }
 
     private function generateUniqueSlug(string $title): string
@@ -870,7 +1043,7 @@ class StudioContentController extends Controller
             // Inclut les sources publiques rattachées au propriétaire via le pivot
             // data_source_user (l'assistant IA peut lier un bloc à une telle source).
             $datasets = Dataset::whereIn('id', $datasetIds)
-                ->with('dataSource')
+                ->with(['dataSource.provenance', 'latestVersion'])
                 ->where(fn ($q) => $q
                     ->where('user_id', $content->user_id)
                     ->orWhereHas('dataSource.users', fn ($u) => $u->where('user_id', $content->user_id)))
@@ -879,6 +1052,10 @@ class StudioContentController extends Controller
                     'id' => $d->id,
                     'name' => $d->name,
                     'row_count' => $d->row_count,
+                    'provenance' => ContentDatasetSources::provenanceLabel($d),
+                    'downloadable' => (bool) ($content->download_enabled ?? true)
+                        && ! $d->isLive()
+                        && filled($d->latestVersion?->parquet_storage_path),
                 ], ContentDatasetSources::freshnessPayload($d)))
                 ->toArray();
         }
@@ -901,6 +1078,10 @@ class StudioContentController extends Controller
             'coverage' => $content->coverage,
             'sub_brand' => $content->sub_brand?->value ?? 'statsio',
             'response_deadline' => $content->response_deadline?->toIso8601String(),
+            'scheduled_publish_at' => $content->scheduled_publish_at?->toIso8601String(),
+            'comments_enabled' => (bool) ($content->comments_enabled ?? true),
+            'download_enabled' => (bool) ($content->download_enabled ?? true),
+            'embed_enabled' => (bool) ($content->embed_enabled ?? true),
             'published_as' => $content->published_as,
             'channel_id' => $content->channel_id,
             'published_version' => $content->published_version,

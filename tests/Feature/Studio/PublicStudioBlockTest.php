@@ -87,6 +87,18 @@ class PublicStudioBlockTest extends TestCase
             ->assertJsonPath('success', true);
     }
 
+    public function test_show_public_block_returns_404_when_embed_disabled(): void
+    {
+        $content = StudioContentFactory::new()->published()->create([
+            'type' => 'statsdata',
+            'embed_enabled' => false,
+            'blocks' => [['id' => 'blk1', 'type' => 'kpi']],
+        ]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}/blocks/blk1")
+            ->assertStatus(404);
+    }
+
     public function test_show_public_block_returns_404_for_unknown_block(): void
     {
         $content = StudioContentFactory::new()->published()->create([
@@ -107,6 +119,27 @@ class PublicStudioBlockTest extends TestCase
 
         $this->getJson("/api/studio/content/public/{$content->slug}/blocks/blk1")
             ->assertStatus(404);
+    }
+
+    public function test_show_public_block_serves_a_map_block(): void
+    {
+        $owner = User::factory()->create();
+        $dataset = $this->createDataset($owner);
+        $content = StudioContentFactory::new()->published()->create([
+            'user_id' => $owner->id,
+            'type' => 'statsdata',
+            'blocks' => [[
+                'id' => 'map1',
+                'type' => 'map',
+                'datasetId' => (string) $dataset->id,
+                'config' => ['title' => 'Carte'],
+            ]],
+        ]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}/blocks/map1")
+            ->assertStatus(200)
+            ->assertJsonPath('data.block.id', 'map1')
+            ->assertJsonPath('data.block.type', 'map');
     }
 
     public function test_show_public_block_returns_block_doc_and_datasets(): void
