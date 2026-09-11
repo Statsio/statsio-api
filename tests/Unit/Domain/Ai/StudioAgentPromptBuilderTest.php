@@ -52,10 +52,10 @@ class StudioAgentPromptBuilderTest extends TestCase
             'pages' => [['id' => 'p2', 'title' => 'T', 'params' => [['name' => 'ville']]]],
             'sections' => [['id' => 'sec', 'layout' => '1-col', 'pageId' => 'p2']],
             'blocks' => [[
-                'id' => 'srch1', 'type' => 'search', 'zoneId' => 'sec-0',
+                'id' => 'srch1', 'type' => 'search', 'zoneId' => 'sec-0', 'datasetId' => '4',
                 'fieldMapping' => [
-                    'searchSources' => [['datasetId' => '4', 'columns' => ['ville', 'cp']]],
-                    'resultTitleColumn' => 'ville',
+                    'searchColumns' => ['ville', 'cp'],
+                    'resultTitleParts' => [['ref' => 'ville']],
                 ],
                 'config' => [],
             ]],
