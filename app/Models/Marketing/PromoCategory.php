@@ -2,6 +2,8 @@
 
 namespace App\Models\Marketing;
 
+use App\Domain\Content\Enums\SubBrandEnum;
+use App\Models\Concerns\FiltersBySubBrand;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
@@ -16,7 +18,9 @@ use Illuminate\Support\Facades\Cache;
  */
 class PromoCategory extends Model
 {
-    /** Clé de cache de la réponse publique /api/promo-categories. */
+    use FiltersBySubBrand;
+
+    /** Préfixe de la clé de cache de la réponse publique /api/promo-categories, variée par sous-marque. */
     public const CACHE_KEY = 'promo_categories.public';
 
     protected $fillable = [
@@ -36,12 +40,21 @@ class PromoCategory extends Model
         'is_active',
         'always_visible',
         'position',
+        'sub_brand',
     ];
 
     protected static function booted(): void
     {
-        static::saved(fn () => Cache::forget(self::CACHE_KEY));
-        static::deleted(fn () => Cache::forget(self::CACHE_KEY));
+        static::saved(fn () => self::forgetCache());
+        static::deleted(fn () => self::forgetCache());
+    }
+
+    /** Invalide le cache public pour toutes les sous-marques (une clé par valeur de {@see SubBrandEnum}). */
+    private static function forgetCache(): void
+    {
+        foreach (SubBrandEnum::values() as $value) {
+            Cache::forget(self::CACHE_KEY.'.'.$value);
+        }
     }
 
     protected function casts(): array
@@ -53,6 +66,7 @@ class PromoCategory extends Model
             'is_active' => 'boolean',
             'always_visible' => 'boolean',
             'position' => 'integer',
+            'sub_brand' => SubBrandEnum::class,
         ];
     }
 
