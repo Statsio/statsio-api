@@ -7,6 +7,8 @@ use App\Services\Ai\Drivers\GeminiLlmClient;
 use App\Services\Ai\LlmClient;
 use App\Services\DataIngestion\Contracts\ParquetWriterInterface;
 use App\Services\DataIngestion\DuckDbParquetWriter;
+use Filament\Support\Assets\Js;
+use Filament\Support\Facades\FilamentAsset;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -33,6 +35,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        FilamentAsset::register([
+            Js::make(
+                'rich-content-plugins/text-stroke',
+                __DIR__.'/../../resources/js/dist/filament/rich-content-plugins/text-stroke.js',
+            )->loadedOnRequest(),
+        ]);
     }
 }

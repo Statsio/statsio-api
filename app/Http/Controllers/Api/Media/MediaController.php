@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Media;
 
 use App\Domain\Media\Actions\MediaAction;
+use App\Domain\Content\Support\StudioContentAssetOwner;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Media\UploadMediaRequest;
 use App\Http\Requests\Media\UploadMultipleMediaRequest;
@@ -17,11 +18,18 @@ class MediaController extends Controller
         private MediaAction $mediaAction
     ) {}
 
-    /** Bibliothèque de médias de l'utilisateur courant (images uniquement, plus récents d'abord). */
+    /** Bibliothèque de médias : utilisateur courant, ou propriétaire du contenu si contexte partagé. */
     public function index(Request $request): JsonResponse
     {
+        $userId = $request->user()->id;
+        $slug = $request->query('studio_content_slug');
+        if ($slug) {
+            $resolved = StudioContentAssetOwner::resolveForWrite($request->user(), (string) $slug);
+            $userId = $resolved['user_id'];
+        }
+
         $media = Media::query()
-            ->forUser($request->user()->id)
+            ->forUser($userId)
             ->images()
             ->latest('id')
             ->limit(300)
@@ -46,7 +54,14 @@ class MediaController extends Controller
 
             $media = $this->mediaAction->upload($file, $directory);
 
-            if ($userId = $request->user()?->id) {
+            $userId = $request->user()?->id;
+            $slug = $request->input('studio_content_slug');
+            if ($slug && $request->user()) {
+                $resolved = StudioContentAssetOwner::resolveForWrite($request->user(), (string) $slug);
+                $userId = $resolved['user_id'];
+            }
+
+            if ($userId) {
                 $media->forceFill(['user_id' => $userId])->save();
             }
 

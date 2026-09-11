@@ -116,6 +116,22 @@ class ContentDatasetSources
     }
 
     /**
+     * Libellé de provenance affiché sur la page publique (catalogue de provenances
+     * ou libellé libre « autre »). Null si non renseigné.
+     */
+    public static function provenanceLabel(Dataset $dataset): ?string
+    {
+        $source = $dataset->dataSource;
+        if (! $source) {
+            return null;
+        }
+
+        $label = $source->provenance?->name ?: $source->provenance_other_label;
+
+        return $label !== null && $label !== '' ? (string) $label : null;
+    }
+
+    /**
      * Choisit la source la plus « parlante » d'un lot pour un badge unique de carte :
      * une source en direct l'emporte ; sinon la source planifiée (cadence ≠ « jamais »)
      * rafraîchie le plus récemment ; sinon `null` — une source figée (« jamais ») ou

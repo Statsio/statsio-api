@@ -16,6 +16,7 @@ class UploadMediaRequest extends FormRequest
         return [
             'file' => 'required|file|max:10240', // max 10MB
             'directory' => 'sometimes|string|max:255',
+            'studio_content_slug' => 'sometimes|nullable|string|max:255',
         ];
     }
 

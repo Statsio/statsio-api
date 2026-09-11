@@ -92,7 +92,7 @@ class ChannelInheritsPremiumTest extends TestCase
         ]);
 
         // Le propriétaire perd le Premium (résiliation, webhook subscription.deleted…).
-        $owner->update(['premium_plan' => 'free']);
+        $owner->update(['offer_id' => null]);
         $token = $redactor->createToken('t')->plainTextToken;
 
         // Le bloc premium déjà en place reste grandfathéré : supprimable, publiable...

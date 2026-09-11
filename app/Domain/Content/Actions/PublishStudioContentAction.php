@@ -16,6 +16,9 @@ use Illuminate\Support\Carbon;
  *    (verrouillé ensuite) et renseigne `first_published_at`.
  *  - Publications suivantes : incrémente simplement le numéro de version ; l'auteur
  *    reste celui de la v1 (modifiable via l'onglet Publication du dashboard).
+ *  - Publication différée : si `scheduled_publish_at` est dans le futur et que le
+ *    contenu n'est pas encore en ligne, bascule en `scheduled` sans créer de version
+ *    (la commande `content:publish-scheduled` appellera ensuite avec `immediate`).
  *
  * Aucun contrôle Premium ici (blocs, vérification d'identité) : la publication ne fait
  * que figer l'état du brouillon courant, déjà validé bloc par bloc à chaque sauvegarde
@@ -29,9 +32,34 @@ class PublishStudioContentAction
         User $actor,
         ?string $publishedAs = null,
         ?int $channelId = null,
+        bool $immediate = false,
     ): StudioContent {
-        if ($content->first_published_at === null) {
-            $this->applyAuthor($content, $actor, $publishedAs, $channelId);
+        $isFirstPublication = $content->first_published_at === null;
+
+        if ($isFirstPublication) {
+            // Contenu déjà programmé : conserve l'auteur figé sauf si la requête en impose un nouveau.
+            if ($publishedAs !== null || $content->published_as === null) {
+                $this->applyAuthor(
+                    $content,
+                    $actor,
+                    $publishedAs ?? $content->published_as,
+                    $channelId ?? $content->channel_id,
+                );
+            }
+        }
+
+        $canSchedule = ! $immediate
+            && in_array($content->status, ['draft', 'scheduled'], true)
+            && $content->scheduled_publish_at !== null
+            && $content->scheduled_publish_at->isFuture();
+
+        if ($canSchedule) {
+            $content->forceFill(['status' => 'scheduled'])->save();
+
+            return $content;
+        }
+
+        if ($isFirstPublication) {
             $content->first_published_at = Carbon::now();
         }
 
@@ -59,6 +87,7 @@ class PublishStudioContentAction
             'published_version_id' => $version->id,
             'published_version' => $nextVersion,
             'last_published_at' => Carbon::now(),
+            'scheduled_publish_at' => null,
         ])->save();
 
         $content->setRelation('publishedVersion', $version);

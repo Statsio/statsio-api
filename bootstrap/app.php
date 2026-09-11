@@ -37,6 +37,8 @@ return Application::configure(basePath: dirname(__DIR__))
             ->sendOutputTo('/proc/1/fd/1');
 
         $schedule->command('data-sources:refresh-due')->hourly();
+
+        $schedule->command('content:publish-scheduled')->everyMinute();
     })
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->use([

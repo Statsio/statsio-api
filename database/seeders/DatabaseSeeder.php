@@ -27,6 +27,7 @@ class DatabaseSeeder extends Seeder
             AdminUserSeeder::class,
             DossierSeeder::class,
             OfferSeeder::class,
+            HelpCenterSeeder::class,
         ]);
     }
 }

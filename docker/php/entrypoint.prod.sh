@@ -34,6 +34,11 @@ if [ "${RUN_SETUP:-false}" = "true" ]; then
   echo "Seeding admin user..."
   php artisan db:seed --class=Database\\Seeders\\AdminUserSeeder --force
 
+  # Contenu de départ du centre d'aide : le seeder est idempotent (no-op si des
+  # catégories existent déjà), donc sûr à rejouer à chaque déploiement.
+  echo "Seeding help center content..."
+  php artisan db:seed --class=Database\\Seeders\\HelpCenterSeeder --force
+
   # Les assets Filament sont déjà (re)publiés par le hook composer `post-autoload-dump`
   # (`filament:upgrade`) juste au-dessus — pas de commande dédiée ici (`filament:assets:publish`
   # n'existe pas ; c'était la cause du crash au démarrage).

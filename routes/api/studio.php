@@ -3,6 +3,9 @@
 use App\Http\Controllers\Api\DataIngestion\DatasetController;
 use App\Http\Controllers\Studio\StudioBlockGateController;
 use App\Http\Controllers\Studio\StudioBlockResponseController;
+use App\Http\Controllers\Studio\StudioContentCollaboratorController;
+use App\Http\Controllers\Studio\StudioContentCommentController;
+use App\Http\Controllers\Studio\StudioContentInvitationPublicController;
 use App\Http\Controllers\StudioContentController;
 use Illuminate\Support\Facades\Route;
 
@@ -17,6 +20,7 @@ Route::get('/studio/content/public/search', [StudioContentController::class, 'se
     ->middleware('throttle:60,1');
 Route::get('/studio/content/public/{slug}', [StudioContentController::class, 'showPublic']);
 Route::get('/studio/content/public/{slug}/datasets/{dataset}/query', [DatasetController::class, 'queryPublic']);
+Route::get('/studio/content/public/{slug}/datasets/{dataset}/download', [DatasetController::class, 'downloadPublic']);
 
 // Aperçu du mini-graphe de la carte de catalogue (premier graphique ou `card_block_id`)
 Route::get('/studio/content/public/{slug}/card-preview', [DatasetController::class, 'cardPreviewPublic']);
@@ -31,13 +35,37 @@ Route::get('/studio/content/public/{slug}/blocks/{blockId}/response', [StudioBlo
 Route::post('/studio/content/public/{slug}/blocks/{blockId}/response', [StudioBlockResponseController::class, 'store'])
     ->middleware('throttle:20,1');
 
+// Commentaires lecteurs (lecture publique ; écriture / suppression authentifiées)
+Route::get('/studio/content/public/{slug}/comments', [StudioContentCommentController::class, 'index']);
+
+Route::get('/studio/content/access-permissions', [StudioContentCollaboratorController::class, 'permissionsCatalog']);
+Route::get('/studio/content/invitations/{token}', [StudioContentInvitationPublicController::class, 'show']);
+
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/studio/content/public/{slug}/comments', [StudioContentCommentController::class, 'store'])
+        ->middleware('throttle:20,1');
+    Route::delete('/studio/content/public/{slug}/comments/{commentId}', [StudioContentCommentController::class, 'destroy'])
+        ->whereNumber('commentId');
+
+    Route::post('/studio/content/invitations/{token}/accept', [StudioContentInvitationPublicController::class, 'accept']);
+
     Route::get('/studio/content', [StudioContentController::class, 'index']);
     Route::post('/studio/content', [StudioContentController::class, 'store']);
     Route::get('/studio/content/{slug}/data-sources', [StudioContentController::class, 'dataSources']);
     Route::get('/studio/content/{slug}', [StudioContentController::class, 'show']);
     Route::match(['put', 'patch'], '/studio/content/{slug}', [StudioContentController::class, 'update']);
     Route::delete('/studio/content/{slug}', [StudioContentController::class, 'destroy']);
+
+    // Collaborateurs & invitations (propriétaire uniquement)
+    Route::get('/studio/content/{slug}/collaborators', [StudioContentCollaboratorController::class, 'collaborators']);
+    Route::patch('/studio/content/{slug}/collaborators/{userId}', [StudioContentCollaboratorController::class, 'updateCollaborator'])
+        ->whereNumber('userId');
+    Route::delete('/studio/content/{slug}/collaborators/{userId}', [StudioContentCollaboratorController::class, 'removeCollaborator'])
+        ->whereNumber('userId');
+    Route::post('/studio/content/{slug}/invitations', [StudioContentCollaboratorController::class, 'invite']);
+    Route::get('/studio/content/{slug}/invitations', [StudioContentCollaboratorController::class, 'invitations']);
+    Route::delete('/studio/content/{slug}/invitations/{invitationId}', [StudioContentCollaboratorController::class, 'revokeInvitation'])
+        ->whereNumber('invitationId');
 
     // Publication versionnée
     Route::post('/studio/content/{slug}/publish', [StudioContentController::class, 'publish']);

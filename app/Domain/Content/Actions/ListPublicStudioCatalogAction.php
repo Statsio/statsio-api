@@ -205,7 +205,14 @@ class ListPublicStudioCatalogAction
 
     private function applySort(Builder $query, string $sort): void
     {
+        if ($sort === 'created') {
+            $query->orderByDesc('created_at')->orderByDesc('id');
+
+            return;
+        }
+
         if ($sort === 'recent') {
+            // Date de modification.
             $query->orderByDesc('updated_at')->orderByDesc('id');
 
             return;
@@ -218,7 +225,7 @@ class ListPublicStudioCatalogAction
             return;
         }
 
-        // « Tendance » et « plus lus » : vues, puis fraîcheur (pas d'historique de vues par jour).
+        // Popularité (« trend » / « views ») : vues, puis fraîcheur.
         $query->orderByDesc('views_count')->orderByDesc('updated_at')->orderByDesc('id');
     }
 
@@ -432,7 +439,7 @@ class ListPublicStudioCatalogAction
 
     private function sanitizeSort(mixed $raw): string
     {
-        return in_array($raw, ['trend', 'recent', 'views', 'votes'], true) ? $raw : 'trend';
+        return in_array($raw, ['trend', 'recent', 'created', 'views', 'votes'], true) ? $raw : 'trend';
     }
 
     private function sanitizeSurveyKind(mixed $raw): ?string
