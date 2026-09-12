@@ -42,10 +42,11 @@ class DossierController extends Controller
      * Dossiers épinglés affichés en badges dans la barre de navigation du header.
      * Endpoint public (le header est rendu côté serveur sur les pages publiques).
      */
-    public function pinned(): JsonResponse
+    public function pinned(Request $request): JsonResponse
     {
         $dossiers = Dossier::active()
             ->pinned()
+            ->forSubBrand($request->query('sub_brand'))
             ->orderBy('position')
             ->orderBy('name')
             ->get()
