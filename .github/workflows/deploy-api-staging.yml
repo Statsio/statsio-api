@@ -109,7 +109,8 @@ jobs:
 
             SESSION_DRIVER=database
             SESSION_LIFETIME=120
-            CACHE_STORE=database
+            # redis (pas database) : Cache::tags() du catalogue public exige un store taggable.
+            CACHE_STORE=redis
             QUEUE_CONNECTION=database
 
             REDIS_HOST=redis
