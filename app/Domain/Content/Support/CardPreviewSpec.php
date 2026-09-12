@@ -160,23 +160,45 @@ class CardPreviewSpec
             }
         }
 
-        // Filtres : `{column, operator, value}` complets ; on écarte tout jeton `{{…}}` non résolu
-        // (pas de paramètre de page dans le contexte carte).
-        $filters = [];
-        foreach ($block['filters'] ?? [] as $f) {
+        // Filtres : `{column, operator, value}` complets ; on écarte tout jeton `{{…}}` non
+        // résolu (pas de paramètre de page dans le contexte carte). `filterGroups` (nouveau,
+        // groupes ET/OU — voir `readFilterGroups()` côté front, studio-filter-groups.ts) prime
+        // sur `filters` (legacy, plat, ET implicite) ; tout groupe devenu vide est retiré.
+        $resolveCondition = function ($f): ?array {
             if (! is_array($f)) {
-                continue;
+                return null;
             }
             $col = (string) ($f['column'] ?? '');
             $val = (string) ($f['value'] ?? '');
             if ($col === '' || $val === '' || preg_match('/\{\{.+\}\}/', $val)) {
-                continue;
+                return null;
             }
-            $filters[] = [
-                'column' => $col,
-                'operator' => (string) ($f['operator'] ?? '='),
-                'value' => $val,
-            ];
+
+            return ['column' => $col, 'operator' => (string) ($f['operator'] ?? '='), 'value' => $val];
+        };
+
+        $rawGroups = is_array($block['filterGroups'] ?? null) ? $block['filterGroups'] : [];
+        if ($rawGroups !== []) {
+            $filterGroups = [];
+            foreach ($rawGroups as $g) {
+                if (! is_array($g)) {
+                    continue;
+                }
+                $conditions = array_values(array_filter(array_map(
+                    $resolveCondition,
+                    is_array($g['conditions'] ?? null) ? $g['conditions'] : [],
+                )));
+                if ($conditions === []) {
+                    continue;
+                }
+                $filterGroups[] = ['conditions' => $conditions, 'match' => ($g['match'] ?? 'all') === 'any' ? 'any' : 'all'];
+            }
+        } else {
+            $legacy = array_values(array_filter(array_map(
+                $resolveCondition,
+                is_array($block['filters'] ?? null) ? $block['filters'] : [],
+            )));
+            $filterGroups = $legacy !== [] ? [['conditions' => $legacy, 'match' => 'all']] : [];
         }
 
         $groupLimit = max(1, min((int) ($config['rowLimit'] ?? 300), 300));
@@ -190,8 +212,9 @@ class CardPreviewSpec
             $params['aggregates'] = $aggregates;
             $params['group_by'] = array_values(array_unique($groupBy));
         }
-        if ($filters !== []) {
-            $params['filters'] = $filters;
+        if ($filterGroups !== []) {
+            $params['filter_groups'] = $filterGroups;
+            $params['filters_match'] = ($block['filtersMatch'] ?? 'all') === 'any' ? 'any' : 'all';
         }
         if (! empty($config['sortColumn'])) {
             $params['sort_column'] = (string) $config['sortColumn'];

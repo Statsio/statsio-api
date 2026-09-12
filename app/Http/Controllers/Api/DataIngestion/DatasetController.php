@@ -35,6 +35,15 @@ class DatasetController extends Controller
     private const CACHE_TTL = 900; // 15 minutes
 
     /**
+     * TTL des facettes de colonnes et valeurs distinctes. Comme pour CACHE_TTL, la clé
+     * embarque déjà la version du dataset (pas de staleness) — un TTL plus long ici réduit
+     * juste la charge DuckDB pour des requêtes réutilisées telles quelles (dropdowns de
+     * filtres), alors que les requêtes de lignes ont un espace de clés bien plus large
+     * (colonnes/tri/pagination combinés) qui justifie un TTL plus court côté mémoire Redis.
+     */
+    private const CACHE_TTL_FACET = 3600; // 1 heure
+
+    /**
      * TTL de l'aperçu de carte (mini-graphe du catalogue). La clé de cache dérive
      * de la config du bloc + de la version du dataset, donc une modification du
      * Statsdata ou un refresh de source la bust automatiquement ; le TTL ne borne
@@ -161,6 +170,14 @@ class DatasetController extends Controller
                 $p['aggregateSpecs'],
                 $p['graph'],
             );
+
+            if ($p['unionGroups'] !== [] && $p['searchQ'] !== '') {
+                $result = $this->mergeUnionResults(
+                    $result,
+                    $this->resolveUnionGroupRows($p['unionGroups'], $p['searchQ'], $p['limit'], $userId),
+                    $p['limit'],
+                );
+            }
         } catch (InvalidQueryGraphException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'invalid_query_graph'], 422);
         } catch (UnsupportedLiveQueryOperationException $e) {
@@ -209,6 +226,14 @@ class DatasetController extends Controller
                 $p['aggregateSpecs'],
                 $p['graph'],
             );
+
+            if ($p['unionGroups'] !== [] && $p['searchQ'] !== '') {
+                $result = $this->mergeUnionResults(
+                    $result,
+                    $this->resolveUnionGroupRows($p['unionGroups'], $p['searchQ'], $p['limit'], $content->user_id),
+                    $p['limit'],
+                );
+            }
         } catch (InvalidQueryGraphException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'invalid_query_graph'], 422);
         } catch (UnsupportedLiveQueryOperationException $e) {
@@ -513,7 +538,7 @@ class DatasetController extends Controller
     /**
      * Parses and validates the query params shared by query() and queryPublic().
      *
-     * @return array{limit: int, offset: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, facet: bool, facetLimit: int, facetOffset: int, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>, aggregateSpecs: array<int, array{column: string, fn: string}>, graph: QueryGraph}
+     * @return array{limit: int, offset: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, facet: bool, facetLimit: int, facetOffset: int, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>, aggregateSpecs: array<int, array{column: string, fn: string}>, graph: QueryGraph, unionGroups: array<int, array{graph: QueryGraph, searchCols: array<string>, searchAltCols: array<string>}>}
      */
     private function parseQueryParams(Request $request, int $primaryDatasetId): array
     {
@@ -579,6 +604,7 @@ class DatasetController extends Controller
         }
 
         $graph = QueryGraph::fromRequest($sources, $joins, $primaryDatasetId);
+        $unionGroups = $this->parseUnionGroups($request->query('union_groups', []));
 
         $this->calcSpecs = $this->parseCalcSpecs($request->query('calc', []));
 
@@ -586,7 +612,7 @@ class DatasetController extends Controller
             'limit' => $limit,
             'offset' => $offset,
             'columns' => array_values($columns),
-            'filters' => array_values($filters),
+            'filters' => $this->normalizeFilterGroups($request->query('filter_groups', []), $filters, $request->query('filters_match')),
             'joins' => array_values($joins),
             'searchQ' => $searchQ,
             'searchCols' => array_values($searchCols),
@@ -602,7 +628,125 @@ class DatasetController extends Controller
             'groupBy' => array_values($groupBy),
             'aggregateSpecs' => $aggregateSpecs,
             'graph' => $graph,
+            'unionGroups' => $unionGroups,
         ];
+    }
+
+    /**
+     * Bloc recherche : groupes de sources additionnelles sans lien avec la
+     * source principale (pas de clé commune, donc pas de jointure possible —
+     * voir `SearchUnionGroup` côté front). Chaque groupe garde son propre petit
+     * graphe (généralement une seule source), parsé indépendamment de la
+     * source principale : un groupe invalide (aucune source) est ignoré plutôt
+     * que de faire échouer toute la requête.
+     *
+     * @param  array<int, mixed>  $raw  `union_groups[i][sources|joins|search_columns|search_alt_columns]`
+     * @return array<int, array{graph: QueryGraph, searchCols: array<string>, searchAltCols: array<string>}>
+     */
+    private function parseUnionGroups(array $raw): array
+    {
+        $groups = [];
+        foreach ($raw as $g) {
+            if (! is_array($g)) {
+                continue;
+            }
+            $gSources = is_array($g['sources'] ?? null) ? array_values(array_filter($g['sources'], 'is_array')) : [];
+            if ($gSources === []) {
+                continue;
+            }
+            $gJoins = is_array($g['joins'] ?? null) ? $g['joins'] : [];
+            $firstDatasetId = (int) ($gSources[0]['dataset_id'] ?? 0);
+
+            try {
+                $graph = QueryGraph::fromRequest($gSources, $gJoins, $firstDatasetId);
+            } catch (InvalidQueryGraphException) {
+                continue;
+            }
+
+            $groups[] = [
+                'graph' => $graph,
+                'searchCols' => is_array($g['search_columns'] ?? null) ? array_values($g['search_columns']) : [],
+                'searchAltCols' => is_array($g['search_alt_columns'] ?? null) ? array_values($g['search_alt_columns']) : [],
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Exécute chaque groupe de recherche additionnel séparément (même moteur
+     * que la source principale — mono ou multi-source), sans jamais les joindre
+     * à la principale. `resolveRows` a besoin du bon `Dataset` (celui de la
+     * primaire du GROUPE, pas celui de l'URL) pour le chemin mono-source, qui
+     * lit directement `$dataset`/`$version` plutôt que le graphe.
+     *
+     * @param  array<int, array{graph: QueryGraph, searchCols: array<string>, searchAltCols: array<string>}>  $groups
+     * @return array<int, QueryResult>
+     */
+    private function resolveUnionGroupRows(array $groups, string $searchQ, int $limit, int $userId): array
+    {
+        $results = [];
+        $prevAltCols = $this->searchAltCols;
+        $prevCalcSpecs = $this->calcSpecs;
+        // Les colonnes calculées / alt de la principale n'ont pas de sens sur un
+        // dataset différent (autre schéma) — désactivées le temps de résoudre les groupes.
+        $this->calcSpecs = [];
+
+        try {
+            foreach ($groups as $group) {
+                $graph = $group['graph'];
+                $ds = Dataset::where('id', $graph->primaryDatasetId())
+                    ->where(fn ($q) => $q->where('user_id', $userId)
+                        ->orWhereHas('dataSource.users', fn ($u) => $u->where('user_id', $userId)))
+                    ->first();
+                if (! $ds) {
+                    continue;
+                }
+                $this->searchAltCols = $group['searchAltCols'];
+                $results[] = $this->resolveRows(
+                    $ds, null, [], $limit, [], $userId, $searchQ, $group['searchCols'],
+                    null, null, 'asc', null, [], [], 0, [], $graph,
+                );
+            }
+        } finally {
+            $this->searchAltCols = $prevAltCols;
+            $this->calcSpecs = $prevCalcSpecs;
+        }
+
+        return $results;
+    }
+
+    /**
+     * Empile (« UNION ALL » applicatif) les résultats des groupes additionnels
+     * sous ceux de la source principale : chaque ligne est taguée `__search_group`
+     * (0 = principale, i>0 = i-ème groupe) pour que le front sache quel
+     * titre/description appliquer. Pas de fusion de schéma : chaque ligne garde
+     * les clés de sa propre source, `column_map` est simplement l'union des deux
+     * (pas de collision possible, les ids de source sont uniques par bloc).
+     *
+     * @param  array<int, QueryResult>  $groupResults
+     */
+    private function mergeUnionResults(QueryResult $primary, array $groupResults, int $limit): QueryResult
+    {
+        if ($groupResults === []) {
+            return $primary;
+        }
+
+        $tag = fn (array $rows, int $group) => array_map(fn ($r) => $r + ['__search_group' => $group], $rows);
+
+        $rows = $tag($primary->rows, 0);
+        $columns = $primary->columns;
+        $columnMap = $primary->columnMap;
+        $total = $primary->total;
+
+        foreach (array_values($groupResults) as $i => $gr) {
+            $rows = array_merge($rows, $tag($gr->rows, $i + 1));
+            $columns = array_values(array_unique(array_merge($columns, $gr->columns)));
+            $columnMap += $gr->columnMap;
+            $total += $gr->total;
+        }
+
+        return new QueryResult($columns, array_slice($rows, 0, $limit), $total, $columnMap);
     }
 
     /**
@@ -779,7 +923,7 @@ class DatasetController extends Controller
             'filters' => $filters,
         ]);
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchColumnFacets($dataset, $version, $column, $limit, $offset, $search, $filters));
+        return Cache::remember($cacheKey, self::CACHE_TTL_FACET, fn () => $this->fetchColumnFacets($dataset, $version, $column, $limit, $offset, $search, $filters));
     }
 
     /**
@@ -895,8 +1039,11 @@ class DatasetController extends Controller
                 );
             }
             // La pagination serveur (offset) ne s'applique qu'aux datasets matérialisés.
+            // Le fournisseur live ne comprend que des filtres plats (ET implicite) — les
+            // groupes OU ne sont pas supportés pour cette source (limite pré-existante,
+            // pas une régression : le live n'a jamais eu de OU).
             [$cols, $rows, $total] = $this->liveQueryService->resolveRows(
-                $dataset, $selectColumns, $filters, $limit, $joins, $userId, $searchQ, $searchCols,
+                $dataset, $selectColumns, $this->flattenFilterGroups($filters), $limit, $joins, $userId, $searchQ, $searchCols,
                 $distinctColumn, $sortColumn, $sortDirection, $aggregate, $aggregateColumns, $groupBy, $graph,
             );
 
@@ -957,7 +1104,7 @@ class DatasetController extends Controller
         $bare = fn (?string $ref): ?string => $ref === null || $ref === '' ? $ref : $graph->resolveRef($ref)['name'];
 
         $selectColumns = $selectColumns !== null ? array_values(array_unique(array_map($bare, $selectColumns))) : null;
-        $filters = array_map(fn ($f) => [...$f, 'column' => $bare($f['column'] ?? '')], $filters);
+        $filters = $this->remapFilterGroupColumns($filters, $bare);
         $searchCols = array_map($bare, $searchCols);
         $searchAltCols = array_map($bare, $this->searchAltCols);
         $distinctColumn = $bare($distinctColumn);
@@ -1137,12 +1284,12 @@ class DatasetController extends Controller
         $rows = $this->applyCalcColumns($rows, fn ($ref) => $refToKey($ref) ?? $ref);
 
         // 4. Filtres / recherche / tri / distinct — sur les clés de ligne résolues.
-        $mFilters = array_map(fn ($f) => [...$f, 'column' => $refToKey($f['column'] ?? '')], $filters);
+        $mFilterSet = $this->remapFilterGroupColumns($filters, $refToKey);
         $mSearchCols = array_map($refToKey, $searchCols);
         $mAltCols = array_map($refToKey, $this->searchAltCols);
         $rows = array_values(array_filter(
             $rows,
-            fn ($r) => $this->matchesFilters($r, $mFilters) && $this->matchesSearchQ($r, $searchQ, $mSearchCols, $mAltCols),
+            fn ($r) => $this->matchesFilters($r, $mFilterSet) && $this->matchesSearchQ($r, $searchQ, $mSearchCols, $mAltCols),
         ));
         $rows = $this->sortMockRows($rows, $refToKey($sortColumn), $sortDirection);
         $rows = $this->distinctMockRows($rows, $refToKey($distinctColumn));
@@ -1253,12 +1400,27 @@ class DatasetController extends Controller
 
         $where = '';
         $clauses = [];
-        foreach ($filters as $f) {
-            $col = $sqlRef($f['column'] ?? '');
-            if ($col === null) {
+        // Une clause par groupe (conditions gluées par le `match` du groupe), les groupes
+        // eux-mêmes gluées par le `match` top-level — même contrat que buildDuckDbWhere().
+        $groupClauses = [];
+        foreach (($filters['groups'] ?? []) as $group) {
+            $condClauses = [];
+            foreach (($group['conditions'] ?? []) as $f) {
+                $col = $sqlRef($f['column'] ?? '');
+                if ($col === null) {
+                    continue;
+                }
+                $condClauses[] = $this->duckDbFilterClause($col, $f['operator'] ?? '=', (string) ($f['value'] ?? ''));
+            }
+            if ($condClauses === []) {
                 continue;
             }
-            $clauses[] = $this->duckDbFilterClause($col, $f['operator'] ?? '=', (string) ($f['value'] ?? ''));
+            $groupGlue = ($group['match'] ?? 'all') === 'any' ? ' OR ' : ' AND ';
+            $groupClauses[] = count($condClauses) > 1 ? '('.implode($groupGlue, $condClauses).')' : $condClauses[0];
+        }
+        if ($groupClauses !== []) {
+            $topGlue = ($filters['match'] ?? 'all') === 'any' ? ' OR ' : ' AND ';
+            $clauses[] = count($groupClauses) > 1 ? '('.implode($topGlue, $groupClauses).')' : $groupClauses[0];
         }
         if ($searchQ !== '' && ($searchCols !== [] || $this->searchAltCols !== [])) {
             $tokenClause = $this->buildSearchSql($searchCols, $this->searchAltCols, $searchQ, $sqlRef);
@@ -1889,7 +2051,7 @@ class DatasetController extends Controller
             'filters' => $filters,
         ]);
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchDistinctValues($dataset, $version, $column, $limit, $search, $filters));
+        return Cache::remember($cacheKey, self::CACHE_TTL_FACET, fn () => $this->fetchDistinctValues($dataset, $version, $column, $limit, $search, $filters));
     }
 
     /**
@@ -1992,14 +2154,116 @@ class DatasetController extends Controller
         return "datasets.query.{$kind}.{$dataset->id}.{$versionKey}.{$paramsHash}";
     }
 
-    private function matchesFilters(array $row, array $filters): bool
+    /**
+     * Remappe la colonne de chaque condition d'un `$filterSet` normalisé via `$remap`
+     * (résolution de ref qualifiée `col@<sourceId>` → clé de ligne / nom nu). Utilisé
+     * avant `matchesFilters()` / `buildDuckDbWhere()` quand les colonnes du graphe ne
+     * correspondent pas telles quelles aux clés de ligne (mono-source avec ref qualifiée,
+     * multi-sources mock).
+     */
+    private function remapFilterGroupColumns(array $filterSet, callable $remap): array
     {
-        foreach ($filters as $filter) {
+        return [
+            'match' => $filterSet['match'] ?? 'all',
+            'groups' => array_map(
+                fn (array $g) => [
+                    'match' => $g['match'] ?? 'all',
+                    'conditions' => array_map(
+                        fn ($f) => [...$f, 'column' => $remap($f['column'] ?? '')],
+                        $g['conditions'] ?? [],
+                    ),
+                ],
+                $filterSet['groups'] ?? [],
+            ),
+        ];
+    }
+
+    /**
+     * Construit la forme normalisée des filtres transmise dans tout le contrôleur :
+     * `['groups' => [['conditions' => [{column,operator,value}, ...], 'match' => 'all'|'any'], ...], 'match' => 'all'|'any']`.
+     * `$rawGroups` (`filter_groups[]`, nouveau format) prime sur `$legacyFilters`
+     * (`filters[]` plat, ET implicite — replié en un seul groupe) quand il est fourni.
+     */
+    private function normalizeFilterGroups(mixed $rawGroups, array $legacyFilters, mixed $topMatch): array
+    {
+        $rawGroups = is_array($rawGroups) ? array_values($rawGroups) : [];
+        $topMatch = $topMatch === 'any' ? 'any' : 'all';
+
+        if ($rawGroups !== []) {
+            $groups = array_map(function ($g) {
+                $conditions = is_array($g['conditions'] ?? null) ? array_values($g['conditions']) : [];
+
+                return ['conditions' => $conditions, 'match' => ($g['match'] ?? 'all') === 'any' ? 'any' : 'all'];
+            }, $rawGroups);
+
+            return ['groups' => $groups, 'match' => $topMatch];
+        }
+
+        $legacyFilters = array_values($legacyFilters);
+
+        return [
+            'groups' => $legacyFilters !== [] ? [['conditions' => $legacyFilters, 'match' => 'all']] : [],
+            'match' => $topMatch,
+        ];
+    }
+
+    /**
+     * Aplatit un `$filterSet` normalisé en liste plate `{column,operator,value}[]` (ET
+     * implicite, sémantique legacy) — pour les consommateurs qui ne comprennent pas
+     * encore les groupes (ex. `LiveDatasetQueryService`, dont le fournisseur externe ne
+     * supporte pas le OU). Les groupes eux-mêmes combinés en OU sont donc aplatis en ET :
+     * limite connue, pas une régression (les sources live n'ont jamais supporté le OU).
+     */
+    private function flattenFilterGroups(array $filterSet): array
+    {
+        $out = [];
+        foreach (($filterSet['groups'] ?? []) as $group) {
+            foreach (($group['conditions'] ?? []) as $condition) {
+                $out[] = $condition;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * `$filterSet` = `['groups' => [['conditions' => [...], 'match' => 'all'|'any'], ...], 'match' => 'all'|'any']`
+     * (voir {@see normalizeFilterGroups}). `[]` (legacy) est équivalent à « pas de filtre ».
+     * Les groupes sont combinés par `$filterSet['match']` ; les conditions d'un groupe
+     * par le `match` du groupe.
+     */
+    private function matchesFilters(array $row, array $filterSet): bool
+    {
+        $groups = $filterSet['groups'] ?? [];
+        if ($groups === []) {
+            return true;
+        }
+        $topMatch = ($filterSet['match'] ?? 'all') === 'any' ? 'any' : 'all';
+
+        $groupResults = array_map(
+            fn (array $group) => $this->matchesFilterGroup($row, $group['conditions'] ?? [], $group['match'] ?? 'all'),
+            $groups,
+        );
+
+        return $topMatch === 'any' ? in_array(true, $groupResults, true) : ! in_array(false, $groupResults, true);
+    }
+
+    /** Combine les conditions d'UN groupe par `$match` (`all` = ET, `any` = OU). */
+    private function matchesFilterGroup(array $row, array $conditions, string $match): bool
+    {
+        if ($conditions === []) {
+            return true;
+        }
+
+        $results = [];
+        foreach ($conditions as $filter) {
             $col = $filter['column'] ?? '';
             $operator = $filter['operator'] ?? '=';
             $value = (string) ($filter['value'] ?? '');
 
             if (! isset($row[$col])) {
+                // Colonne absente de la ligne (ex. jointure partielle) : ni vrai ni faux,
+                // on ignore cette condition plutôt que de faire échouer tout le groupe.
                 continue;
             }
 
@@ -2009,7 +2273,7 @@ class DatasetController extends Controller
             $cellNum = NumericValueParser::parse($cell);
             $valueNum = NumericValueParser::parse($value);
 
-            $match = match ($operator) {
+            $results[] = match ($operator) {
                 '=' => strtolower($cell) === strtolower($value),
                 '!=' => strtolower($cell) !== strtolower($value),
                 '>' => $cellNum !== null && $valueNum !== null && $cellNum > $valueNum,
@@ -2022,13 +2286,9 @@ class DatasetController extends Controller
                 'not_in' => ! in_array(strtolower($cell), array_map('strtolower', $this->decodeFilterList($value)), true),
                 default => true,
             };
-
-            if (! $match) {
-                return false;
-            }
         }
 
-        return true;
+        return $match === 'any' ? in_array(true, $results, true) : ! in_array(false, $results, true);
     }
 
     /**
@@ -2070,37 +2330,54 @@ class DatasetController extends Controller
         return $where === '' ? " WHERE ({$clause})" : "{$where} AND ({$clause})";
     }
 
-    private function buildDuckDbWhere(array $filters, string $tableAlias = ''): string
+    /** Clause SQL pour UN groupe (ses conditions gluées par son propre `match`). */
+    private function duckDbGroupClause(array $conditions, string $match, string $prefix): ?string
     {
-        if (empty($filters)) {
+        if ($conditions === []) {
+            return null;
+        }
+
+        $clauses = array_map(
+            fn (array $filter) => $this->duckDbFilterClause(
+                $prefix.'"'.str_replace('"', '""', $filter['column'] ?? '').'"',
+                $filter['operator'] ?? '=',
+                (string) ($filter['value'] ?? ''),
+            ),
+            $conditions,
+        );
+
+        $glue = $match === 'any' ? ' OR ' : ' AND ';
+
+        return count($clauses) > 1 ? '('.implode($glue, $clauses).')' : $clauses[0];
+    }
+
+    /**
+     * `$filterSet` = `['groups' => [['conditions' => [...], 'match' => 'all'|'any'], ...], 'match' => 'all'|'any']`
+     * (voir {@see matchesFilters} pour le même contrat côté PHP en mémoire).
+     */
+    private function buildDuckDbWhere(array $filterSet, string $tableAlias = ''): string
+    {
+        $groups = $filterSet['groups'] ?? [];
+        if ($groups === []) {
             return '';
         }
 
         $prefix = $tableAlias ? "{$tableAlias}." : '';
-        $clauses = [];
-        foreach ($filters as $filter) {
-            $col = $prefix.'"'.str_replace('"', '""', $filter['column'] ?? '').'"';
-            $val = "'".str_replace("'", "''", $filter['value'] ?? '')."'";
-            $op = $filter['operator'] ?? '=';
-            $colN = $this->duckDbNumericExpr($col);
-            $valN = $this->duckDbNumericExpr($val);
+        $topMatch = ($filterSet['match'] ?? 'all') === 'any' ? 'any' : 'all';
 
-            $clauses[] = match ($op) {
-                '=' => "{$col} = {$val}",
-                '!=' => "{$col} != {$val}",
-                '>' => "{$colN} > {$valN}",
-                '>=' => "{$colN} >= {$valN}",
-                '<' => "{$colN} < {$valN}",
-                '<=' => "{$colN} <= {$valN}",
-                'contains' => "LOWER({$col}) LIKE LOWER(CONCAT('%', {$val}, '%'))",
-                'not_contains' => "LOWER({$col}) NOT LIKE LOWER(CONCAT('%', {$val}, '%'))",
-                'in' => $this->duckDbInClause($col, $filter['value'] ?? '', false),
-                'not_in' => $this->duckDbInClause($col, $filter['value'] ?? '', true),
-                default => '1=1',
-            };
+        $groupClauses = array_values(array_filter(array_map(
+            fn (array $group) => $this->duckDbGroupClause($group['conditions'] ?? [], $group['match'] ?? 'all', $prefix),
+            $groups,
+        )));
+
+        if ($groupClauses === []) {
+            return '';
         }
 
-        return ' WHERE '.implode(' AND ', $clauses);
+        $topGlue = $topMatch === 'any' ? ' OR ' : ' AND ';
+        $joined = count($groupClauses) > 1 ? '('.implode($topGlue, $groupClauses).')' : $groupClauses[0];
+
+        return ' WHERE '.$joined;
     }
 
     public function update(Request $request, Dataset $dataset): JsonResponse

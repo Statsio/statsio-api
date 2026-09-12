@@ -172,6 +172,57 @@ class DatasetControllerTest extends TestCase
         $response->assertStatus(200)->assertJsonPath('data.total_rows', 3);
     }
 
+    public function test_query_filter_group_combines_conditions_with_or(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::SCHEMA, self::ROWS);
+
+        // Un seul groupe, deux conditions combinées en OU : Germany OU Spain → Berlin + Madrid.
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query"
+            .'?filter_groups[0][match]=any'
+            .'&filter_groups[0][conditions][0][column]=country&filter_groups[0][conditions][0][operator]==&filter_groups[0][conditions][0][value]=Germany'
+            .'&filter_groups[0][conditions][1][column]=country&filter_groups[0][conditions][1][operator]==&filter_groups[0][conditions][1][value]=Spain'
+        );
+
+        $response->assertStatus(200)->assertJsonPath('data.total_rows', 2);
+    }
+
+    public function test_query_filter_groups_combined_with_or_between_groups(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::SCHEMA, self::ROWS);
+
+        // Deux groupes (chacun ET, une seule condition) combinés en OU entre eux :
+        // country=France (Paris, Lyon) OU city=Berlin → 3 lignes. Une combinaison en ET
+        // entre les deux groupes ne donnerait aucune ligne (aucune ville n'est les deux).
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query"
+            .'?filters_match=any'
+            .'&filter_groups[0][match]=all&filter_groups[0][conditions][0][column]=country&filter_groups[0][conditions][0][operator]==&filter_groups[0][conditions][0][value]=France'
+            .'&filter_groups[1][match]=all&filter_groups[1][conditions][0][column]=city&filter_groups[1][conditions][0][operator]==&filter_groups[1][conditions][0][value]=Berlin'
+        );
+
+        $response->assertStatus(200)->assertJsonPath('data.total_rows', 3);
+    }
+
+    public function test_query_filter_groups_default_to_and_between_groups(): void
+    {
+        $user = User::factory()->create();
+        $dataset = $this->createMockDataset($user, self::SCHEMA, self::ROWS);
+
+        // Sans `filters_match`, les groupes restent combinés en ET (comportement par
+        // défaut) : country=France ET population>1000000 → seul Paris qualifie (Lyon
+        // est en France mais sous le seuil de population).
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$dataset->id}/query"
+            .'?filter_groups[0][match]=all&filter_groups[0][conditions][0][column]=country&filter_groups[0][conditions][0][operator]==&filter_groups[0][conditions][0][value]=France'
+            .'&filter_groups[1][match]=all&filter_groups[1][conditions][0][column]=population&filter_groups[1][conditions][0][operator]=>&filter_groups[1][conditions][0][value]=1000000'
+        );
+
+        $response->assertStatus(200)->assertJsonPath('data.total_rows', 1);
+    }
+
     public function test_query_searches_across_columns(): void
     {
         $user = User::factory()->create();
@@ -240,6 +291,69 @@ class DatasetControllerTest extends TestCase
         // « jean mm@example » : aucun groupe ne contient les deux mots → 0.
         $this->withToken($token)->getJson($q('jean mm@example'))
             ->assertStatus(200)->assertJsonPath('data.total_rows', 0);
+    }
+
+    public function test_query_union_groups_stack_unrelated_source_results(): void
+    {
+        $user = User::factory()->create();
+        // Deux sources sans colonne commune : une jointure serait impossible /
+        // dénuée de sens. Le bloc recherche les empile (UNION ALL applicatif)
+        // au lieu de les joindre.
+        $communes = $this->createMockDataset($user, ['nom_commune', 'code_insee'], [
+            ['Paris', '75056'],
+            ['Lyon', '69123'],
+        ], 'Communes');
+        $entreprises = $this->createMockDataset($user, ['raison_sociale', 'siret'], [
+            ['Paris Bureautique', '12345678900012'],
+            ['Lyon Motors', '98765432100099'],
+        ], 'Entreprises');
+
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$communes->id}/query?".http_build_query([
+                'search_q' => 'paris',
+                'search_columns' => ['nom_commune'],
+                'union_groups' => [
+                    [
+                        'sources' => [['id' => 'e', 'dataset_id' => (string) $entreprises->id, 'primary' => 1]],
+                        'search_columns' => ['raison_sociale@e'],
+                    ],
+                ],
+            ])
+        );
+
+        $response->assertStatus(200)->assertJsonPath('data.total_rows', 2);
+        $rows = $response->json('data.rows');
+        $this->assertCount(2, $rows);
+        $this->assertSame(0, $rows[0]['__search_group']);
+        $this->assertSame('Paris', $rows[0]['nom_commune']);
+        $this->assertSame(1, $rows[1]['__search_group']);
+        $this->assertSame('Paris Bureautique', $rows[1]['raison_sociale']);
+    }
+
+    public function test_query_union_group_of_unowned_dataset_is_silently_skipped(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $mine = $this->createMockDataset($user, ['nom_commune'], [['Paris']], 'Communes');
+        $secret = $this->createMockDataset($other, ['raison_sociale'], [['Paris Bureautique']], 'Secret');
+
+        // Un groupe additionnel pointant vers un dataset d'un autre utilisateur
+        // n'expose pas ses lignes — ignoré plutôt que de faire échouer la requête.
+        $response = $this->withToken($user->createToken('t')->plainTextToken)->getJson(
+            "/api/datasets/{$mine->id}/query?".http_build_query([
+                'search_q' => 'paris',
+                'search_columns' => ['nom_commune'],
+                'union_groups' => [
+                    [
+                        'sources' => [['id' => 's', 'dataset_id' => (string) $secret->id, 'primary' => 1]],
+                        'search_columns' => ['raison_sociale@s'],
+                    ],
+                ],
+            ])
+        );
+
+        $response->assertStatus(200)->assertJsonPath('data.total_rows', 1);
+        $this->assertSame('Paris', $response->json('data.rows.0.nom_commune'));
     }
 
     public function test_query_sorts_descending(): void

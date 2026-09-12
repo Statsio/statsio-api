@@ -13,6 +13,7 @@ use App\Services\DataIngestion\PaginatedApiFetcher;
 use App\Support\TokenizedSearch;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 /**
@@ -495,20 +496,15 @@ class LiveDatasetQueryService
     {
         $limit = (int) config('statsio.data_ingestion.live_query.rate_limit_per_minute', 30);
         $key = "live_query.rate.{$dataSourceId}";
-        $count = (int) Cache::get($key, 0);
 
-        if ($count >= $limit) {
+        if (RateLimiter::tooManyAttempts($key, $limit)) {
             throw new LiveApiQueryException(
                 'Trop de requêtes vers cette source en direct pour le moment. Réessayez dans quelques instants.',
                 429,
             );
         }
 
-        if ($count === 0) {
-            Cache::put($key, 1, 60);
-        } else {
-            Cache::increment($key);
-        }
+        RateLimiter::hit($key, 60);
     }
 
     /**
