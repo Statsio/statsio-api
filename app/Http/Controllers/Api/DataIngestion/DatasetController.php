@@ -1280,7 +1280,15 @@ class DatasetController extends Controller
                 $toKeyMap[$col] = $plan[$toId][$col];
             }
             if (in_array($edge['type'], ['union', 'union_all'], true)) {
-                $rows = $this->stackUnionRows($rows, $joinRows, $toKeyMap, $edge['type'] === 'union');
+                $fromSourceId = $this->sourceIdForAlias($graph, $edge['from_alias']);
+                $rows = $this->stackUnionRows(
+                    $rows,
+                    $joinRows,
+                    $toKeyMap,
+                    $edge['type'] === 'union',
+                    $fromSourceId,
+                    $toId,
+                );
             } else {
                 $rows = $this->hashJoinRows($rows, $fromKey, $joinRows, $edge['to_column'], $toKeyMap, $edge['type']);
             }
@@ -1318,11 +1326,11 @@ class DatasetController extends Controller
         // 6. Projection finale vers les refs demandées.
         if ($selectColumns !== null && $selectColumns !== []) {
             $keys = array_values(array_unique(array_map($refToKey, $selectColumns)));
-            $rows = array_map(fn ($r) => $this->pickKeys($r, $keys), $rows);
+            $rows = array_map(fn ($r) => $this->pickKeysPreservingMeta($r, $keys), $rows);
             $outColumns = $keys;
         } elseif ($aggregateSpecs === []) {
             $keys = $this->defaultProjectionKeys($graph, $plan);
-            $rows = array_map(fn ($r) => $this->pickKeys($r, $keys), $rows);
+            $rows = array_map(fn ($r) => $this->pickKeysPreservingMeta($r, $keys), $rows);
             $outColumns = $keys;
         }
 
@@ -1502,7 +1510,7 @@ class DatasetController extends Controller
 
         if ($jsonRows !== [] && $selectColumns) {
             $keys = array_values(array_unique(array_map($refToKey, $selectColumns)));
-            $jsonRows = array_map(fn ($r) => $this->pickKeys($r, $keys), $jsonRows);
+            $jsonRows = array_map(fn ($r) => $this->pickKeysPreservingMeta($r, $keys), $jsonRows);
         }
 
         $cols = $jsonRows !== [] ? array_keys($jsonRows[0]) : $this->defaultProjectionKeys($graph, $plan);
@@ -1606,6 +1614,26 @@ class DatasetController extends Controller
     }
 
     /**
+     * Comme {@link pickKeys}, mais conserve les colonnes techniques d'origine
+     * (`__source_id`, `__search_group`) utilisées par le bloc recherche.
+     *
+     * @param  array<string, mixed>  $row
+     * @param  array<int, string>  $keys
+     * @return array<string, mixed>
+     */
+    private function pickKeysPreservingMeta(array $row, array $keys): array
+    {
+        $out = $this->pickKeys($row, $keys);
+        foreach (['__source_id', '__search_group'] as $meta) {
+            if (array_key_exists($meta, $row)) {
+                $out[$meta] = $row[$meta];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $rows
      * @param  array<int, array<string, mixed>>  $joinRows
      * @param  array<string, string>  $toKeyMap  colonne native de la source jointe => clé de ligne cible
@@ -1646,17 +1674,26 @@ class DatasetController extends Controller
     /**
      * Empile les lignes d'une source additionnelle sous le résultat courant
      * (UNION ALL applicatif). Si `$dedupe`, retire les lignes strictement
-     * identiques après empilement (équivalent SQL `UNION`).
+     * identiques après empilement (équivalent SQL `UNION`). Chaque ligne est
+     * taguée `__source_id` (origine dans le graphe) pour le fan-out recherche.
      *
      * @param  array<int, array<string, mixed>>  $rows
      * @param  array<int, array<string, mixed>>  $joinRows
      * @param  array<string, string>  $toKeyMap
      * @return array<int, array<string, mixed>>
      */
-    private function stackUnionRows(array $rows, array $joinRows, array $toKeyMap, bool $dedupe): array
-    {
+    private function stackUnionRows(
+        array $rows,
+        array $joinRows,
+        array $toKeyMap,
+        bool $dedupe,
+        string $fromSourceId,
+        string $toSourceId,
+    ): array {
         $newKeys = array_values($toKeyMap);
         $existingKeys = $rows !== [] ? array_keys($rows[0]) : [];
+        // Ne pas propager un éventuel __source_id dans le padding des nouvelles lignes.
+        $existingKeys = array_values(array_filter($existingKeys, fn ($k) => $k !== '__source_id'));
 
         $out = [];
         foreach ($rows as $row) {
@@ -1665,6 +1702,10 @@ class DatasetController extends Controller
                 if (! array_key_exists($k, $padded)) {
                     $padded[$k] = null;
                 }
+            }
+            // Première branche : pas encore de tag → source déjà visitée (`from`).
+            if (! array_key_exists('__source_id', $padded) || $padded['__source_id'] === null || $padded['__source_id'] === '') {
+                $padded['__source_id'] = $fromSourceId;
             }
             $out[] = $padded;
         }
@@ -1680,6 +1721,7 @@ class DatasetController extends Controller
                     $merged[$k] = null;
                 }
             }
+            $merged['__source_id'] = $toSourceId;
             $out[] = $merged;
         }
 
@@ -1690,7 +1732,10 @@ class DatasetController extends Controller
         $seen = [];
         $deduped = [];
         foreach ($out as $row) {
-            $sig = json_encode($row, JSON_UNESCAPED_UNICODE);
+            // Dédupliquer sur les données, pas sur le tag technique.
+            $sigRow = $row;
+            unset($sigRow['__source_id']);
+            $sig = json_encode($sigRow, JSON_UNESCAPED_UNICODE);
             if (isset($seen[$sig])) {
                 continue;
             }
@@ -1704,6 +1749,7 @@ class DatasetController extends Controller
     /**
      * Sous-requête DuckDB : une branche SELECT alignée (NULL pour les colonnes
      * des autres sources) par source du graphe, reliées par UNION ou UNION ALL.
+     * Chaque branche expose `__source_id` (= id de source du graphe).
      *
      * @param  array<string, string>  $paths  sourceId => chemin parquet temp
      * @param  array<string, array<string, string>>  $plan
@@ -1733,6 +1779,7 @@ class DatasetController extends Controller
                     $parts[] = 'NULL AS '.$q($entry['key']);
                 }
             }
+            $parts[] = "'".str_replace("'", "''", $sid)."' AS ".$q('__source_id');
             $branches[] = 'SELECT '.implode(', ', $parts)
                 .' FROM read_parquet('.escapeshellarg($paths[$sid]).") {$alias}";
         }
