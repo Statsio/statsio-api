@@ -1239,6 +1239,8 @@ class DatasetController extends Controller
         // 2. Plan de colonnes : ref `name@<sourceId>` => clé de ligne (nue si pas de collision).
         [$plan, $columnMap] = $this->buildColumnPlan($graph, fn ($id) => $loaded[$id]['schema']);
 
+        $this->assertJoinUnionNotMixed($graph);
+
         $refToKey = function (?string $ref) use ($graph, $plan): ?string {
             if ($ref === null || $ref === '') {
                 return $ref;
@@ -1277,7 +1279,11 @@ class DatasetController extends Controller
             foreach ($toSchema as $col) {
                 $toKeyMap[$col] = $plan[$toId][$col];
             }
-            $rows = $this->hashJoinRows($rows, $fromKey, $joinRows, $edge['to_column'], $toKeyMap, $edge['type']);
+            if (in_array($edge['type'], ['union', 'union_all'], true)) {
+                $rows = $this->stackUnionRows($rows, $joinRows, $toKeyMap, $edge['type'] === 'union');
+            } else {
+                $rows = $this->hashJoinRows($rows, $fromKey, $joinRows, $edge['to_column'], $toKeyMap, $edge['type']);
+            }
         }
 
         // 3b. Colonnes calculées (avant filtres/tri/agrégat).
@@ -1345,40 +1351,70 @@ class DatasetController extends Controller
 
         $primaryId = $graph->primarySourceId();
         $primaryAlias = $graph->aliasFor($primaryId);
-        $from = 'read_parquet('.escapeshellarg($paths[$primaryId]).") {$primaryAlias}";
-        foreach ($graph->orderedJoins() as $edge) {
-            $type = strtoupper($edge['type']);
-            $from .= " {$type} JOIN read_parquet(".escapeshellarg($paths[$edge['to_source']]).") {$edge['to_alias']}"
-                ." ON {$edge['from_alias']}.{$q($edge['from_column'])} = {$edge['to_alias']}.{$q($edge['to_column'])}";
-        }
+        $ordered = $graph->orderedJoins();
+        $unionEdges = array_values(array_filter(
+            $ordered,
+            fn ($e) => in_array($e['type'], ['union', 'union_all'], true),
+        ));
+        $joinEdges = array_values(array_filter(
+            $ordered,
+            fn ($e) => ! in_array($e['type'], ['union', 'union_all'], true),
+        ));
 
-        // Projection : chaque (source, colonne) => alias."name" [AS "name@sourceId"]
-        $projParts = [];
-        foreach ($graph->sources() as $src) {
-            $alias = $graph->aliasFor($src['id']);
-            foreach ($loaded[$src['id']]['schema'] as $col) {
-                $key = $plan[$src['id']][$col];
-                $projParts[] = $key === $col
-                    ? "{$alias}.{$q($col)}"
-                    : "{$alias}.{$q($col)} AS {$q($key)}";
+        if ($unionEdges !== []) {
+            $dedupe = false;
+            foreach ($unionEdges as $e) {
+                if ($e['type'] === 'union') {
+                    $dedupe = true;
+                    break;
+                }
             }
-        }
-        $projection = implode(', ', $projParts);
+            $from = $this->buildUnionFromSql($graph, $paths, $plan, $loaded, $dedupe);
+            // Projection déjà alignée dans chaque branche du UNION.
+            $projection = '*';
+        } else {
+            $from = 'read_parquet('.escapeshellarg($paths[$primaryId]).") {$primaryAlias}";
+            foreach ($joinEdges as $edge) {
+                $type = strtoupper($edge['type']);
+                $from .= " {$type} JOIN read_parquet(".escapeshellarg($paths[$edge['to_source']]).") {$edge['to_alias']}"
+                    ." ON {$edge['from_alias']}.{$q($edge['from_column'])} = {$edge['to_alias']}.{$q($edge['to_column'])}";
+            }
 
-        $sqlRef = function (?string $ref) use ($graph, $q): ?string {
+            // Projection : chaque (source, colonne) => alias."name" [AS "name@sourceId"]
+            $projParts = [];
+            foreach ($graph->sources() as $src) {
+                $alias = $graph->aliasFor($src['id']);
+                foreach ($loaded[$src['id']]['schema'] as $col) {
+                    $key = $plan[$src['id']][$col];
+                    $projParts[] = $key === $col
+                        ? "{$alias}.{$q($col)}"
+                        : "{$alias}.{$q($col)} AS {$q($key)}";
+                }
+            }
+            $projection = implode(', ', $projParts);
+        }
+
+        $sqlRef = function (?string $ref) use ($graph, $q, $unionEdges, $plan): ?string {
             if ($ref === null || $ref === '') {
                 return null;
             }
             $r = $graph->resolveRef($ref);
+            if ($unionEdges !== []) {
+                // Sous-requête UNION : colonnes déjà projetées sous leur clé de ligne.
+                return $q($plan[$r['source_id']][$r['name']] ?? $r['name']);
+            }
 
             return "{$r['alias']}.{$q($r['name'])}";
         };
 
-        // Colonnes calculées : on aplatit le JOIN dans `msbase` (projection + calc),
+        // Colonnes calculées : on aplatit le JOIN/UNION dans `msbase` (projection + calc),
         // et tout ce qui suit (filtres, tri, distinct, agrégat) opère sur `msbase`.
         if ($this->calcSpecs !== []) {
-            $keyOf = function (string $ref) use ($graph, $q): string {
+            $keyOf = function (string $ref) use ($graph, $q, $unionEdges, $plan): string {
                 $r = $graph->resolveRef($ref);
+                if ($unionEdges !== []) {
+                    return $q($plan[$r['source_id']][$r['name']] ?? $r['name']);
+                }
 
                 return "{$r['alias']}.{$q($r['name'])}";
             };
@@ -1522,6 +1558,28 @@ class DatasetController extends Controller
     {
         $primaryId = $graph->primarySourceId();
         $keys = array_values($plan[$primaryId] ?? []);
+
+        // UNION / UNION ALL : toutes les colonnes de toutes les sources (empilement
+        // vertical — sinon les lignes secondaires ressortiraient vides).
+        $hasUnion = false;
+        foreach ($graph->orderedJoins() as $edge) {
+            if (in_array($edge['type'], ['union', 'union_all'], true)) {
+                $hasUnion = true;
+                break;
+            }
+        }
+        if ($hasUnion) {
+            foreach ($graph->sources() as $src) {
+                foreach (array_values($plan[$src['id']] ?? []) as $k) {
+                    if (! in_array($k, $keys, true)) {
+                        $keys[] = $k;
+                    }
+                }
+            }
+
+            return $keys;
+        }
+
         foreach ($graph->legacyProjection() as $p) {
             $k = $plan[$p['source_id']][$p['column']] ?? null;
             if ($k !== null && ! in_array($k, $keys, true)) {
@@ -1583,6 +1641,123 @@ class DatasetController extends Controller
         }
 
         return $out;
+    }
+
+    /**
+     * Empile les lignes d'une source additionnelle sous le résultat courant
+     * (UNION ALL applicatif). Si `$dedupe`, retire les lignes strictement
+     * identiques après empilement (équivalent SQL `UNION`).
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, array<string, mixed>>  $joinRows
+     * @param  array<string, string>  $toKeyMap
+     * @return array<int, array<string, mixed>>
+     */
+    private function stackUnionRows(array $rows, array $joinRows, array $toKeyMap, bool $dedupe): array
+    {
+        $newKeys = array_values($toKeyMap);
+        $existingKeys = $rows !== [] ? array_keys($rows[0]) : [];
+
+        $out = [];
+        foreach ($rows as $row) {
+            $padded = $row;
+            foreach ($newKeys as $k) {
+                if (! array_key_exists($k, $padded)) {
+                    $padded[$k] = null;
+                }
+            }
+            $out[] = $padded;
+        }
+
+        $nullExisting = array_fill_keys($existingKeys, null);
+        foreach ($joinRows as $jr) {
+            $merged = $nullExisting;
+            foreach ($toKeyMap as $native => $rowKey) {
+                $merged[$rowKey] = $jr[$native] ?? null;
+            }
+            foreach ($newKeys as $k) {
+                if (! array_key_exists($k, $merged)) {
+                    $merged[$k] = null;
+                }
+            }
+            $out[] = $merged;
+        }
+
+        if (! $dedupe) {
+            return $out;
+        }
+
+        $seen = [];
+        $deduped = [];
+        foreach ($out as $row) {
+            $sig = json_encode($row, JSON_UNESCAPED_UNICODE);
+            if (isset($seen[$sig])) {
+                continue;
+            }
+            $seen[$sig] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
+    }
+
+    /**
+     * Sous-requête DuckDB : une branche SELECT alignée (NULL pour les colonnes
+     * des autres sources) par source du graphe, reliées par UNION ou UNION ALL.
+     *
+     * @param  array<string, string>  $paths  sourceId => chemin parquet temp
+     * @param  array<string, array<string, string>>  $plan
+     * @param  array<string, array{schema: array<string>, decoded: ?array, raw: string}>  $loaded
+     */
+    private function buildUnionFromSql(QueryGraph $graph, array $paths, array $plan, array $loaded, bool $dedupe): string
+    {
+        $q = fn (string $c) => '"'.str_replace('"', '""', $c).'"';
+
+        // Ordre stable des clés de ligne = parcours des sources puis de leur schéma.
+        $keyOrder = [];
+        foreach ($graph->sources() as $src) {
+            foreach ($loaded[$src['id']]['schema'] as $col) {
+                $keyOrder[] = ['source_id' => $src['id'], 'col' => $col, 'key' => $plan[$src['id']][$col]];
+            }
+        }
+
+        $branches = [];
+        foreach ($graph->sources() as $src) {
+            $sid = $src['id'];
+            $alias = $graph->aliasFor($sid);
+            $parts = [];
+            foreach ($keyOrder as $entry) {
+                if ($entry['source_id'] === $sid) {
+                    $parts[] = "{$alias}.{$q($entry['col'])} AS {$q($entry['key'])}";
+                } else {
+                    $parts[] = 'NULL AS '.$q($entry['key']);
+                }
+            }
+            $branches[] = 'SELECT '.implode(', ', $parts)
+                .' FROM read_parquet('.escapeshellarg($paths[$sid]).") {$alias}";
+        }
+
+        $op = $dedupe ? 'UNION' : 'UNION ALL';
+
+        return '('.implode(" {$op} ", $branches).') u';
+    }
+
+    private function assertJoinUnionNotMixed(QueryGraph $graph): void
+    {
+        $hasUnion = false;
+        $hasJoin = false;
+        foreach ($graph->orderedJoins() as $edge) {
+            if (in_array($edge['type'], ['union', 'union_all'], true)) {
+                $hasUnion = true;
+            } else {
+                $hasJoin = true;
+            }
+        }
+        if ($hasUnion && $hasJoin) {
+            throw new InvalidQueryGraphException(
+                'Impossible de mélanger jointures (LEFT/INNER) et empilements (UNION) dans le même bloc.'
+            );
+        }
     }
 
     /**
