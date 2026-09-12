@@ -249,7 +249,7 @@ class CardPreviewSpec
                     'left_column' => (string) ($j['leftColumn'] ?? ''),
                     'right_source' => (string) ($j['rightSourceId'] ?? ''),
                     'right_column' => (string) ($j['rightColumn'] ?? ''),
-                    'type' => in_array($j['type'] ?? '', ['inner', 'left'], true) ? (string) $j['type'] : 'left',
+                    'type' => in_array($j['type'] ?? '', ['inner', 'left', 'union', 'union_all'], true) ? (string) $j['type'] : 'left',
                 ];
             }
         }

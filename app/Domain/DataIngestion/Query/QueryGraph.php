@@ -78,7 +78,7 @@ final class QueryGraph
                     'left_column' => (string) ($j['left_column'] ?? ''),
                     'right_source' => $right,
                     'right_column' => (string) ($j['right_column'] ?? ''),
-                    'type' => in_array($j['type'] ?? '', ['inner', 'left'], true) ? (string) $j['type'] : 'left',
+                    'type' => in_array($j['type'] ?? '', ['inner', 'left', 'union', 'union_all'], true) ? (string) $j['type'] : 'left',
                 ];
             }
 
@@ -107,7 +107,7 @@ final class QueryGraph
                 'left_column' => (string) ($j['left_column'] ?? ''),
                 'right_source' => $sid,
                 'right_column' => (string) ($j['right_column'] ?? ''),
-                'type' => in_array($j['type'] ?? '', ['inner', 'left'], true) ? (string) $j['type'] : 'left',
+                'type' => in_array($j['type'] ?? '', ['inner', 'left', 'union', 'union_all'], true) ? (string) $j['type'] : 'left',
             ];
             foreach ((array) ($j['columns'] ?? []) as $col) {
                 $legacyProjection[] = ['source_id' => $sid, 'column' => (string) $col];
