@@ -310,4 +310,15 @@ class StudioContentControllerTest extends TestCase
             ->assertJsonPath('data.datasets.0.refresh_frequency', 'monthly')
             ->assertJsonPath('data.datasets.0.downloadable', false);
     }
+
+    public function test_public_show_and_index_work_when_cache_store_does_not_support_tags(): void
+    {
+        // Régression prod : Cache::tags() 500 avec CACHE_STORE=database.
+        config(['cache.default' => 'database']);
+
+        $content = StudioContentFactory::new()->published()->create(['user_id' => $this->user->id]);
+
+        $this->getJson("/api/studio/content/public/{$content->slug}")->assertOk();
+        $this->getJson('/api/studio/content/public?type=article')->assertOk();
+    }
 }
