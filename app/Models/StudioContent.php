@@ -155,16 +155,11 @@ class StudioContent extends Model
     }
 
     /**
-     * Surcharge le corps éditorial du modèle (pages/sections/blocs) avec celui de la
-     * version publiée. Sert de point de passage unique pour toutes les lectures
-     * publiques : `format()`, `StudioContentListing`, `StudioContentBlocks`,
-     * `DatasetController::queryPublic`… voient alors la version en ligne sans
-     * changement de signature.
-     *
-     * Titre, description, couverture, catégories et sub_brand ne sont PAS repris de
-     * la version publiée : ce sont des « paramètres » de fiche, pas du contenu à
-     * relire avant mise en ligne, donc ils s'appliquent dès l'enregistrement du
-     * brouillon (`update()`), publié ou non — pas besoin de re-cliquer « Publier ».
+     * Surcharge les attributs éditoriaux du modèle avec ceux de la version publiée
+     * (titre, description, couverture, catégories, pages/sections/blocs). Sert de
+     * point de passage unique pour toutes les lectures publiques : `format()`,
+     * `StudioContentListing`, `StudioContentBlocks`, `DatasetController::queryPublic`…
+     * voient alors la version en ligne sans changement de signature.
      *
      * Ne jamais `save()` un modèle après cet appel — `syncOriginal()` masque
      * volontairement la surcharge pour `isDirty()`.
@@ -180,6 +175,11 @@ class StudioContent extends Model
         }
 
         $this->forceFill([
+            'title' => $version->title,
+            'description' => $version->description,
+            'coverage' => $version->coverage,
+            'sub_brand' => $version->sub_brand ?? 'statsio',
+            'categories' => $version->categories ?? [],
             'pages' => $version->pages ?? [],
             'sections' => $version->sections ?? [],
             'blocks' => $version->blocks ?? [],
