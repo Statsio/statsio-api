@@ -19,7 +19,10 @@ services:
     image: redis:8-alpine
     container_name: statsio-redis
     restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    # maxmemory-policy borne la mémoire du cache/rate-limiter (aucune limite par défaut sur
+    # Redis, donc risque d'OOM sans ça) ; allkeys-lru convient puisque tout ce qu'on y stocke
+    # est recalculable (cache applicatif, rate-limiting, verrous).
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory", "${REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "allkeys-lru"]
     volumes:
       - redis_data:/data
     healthcheck:

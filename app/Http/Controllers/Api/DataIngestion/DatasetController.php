@@ -35,6 +35,15 @@ class DatasetController extends Controller
     private const CACHE_TTL = 900; // 15 minutes
 
     /**
+     * TTL des facettes de colonnes et valeurs distinctes. Comme pour CACHE_TTL, la clé
+     * embarque déjà la version du dataset (pas de staleness) — un TTL plus long ici réduit
+     * juste la charge DuckDB pour des requêtes réutilisées telles quelles (dropdowns de
+     * filtres), alors que les requêtes de lignes ont un espace de clés bien plus large
+     * (colonnes/tri/pagination combinés) qui justifie un TTL plus court côté mémoire Redis.
+     */
+    private const CACHE_TTL_FACET = 3600; // 1 heure
+
+    /**
      * TTL de l'aperçu de carte (mini-graphe du catalogue). La clé de cache dérive
      * de la config du bloc + de la version du dataset, donc une modification du
      * Statsdata ou un refresh de source la bust automatiquement ; le TTL ne borne
@@ -779,7 +788,7 @@ class DatasetController extends Controller
             'filters' => $filters,
         ]);
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchColumnFacets($dataset, $version, $column, $limit, $offset, $search, $filters));
+        return Cache::remember($cacheKey, self::CACHE_TTL_FACET, fn () => $this->fetchColumnFacets($dataset, $version, $column, $limit, $offset, $search, $filters));
     }
 
     /**
@@ -1907,7 +1916,7 @@ class DatasetController extends Controller
             'filters' => $filters,
         ]);
 
-        return Cache::remember($cacheKey, self::CACHE_TTL, fn () => $this->fetchDistinctValues($dataset, $version, $column, $limit, $search, $filters));
+        return Cache::remember($cacheKey, self::CACHE_TTL_FACET, fn () => $this->fetchDistinctValues($dataset, $version, $column, $limit, $search, $filters));
     }
 
     /**
