@@ -883,6 +883,10 @@ class DatasetControllerTest extends TestCase
         $this->assertSame(['Paris', 'Lyon'], $names);
         $firms = collect($rows)->pluck('raison_sociale')->filter()->values()->all();
         $this->assertSame(['Paris Bureautique', 'Lyon Motors'], $firms);
+        $communeRows = collect($rows)->filter(fn ($r) => ($r['nom_commune'] ?? null) !== null)->values();
+        $firmRows = collect($rows)->filter(fn ($r) => ($r['raison_sociale'] ?? null) !== null)->values();
+        $this->assertTrue($communeRows->every(fn ($r) => ($r['__source_id'] ?? null) === 'c'));
+        $this->assertTrue($firmRows->every(fn ($r) => ($r['__source_id'] ?? null) === 'e'));
     }
 
     public function test_query_union_dedupes_identical_stacked_rows(): void
