@@ -170,6 +170,14 @@ class DatasetController extends Controller
                 $p['aggregateSpecs'],
                 $p['graph'],
             );
+
+            if ($p['unionGroups'] !== [] && $p['searchQ'] !== '') {
+                $result = $this->mergeUnionResults(
+                    $result,
+                    $this->resolveUnionGroupRows($p['unionGroups'], $p['searchQ'], $p['limit'], $userId),
+                    $p['limit'],
+                );
+            }
         } catch (InvalidQueryGraphException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'invalid_query_graph'], 422);
         } catch (UnsupportedLiveQueryOperationException $e) {
@@ -218,6 +226,14 @@ class DatasetController extends Controller
                 $p['aggregateSpecs'],
                 $p['graph'],
             );
+
+            if ($p['unionGroups'] !== [] && $p['searchQ'] !== '') {
+                $result = $this->mergeUnionResults(
+                    $result,
+                    $this->resolveUnionGroupRows($p['unionGroups'], $p['searchQ'], $p['limit'], $content->user_id),
+                    $p['limit'],
+                );
+            }
         } catch (InvalidQueryGraphException $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage(), 'code' => 'invalid_query_graph'], 422);
         } catch (UnsupportedLiveQueryOperationException $e) {
@@ -522,7 +538,7 @@ class DatasetController extends Controller
     /**
      * Parses and validates the query params shared by query() and queryPublic().
      *
-     * @return array{limit: int, offset: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, facet: bool, facetLimit: int, facetOffset: int, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>, aggregateSpecs: array<int, array{column: string, fn: string}>, graph: QueryGraph}
+     * @return array{limit: int, offset: int, columns: array<string>, filters: array, joins: array, searchQ: string, searchCols: array<string>, distinct: bool, facet: bool, facetLimit: int, facetOffset: int, distinctColumn: ?string, sortColumn: ?string, sortDirection: string, aggregate: ?string, aggregateColumns: array<string>, groupBy: array<string>, aggregateSpecs: array<int, array{column: string, fn: string}>, graph: QueryGraph, unionGroups: array<int, array{graph: QueryGraph, searchCols: array<string>, searchAltCols: array<string>}>}
      */
     private function parseQueryParams(Request $request, int $primaryDatasetId): array
     {
@@ -588,6 +604,7 @@ class DatasetController extends Controller
         }
 
         $graph = QueryGraph::fromRequest($sources, $joins, $primaryDatasetId);
+        $unionGroups = $this->parseUnionGroups($request->query('union_groups', []));
 
         $this->calcSpecs = $this->parseCalcSpecs($request->query('calc', []));
 
@@ -611,7 +628,125 @@ class DatasetController extends Controller
             'groupBy' => array_values($groupBy),
             'aggregateSpecs' => $aggregateSpecs,
             'graph' => $graph,
+            'unionGroups' => $unionGroups,
         ];
+    }
+
+    /**
+     * Bloc recherche : groupes de sources additionnelles sans lien avec la
+     * source principale (pas de clé commune, donc pas de jointure possible —
+     * voir `SearchUnionGroup` côté front). Chaque groupe garde son propre petit
+     * graphe (généralement une seule source), parsé indépendamment de la
+     * source principale : un groupe invalide (aucune source) est ignoré plutôt
+     * que de faire échouer toute la requête.
+     *
+     * @param  array<int, mixed>  $raw  `union_groups[i][sources|joins|search_columns|search_alt_columns]`
+     * @return array<int, array{graph: QueryGraph, searchCols: array<string>, searchAltCols: array<string>}>
+     */
+    private function parseUnionGroups(array $raw): array
+    {
+        $groups = [];
+        foreach ($raw as $g) {
+            if (! is_array($g)) {
+                continue;
+            }
+            $gSources = is_array($g['sources'] ?? null) ? array_values(array_filter($g['sources'], 'is_array')) : [];
+            if ($gSources === []) {
+                continue;
+            }
+            $gJoins = is_array($g['joins'] ?? null) ? $g['joins'] : [];
+            $firstDatasetId = (int) ($gSources[0]['dataset_id'] ?? 0);
+
+            try {
+                $graph = QueryGraph::fromRequest($gSources, $gJoins, $firstDatasetId);
+            } catch (InvalidQueryGraphException) {
+                continue;
+            }
+
+            $groups[] = [
+                'graph' => $graph,
+                'searchCols' => is_array($g['search_columns'] ?? null) ? array_values($g['search_columns']) : [],
+                'searchAltCols' => is_array($g['search_alt_columns'] ?? null) ? array_values($g['search_alt_columns']) : [],
+            ];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Exécute chaque groupe de recherche additionnel séparément (même moteur
+     * que la source principale — mono ou multi-source), sans jamais les joindre
+     * à la principale. `resolveRows` a besoin du bon `Dataset` (celui de la
+     * primaire du GROUPE, pas celui de l'URL) pour le chemin mono-source, qui
+     * lit directement `$dataset`/`$version` plutôt que le graphe.
+     *
+     * @param  array<int, array{graph: QueryGraph, searchCols: array<string>, searchAltCols: array<string>}>  $groups
+     * @return array<int, QueryResult>
+     */
+    private function resolveUnionGroupRows(array $groups, string $searchQ, int $limit, int $userId): array
+    {
+        $results = [];
+        $prevAltCols = $this->searchAltCols;
+        $prevCalcSpecs = $this->calcSpecs;
+        // Les colonnes calculées / alt de la principale n'ont pas de sens sur un
+        // dataset différent (autre schéma) — désactivées le temps de résoudre les groupes.
+        $this->calcSpecs = [];
+
+        try {
+            foreach ($groups as $group) {
+                $graph = $group['graph'];
+                $ds = Dataset::where('id', $graph->primaryDatasetId())
+                    ->where(fn ($q) => $q->where('user_id', $userId)
+                        ->orWhereHas('dataSource.users', fn ($u) => $u->where('user_id', $userId)))
+                    ->first();
+                if (! $ds) {
+                    continue;
+                }
+                $this->searchAltCols = $group['searchAltCols'];
+                $results[] = $this->resolveRows(
+                    $ds, null, [], $limit, [], $userId, $searchQ, $group['searchCols'],
+                    null, null, 'asc', null, [], [], 0, [], $graph,
+                );
+            }
+        } finally {
+            $this->searchAltCols = $prevAltCols;
+            $this->calcSpecs = $prevCalcSpecs;
+        }
+
+        return $results;
+    }
+
+    /**
+     * Empile (« UNION ALL » applicatif) les résultats des groupes additionnels
+     * sous ceux de la source principale : chaque ligne est taguée `__search_group`
+     * (0 = principale, i>0 = i-ème groupe) pour que le front sache quel
+     * titre/description appliquer. Pas de fusion de schéma : chaque ligne garde
+     * les clés de sa propre source, `column_map` est simplement l'union des deux
+     * (pas de collision possible, les ids de source sont uniques par bloc).
+     *
+     * @param  array<int, QueryResult>  $groupResults
+     */
+    private function mergeUnionResults(QueryResult $primary, array $groupResults, int $limit): QueryResult
+    {
+        if ($groupResults === []) {
+            return $primary;
+        }
+
+        $tag = fn (array $rows, int $group) => array_map(fn ($r) => $r + ['__search_group' => $group], $rows);
+
+        $rows = $tag($primary->rows, 0);
+        $columns = $primary->columns;
+        $columnMap = $primary->columnMap;
+        $total = $primary->total;
+
+        foreach (array_values($groupResults) as $i => $gr) {
+            $rows = array_merge($rows, $tag($gr->rows, $i + 1));
+            $columns = array_values(array_unique(array_merge($columns, $gr->columns)));
+            $columnMap += $gr->columnMap;
+            $total += $gr->total;
+        }
+
+        return new QueryResult($columns, array_slice($rows, 0, $limit), $total, $columnMap);
     }
 
     /**
