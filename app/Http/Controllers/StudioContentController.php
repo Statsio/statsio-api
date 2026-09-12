@@ -35,6 +35,8 @@ class StudioContentController extends Controller
 {
     private const PUBLIC_CACHE_TTL = 300; // 5 minutes
 
+    private const PUBLIC_CACHE_TAG = 'studio-public';
+
     /**
      * Types de blocs réutilisables via `sd-embed` / iframe publique
      * (« Bloc Statsdata »). Miroir de EMBEDDABLE_BLOCK_TYPES côté front.
@@ -217,7 +219,7 @@ class StudioContentController extends Controller
 
         $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($channelId ? ".ch{$channelId}" : '').($subBrand ? ".{$subBrand}" : '').($categories ? '.'.implode(',', $categories) : '');
 
-        $data = Cache::remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories, $subBrand) {
+        $data = Cache::tags(self::PUBLIC_CACHE_TAG)->remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories, $subBrand) {
             $contents = StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
                 ->where('status', 'published')
                 ->when($type, fn ($q) => $q->where('type', $type))
@@ -307,7 +309,7 @@ class StudioContentController extends Controller
         // The published content itself is cached (safe to share across visitors), but "can this
         // viewer edit it" depends on who's asking — it's computed fresh on every request instead
         // of being baked into the cached payload.
-        $content = Cache::remember("studio.public.show.{$slug}", self::PUBLIC_CACHE_TTL, function () use ($slug) {
+        $content = Cache::tags(self::PUBLIC_CACHE_TAG)->remember("studio.public.show.{$slug}", self::PUBLIC_CACHE_TTL, function () use ($slug) {
             return StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
                 ->where('status', 'published')
                 ->where(function ($q) use ($slug) {
@@ -539,9 +541,6 @@ class StudioContentController extends Controller
             ], 403);
         }
 
-        // Purge le cache public de l'ancien slug avant qu'il ne change.
-        $previousSlug = $content->slug;
-
         // Retirer la date de programmation d'un contenu déjà programmé le ramène en brouillon.
         if (array_key_exists('scheduled_publish_at', $data)
             && $data['scheduled_publish_at'] === null
@@ -550,10 +549,6 @@ class StudioContentController extends Controller
         }
 
         $content->update($data);
-
-        if ($previousSlug !== $content->slug) {
-            Cache::forget("studio.public.show.{$previousSlug}");
-        }
 
         if ($thumbnailFile) {
             $content->getMedia('thumbnail')->each(fn ($m) => $content->deleteMedia($m));
@@ -787,10 +782,10 @@ class StudioContentController extends Controller
 
     private function forgetPublicCache(StudioContent $content): void
     {
-        Cache::forget('studio.public.index');
-        Cache::forget("studio.public.index.{$content->type}");
-        Cache::forget("studio.public.show.{$content->slug}");
-        Cache::forget("studio.public.show.{$content->id}");
+        // Le listing public est mis en cache sous des clés combinant type/chaîne/sous-marque/
+        // catégories (voir indexPublic()) : impossible d'énumérer toutes les variantes à la
+        // sauvegarde, donc on les regroupe sous un tag pour tout invalider en un coup.
+        Cache::tags(self::PUBLIC_CACHE_TAG)->flush();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
