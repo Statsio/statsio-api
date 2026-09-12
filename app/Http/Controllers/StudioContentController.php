@@ -219,7 +219,7 @@ class StudioContentController extends Controller
 
         $cacheKey = 'studio.public.index'.($type ? ".{$type}" : '').($channelId ? ".ch{$channelId}" : '').($subBrand ? ".{$subBrand}" : '').($categories ? '.'.implode(',', $categories) : '');
 
-        $data = Cache::tags(self::PUBLIC_CACHE_TAG)->remember($cacheKey, self::PUBLIC_CACHE_TTL, function () use ($type, $channelId, $categories, $subBrand) {
+        $data = $this->rememberPublic($cacheKey, function () use ($type, $channelId, $categories, $subBrand) {
             $contents = StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
                 ->where('status', 'published')
                 ->when($type, fn ($q) => $q->where('type', $type))
@@ -309,7 +309,7 @@ class StudioContentController extends Controller
         // The published content itself is cached (safe to share across visitors), but "can this
         // viewer edit it" depends on who's asking — it's computed fresh on every request instead
         // of being baked into the cached payload.
-        $content = Cache::tags(self::PUBLIC_CACHE_TAG)->remember("studio.public.show.{$slug}", self::PUBLIC_CACHE_TTL, function () use ($slug) {
+        $content = $this->rememberPublic("studio.public.show.{$slug}", function () use ($slug) {
             return StudioContent::with(['user.profile', 'channel.profile', 'publishedVersion'])
                 ->where('status', 'published')
                 ->where(function ($q) use ($slug) {
@@ -785,7 +785,36 @@ class StudioContentController extends Controller
         // Le listing public est mis en cache sous des clés combinant type/chaîne/sous-marque/
         // catégories (voir indexPublic()) : impossible d'énumérer toutes les variantes à la
         // sauvegarde, donc on les regroupe sous un tag pour tout invalider en un coup.
-        Cache::tags(self::PUBLIC_CACHE_TAG)->flush();
+        // Fallback sans tags (ex. CACHE_STORE=database en prod mal configuré) : on oublie
+        // les clés connues pour éviter une 500, au prix d'une invalidation incomplète.
+        if (Cache::supportsTags()) {
+            Cache::tags(self::PUBLIC_CACHE_TAG)->flush();
+
+            return;
+        }
+
+        Cache::forget('studio.public.index');
+        Cache::forget("studio.public.index.{$content->type}");
+        Cache::forget("studio.public.show.{$content->slug}");
+        Cache::forget("studio.public.show.{$content->id}");
+    }
+
+    /**
+     * Cache public taggé quand le store le permet (redis) ; sinon remember simple
+     * pour ne pas 500 si CACHE_STORE=database/array.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function rememberPublic(string $key, callable $callback): mixed
+    {
+        if (Cache::supportsTags()) {
+            return Cache::tags(self::PUBLIC_CACHE_TAG)->remember($key, self::PUBLIC_CACHE_TTL, $callback);
+        }
+
+        return Cache::remember($key, self::PUBLIC_CACHE_TTL, $callback);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
