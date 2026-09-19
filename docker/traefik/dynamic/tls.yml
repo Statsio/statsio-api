@@ -7,20 +7,3 @@ tls:
       defaultCertificate:
         certFile: /certs/cloudflare.crt
         keyFile: /certs/cloudflare.key
-
-http:
-  routers:
-    cgt-ch-givors:
-      rule: "Host(`cgt-ch-givors.publicvm.com`)"
-      entryPoints:
-        - web
-        - websecure
-      service: cgt-ch-givors
-      tls:
-        certResolver: letsencrypt
-
-  services:
-    cgt-ch-givors:
-      loadBalancer:
-        servers:
-          - url: "http://nginx:80"
