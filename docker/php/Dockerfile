@@ -1,4 +1,4 @@
-FROM php:8.3-fpm
+FROM php:8.3.36-fpm
 
 # Dépendances
 RUN apt-get update && apt-get install --no-install-recommends -y \
