@@ -170,7 +170,8 @@ jobs:
             [ -n "${GEMINI_MODEL}" ] && echo "GEMINI_MODEL=${GEMINI_MODEL}" >> .env.staging
             [ -n "${GEMINI_THINKING_LEVEL}" ] && echo "GEMINI_THINKING_LEVEL=${GEMINI_THINKING_LEVEL}" >> .env.staging
 
-            docker compose --env-file .env.staging -f docker-compose.staging.yml up -d --build
+            docker compose --env-file .env.staging -f docker-compose.staging.yml build --pull
+            docker compose --env-file .env.staging -f docker-compose.staging.yml up -d
 
             # Redémarre nginx pour forcer la résolution DNS du nouveau container API
             docker compose -f docker-compose.staging.yml restart nginx

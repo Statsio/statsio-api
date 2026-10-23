@@ -173,7 +173,8 @@ jobs:
             [ -n "${GEMINI_MODEL}" ] && echo "GEMINI_MODEL=${GEMINI_MODEL}" >> .env.prod
             [ -n "${GEMINI_THINKING_LEVEL}" ] && echo "GEMINI_THINKING_LEVEL=${GEMINI_THINKING_LEVEL}" >> .env.prod
 
-            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build
+            docker compose --env-file .env.prod -f docker-compose.prod.yml build --pull
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
 
             # Redémarre nginx pour forcer la résolution DNS du nouveau container API
             docker compose -f docker-compose.prod.yml restart nginx
