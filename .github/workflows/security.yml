@@ -99,7 +99,7 @@ jobs:
 
       - name: Build image for scanning
         continue-on-error: true
-        run: docker build -t statsio-api:ci-scan .
+        run: docker build --pull -t statsio-api:ci-scan .
 
       - name: Trivy image scan
         continue-on-error: true

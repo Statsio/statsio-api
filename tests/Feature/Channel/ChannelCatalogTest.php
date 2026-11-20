@@ -168,4 +168,41 @@ class ChannelCatalogTest extends TestCase
 
         $this->assertSame('Grande', $names->first());
     }
+
+    public function test_items_expose_publication_mix_and_activity_days(): void
+    {
+        $this->travelTo(now()->setTime(12, 0));
+        $channel = $this->channel(['name' => 'Mix']);
+        $this->publish($channel, 'statsdata', now());
+        $this->publish($channel, 'article', now());
+        $this->publish($channel, 'article', now()->subDays(3));
+        $this->publish($channel, 'survey', now()->subDays(45));
+
+        $item = $this->getJson('/api/channels/catalog')->assertOk()->json('data.data.0');
+
+        $this->assertSame(4, $item['publications_count']);
+        $this->assertSame(1, $item['statsdata_count']);
+        $this->assertSame(2, $item['articles_count']);
+        $this->assertSame(1, $item['surveys_count']);
+        // 29 = aujourd'hui, 26 = il y a 3 jours ; la parution d'il y a 45 jours est hors fenêtre
+        $this->assertSame([26, 29], $item['activity_days']);
+        $this->assertNotNull($item['created_at']);
+        $this->assertArrayNotHasKey('_recent', $item);
+    }
+
+    public function test_featured_has_item_shape_and_post_slugs(): void
+    {
+        $channel = $this->channel(['name' => 'Une']);
+        $post = $this->publish($channel, 'statsdata', now());
+
+        $featured = $this->getJson('/api/channels/catalog')->assertOk()->json('data.featured');
+
+        $this->assertSame($channel->id, $featured['id']);
+        $this->assertArrayHasKey('banner_url', $featured);
+        $this->assertArrayHasKey('activity_days', $featured);
+        $this->assertArrayHasKey('followers_count', $featured);
+        $this->assertArrayNotHasKey('_recent', $featured);
+        $this->assertSame($post->slug, $featured['posts'][0]['slug']);
+        $this->assertSame('statsdata', $featured['posts'][0]['type']);
+    }
 }

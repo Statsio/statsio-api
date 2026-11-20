@@ -84,7 +84,7 @@ class AddBlockTool implements StudioAgentTool
                 return ['error' => "loop_ref « {$loopRef} » ne désigne pas un bloc conteneur (loop / if)."];
             }
             // Scripts imbriqués autorisés ; seuls search, param et formulaires sont interdits.
-            $forbidden = ['search', 'param', 'choice', 'checkboxes', 'dropdown', 'scale', 'rating'];
+            $forbidden = ['search', 'param', 'choice', 'checkboxes', 'dropdown', 'scale', 'rating', 'number', 'text-answer'];
             if (in_array($type, $forbidden, true)) {
                 return ['error' => "Un bloc « {$type} » ne peut pas être placé dans un bloc de script."];
             }

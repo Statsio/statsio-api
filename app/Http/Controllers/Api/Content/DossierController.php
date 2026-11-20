@@ -61,14 +61,15 @@ class DossierController extends Controller
     }
 
     /**
-     * Catalogue public paginé de la page /dossiers : recherche, facette catégorie,
-     * tri, dossier à la une et stats agrégées.
+     * Catalogue public paginé de la page /dossiers : recherche, facettes catégorie
+     * et type de contenu, tri, dossier à la une et stats agrégées.
      */
     public function catalog(Request $request, PublicDossierCatalogAction $action): JsonResponse
     {
         $payload = $action->execute([
             'q' => $request->query('q'),
             'category' => $request->query('category'),
+            'has' => $request->query('has'),
             'sort' => $request->query('sort'),
             'sub_brand' => $request->query('sub_brand'),
             'per_page' => $request->query('per_page'),
