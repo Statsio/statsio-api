@@ -162,6 +162,19 @@ class StudioPublishingTest extends TestCase
             ->assertJsonPath('data.title', 'V2');
     }
 
+    public function test_publish_note_is_stored_on_the_version_and_listed(): void
+    {
+        $content = StudioContentFactory::new()->create(['user_id' => $this->user->id]);
+        $this->withToken($this->token)->postJson("/api/studio/content/{$content->slug}/publish", [
+            'published_as' => 'user',
+            'note' => 'Ajout du camembert par département',
+        ])->assertOk();
+
+        $this->withToken($this->token)->getJson("/api/studio/content/{$content->slug}/versions")
+            ->assertOk()
+            ->assertJsonPath('data.0.note', 'Ajout du camembert par département');
+    }
+
     public function test_unpublish_hides_the_public_page_but_keeps_versions(): void
     {
         $content = StudioContentFactory::new()->create(['user_id' => $this->user->id]);

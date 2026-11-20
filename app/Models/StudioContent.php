@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Domain\Content\Enums\SubBrandEnum;
+use App\Domain\Content\Enums\SurveyResultsVisibilityEnum;
 use App\Models\Channel\Channel;
 use App\Models\Content\Dossier;
 use App\Models\Studio\StudioBlockResponse;
@@ -45,6 +46,9 @@ class StudioContent extends Model
         'published_as',
         'channel_id',
         'response_deadline',
+        'opens_at',
+        'one_response_per_account',
+        'results_visibility',
         'published_version_id',
         'published_version',
         'first_published_at',
@@ -63,6 +67,9 @@ class StudioContent extends Model
         'views_count' => 'integer',
         'published_version' => 'integer',
         'response_deadline' => 'datetime',
+        'opens_at' => 'datetime',
+        'one_response_per_account' => 'boolean',
+        'results_visibility' => SurveyResultsVisibilityEnum::class,
         'first_published_at' => 'datetime',
         'last_published_at' => 'datetime',
         'scheduled_publish_at' => 'datetime',
