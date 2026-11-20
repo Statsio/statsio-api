@@ -227,6 +227,63 @@ class DossierTest extends TestCase
             ->assertJsonPath('data.data.0.name', 'Guerre en Ukraine');
     }
 
+    public function test_public_catalog_exposes_composition_recent_contents_and_type_facets(): void
+    {
+        $dossier = DossierFactory::new()->create(['name' => 'Pouvoir d\'achat']);
+        $old = StudioContentFactory::new()->published()->create(['type' => 'statsdata', 'title' => 'Prix du gazole', 'updated_at' => now()->subDays(3)]);
+        $new = StudioContentFactory::new()->published()->create(['type' => 'survey', 'title' => 'Vos courses', 'updated_at' => now()->subHour()]);
+        $draft = StudioContentFactory::new()->create(['type' => 'article', 'title' => 'Brouillon']);
+        $dossier->studioContents()->sync([$old->id, $new->id, $draft->id]);
+        DossierFactory::new()->create(['name' => 'Vide']);
+
+        $res = $this->getJson('/api/dossiers/catalog?sort=count')->assertOk();
+        $item = collect($res->json('data.data'))->push($res->json('data.featured'))->firstWhere('slug', $dossier->slug);
+
+        $this->assertSame(['statsdata' => 1, 'article' => 0, 'survey' => 1], $item['counts']);
+        $this->assertSame(['Vos courses', 'Prix du gazole'], array_column($item['recent'], 'title'));
+        $this->assertSame('survey', $item['recent'][0]['type']);
+        $this->assertSame(['statsdata' => 1, 'article' => 0, 'survey' => 1], $res->json('data.stats.by_type'));
+        $this->assertSame(1, $res->json('data.stats.updated_this_week'));
+        $this->assertSame(
+            ['statsdata' => 1, 'article' => 0, 'survey' => 1],
+            collect($res->json('data.facets.types'))->pluck('count', 'value')->all()
+        );
+    }
+
+    public function test_public_catalog_filters_by_content_type_and_searches_content_titles(): void
+    {
+        $withSurvey = DossierFactory::new()->create(['name' => 'Urgences']);
+        $withArticle = DossierFactory::new()->create(['name' => 'Audiences TV']);
+        $survey = StudioContentFactory::new()->published()->create(['type' => 'survey', 'title' => 'Temps d\'attente aux urgences']);
+        $article = StudioContentFactory::new()->published()->create(['type' => 'article', 'title' => 'Duel historique TF1 M6']);
+        $withSurvey->studioContents()->sync([$survey->id]);
+        $withArticle->studioContents()->sync([$article->id]);
+
+        $this->getJson('/api/dossiers/catalog?has=survey')
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 1)
+            ->assertJsonPath('data.data.0.slug', $withSurvey->slug);
+
+        $this->getJson('/api/dossiers/catalog?q=duel')
+            ->assertOk()
+            ->assertJsonPath('data.meta.total', 1)
+            ->assertJsonPath('data.data.0.slug', $withArticle->slug);
+    }
+
+    public function test_public_catalog_activity_sort_puts_pinned_dossiers_first(): void
+    {
+        $pinned = DossierFactory::new()->create(['name' => 'Présidentielle', 'is_pinned' => true]);
+        $fresh = DossierFactory::new()->create(['name' => 'Feux de forêt']);
+        $content = StudioContentFactory::new()->published()->create(['type' => 'statsdata']);
+        $fresh->studioContents()->sync([$content->id]);
+
+        $this->getJson('/api/dossiers/catalog')
+            ->assertOk()
+            ->assertJsonPath('data.featured.slug', $pinned->slug)
+            ->assertJsonPath('data.featured.is_pinned', true)
+            ->assertJsonPath('data.data.0.slug', $fresh->slug);
+    }
+
     public function test_public_dossier_detail_returns_only_published_contents_and_type_counts(): void
     {
         $dossier = DossierFactory::new()->create(['name' => 'Guerre en Ukraine']);
