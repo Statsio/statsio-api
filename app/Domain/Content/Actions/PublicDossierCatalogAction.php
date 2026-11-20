@@ -6,16 +6,18 @@ use App\Domain\Channel\Actions\ChannelCatalogAction;
 use App\Domain\Content\Enums\SubBrandEnum;
 use App\Models\Content\ContentCategory;
 use App\Models\Content\Dossier;
+use App\Models\StudioContent;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Catalogue public des dossiers éditoriaux (page /dossiers).
- * Le volume de dossiers actifs est faible : on charge l'univers une fois, puis
- * recherche / facettes / tri / pagination en PHP — même approche que
- * {@see ChannelCatalogAction}.
+ * Le volume de dossiers actifs est faible : on charge l'univers une fois (dossiers
+ * + contenus publiés rangés dedans, 2 requêtes), puis recherche / facettes / tri /
+ * pagination en PHP — même approche que {@see ChannelCatalogAction}.
  *
  * Réponse alignée sur les autres catalogues : data / meta / facets / stats / featured.
+ * Chaque dossier porte sa composition par type et ses derniers contenus rangés
+ * (mosaïque + sommaire des cartes « classeur »).
  */
 class PublicDossierCatalogAction
 {
@@ -23,14 +25,21 @@ class PublicDossierCatalogAction
 
     private const MAX_PER_PAGE = 48;
 
+    /** Derniers contenus exposés par dossier (sommaire de la carte à la une). */
+    private const RECENT_LIMIT = 5;
+
+    /** @var list<string> */
+    public const CONTENT_TYPES = ['statsdata', 'article', 'survey'];
+
     /**
-     * @param  array{q?: ?string, category?: ?string, sort?: ?string, sub_brand?: ?string, per_page?: mixed}  $filters
+     * @param  array{q?: ?string, category?: ?string, has?: ?string, sort?: ?string, sub_brand?: ?string, per_page?: mixed}  $filters
      * @return array<string, mixed>
      */
     public function execute(array $filters): array
     {
         $q = $this->normalize(trim((string) ($filters['q'] ?? '')));
         $category = $this->cleanSlug($filters['category'] ?? null);
+        $has = in_array($filters['has'] ?? null, self::CONTENT_TYPES, true) ? $filters['has'] : null;
         $sort = in_array($filters['sort'] ?? null, ['maj', 'count', 'az'], true) ? $filters['sort'] : 'maj';
         $subBrand = SubBrandEnum::sanitize($filters['sub_brand'] ?? null);
         $perPage = max(1, min(self::MAX_PER_PAGE, (int) ($filters['per_page'] ?? self::DEFAULT_PER_PAGE)));
@@ -43,31 +52,35 @@ class PublicDossierCatalogAction
             ->orderBy('name')
             ->get();
 
-        $aggregates = $this->contentAggregates($dossiers->pluck('id')->all());
+        $contents = $this->publishedContents($dossiers->pluck('id')->all());
 
         $items = $dossiers
-            ->map(fn (Dossier $d) => $this->formatItem($d, $aggregates))
+            ->map(fn (Dossier $d) => $this->formatItem($d, $contents->get($d->id, collect())))
             ->values();
 
-        // Facettes catégories : calculées sur l'univers filtré par la recherche seule.
+        // Facettes calculées sur l'univers filtré par la recherche seule (catégories),
+        // puis par recherche + catégorie (types) : chaque facette ignore son propre filtre.
         $searched = $q === ''
             ? $items
-            : $items->filter(fn (array $i) => str_contains($this->normalize(
-                $i['name'].' '.($i['description'] ?? '').' '.implode(' ', $i['_keywords'])
-            ), $q))->values();
+            : $items->filter(fn (array $i) => str_contains($i['_haystack'], $q))->values();
 
-        $facets = ['categories' => $this->categoryFacets($searched, $subBrand)];
+        $inCategory = $category === null
+            ? $searched
+            : $searched->filter(fn (array $i) => in_array($category, $i['_category_slugs'], true))->values();
 
-        $filtered = $searched
-            ->when($category !== null, fn (Collection $c) => $c->filter(
-                fn (array $i) => in_array($category, $i['_category_slugs'], true)
-            ))
-            ->values();
+        $facets = [
+            'categories' => $this->categoryFacets($searched, $subBrand),
+            'types' => $this->typeFacets($inCategory),
+        ];
+
+        $filtered = $has === null
+            ? $inCategory
+            : $inCategory->filter(fn (array $i) => $i['counts'][$has] > 0)->values();
 
         $sorted = $this->sort($filtered, $sort);
         $total = $sorted->count();
 
-        $anyFilter = $q !== '' || $category !== null;
+        $anyFilter = $q !== '' || $category !== null || $has !== null;
         $featured = ! $anyFilter && $sorted->isNotEmpty() ? $this->stripInternal($sorted->first()) : null;
 
         $page = $sorted
@@ -94,36 +107,56 @@ class PublicDossierCatalogAction
     }
 
     /**
-     * Un seul agrégat groupé sur le pivot : nombre de contenus publiés + date de
-     * dernière parution, par dossier.
+     * Contenus publiés rangés dans les dossiers, du plus récent au plus ancien,
+     * groupés par dossier. Titre = version publiée ; vignette = média `thumbnail`.
      *
      * @param  list<int>  $dossierIds
+     * @return Collection<int, Collection<int, StudioContent>>
      */
-    private function contentAggregates(array $dossierIds): Collection
+    private function publishedContents(array $dossierIds): Collection
     {
         if ($dossierIds === []) {
             return collect();
         }
 
-        return DB::table('dossier_studio_content as p')
-            ->join('studio_contents as c', 'c.id', '=', 'p.studio_content_id')
+        return StudioContent::query()
+            ->join('dossier_studio_content as p', 'p.studio_content_id', '=', 'studio_contents.id')
             ->whereIn('p.dossier_id', $dossierIds)
-            ->where('c.status', 'published')
-            ->groupBy('p.dossier_id')
-            ->selectRaw('p.dossier_id')
-            ->selectRaw('COUNT(*) as content_count')
-            ->selectRaw('MAX(c.updated_at) as last_content_at')
+            ->where('studio_contents.status', 'published')
+            ->select([
+                'studio_contents.id',
+                'studio_contents.slug',
+                'studio_contents.type',
+                'studio_contents.title',
+                'studio_contents.updated_at',
+                'studio_contents.published_version_id',
+                'p.dossier_id',
+            ])
+            ->with(['publishedVersion:id,title', 'media'])
+            ->orderByDesc('studio_contents.updated_at')
+            ->orderByDesc('studio_contents.id')
             ->get()
-            ->keyBy('dossier_id');
+            ->groupBy('dossier_id');
     }
 
     /**
+     * @param  Collection<int, StudioContent>  $contents  publiés, du plus récent au plus ancien
      * @return array<string, mixed>
      */
-    private function formatItem(Dossier $dossier, Collection $aggregates): array
+    private function formatItem(Dossier $dossier, Collection $contents): array
     {
-        $agg = $aggregates->get($dossier->id);
         $primaryCategory = $dossier->contentCategories->first();
+
+        $counts = array_fill_keys(self::CONTENT_TYPES, 0);
+        $titles = [];
+        foreach ($contents as $content) {
+            $type = $this->contentType($content);
+            $counts[$type]++;
+            $titles[] = $this->contentTitle($content);
+        }
+
+        $keywords = array_values(array_filter((array) ($dossier->keywords ?? []), 'is_string'));
+        $lastContentAt = $contents->first()?->updated_at?->toIso8601String();
 
         return [
             'id' => $dossier->id,
@@ -132,14 +165,45 @@ class PublicDossierCatalogAction
             'description' => $dossier->description,
             'image_url' => $dossier->image_url,
             'icon' => $dossier->icon,
+            'is_pinned' => (bool) $dossier->is_pinned,
+            'sub_brand' => $dossier->sub_brand?->value ?? SubBrandEnum::All->value,
             'category' => $primaryCategory
                 ? ['slug' => $primaryCategory->slug, 'label' => $primaryCategory->name]
                 : null,
-            'content_count' => (int) ($agg?->content_count ?? 0),
-            'updated_at' => $agg?->last_content_at ? (string) $agg->last_content_at : null,
+            'content_count' => $contents->count(),
+            'counts' => $counts,
+            'recent' => $contents
+                ->take(self::RECENT_LIMIT)
+                ->map(fn (StudioContent $c) => [
+                    'id' => (string) $c->id,
+                    'slug' => $c->slug,
+                    'type' => $this->contentType($c),
+                    'title' => $this->contentTitle($c),
+                    'thumbnail_url' => $c->getFirstMediaUrl('thumbnail') ?: null,
+                    'updated_at' => $c->updated_at?->toIso8601String(),
+                ])
+                ->values()
+                ->all(),
+            'updated_at' => $lastContentAt,
             '_category_slugs' => $dossier->contentCategories->pluck('slug')->all(),
-            '_keywords' => array_values(array_filter((array) ($dossier->keywords ?? []), 'is_string')),
+            // Recherche : nom, description, mots-clés et titres des contenus rangés.
+            '_haystack' => $this->normalize(implode(' ', [
+                $dossier->name,
+                $dossier->description ?? '',
+                ...$keywords,
+                ...$titles,
+            ])),
         ];
+    }
+
+    private function contentType(StudioContent $content): string
+    {
+        return in_array($content->type, self::CONTENT_TYPES, true) ? $content->type : 'statsdata';
+    }
+
+    private function contentTitle(StudioContent $content): string
+    {
+        return (string) ($content->publishedVersion?->title ?? $content->title);
     }
 
     /**
@@ -180,6 +244,25 @@ class PublicDossierCatalogAction
     }
 
     /**
+     * Nombre de dossiers contenant au moins un contenu de chaque type.
+     *
+     * @param  Collection<int, array<string, mixed>>  $items
+     * @return list<array{value: string, count: int}>
+     */
+    private function typeFacets(Collection $items): array
+    {
+        return array_map(
+            fn (string $type) => [
+                'value' => $type,
+                'count' => $items->filter(fn (array $i) => $i['counts'][$type] > 0)->count(),
+            ],
+            self::CONTENT_TYPES,
+        );
+    }
+
+    /**
+     * `maj` (activité) : épinglés d'abord, puis dernier contenu rangé.
+     *
      * @param  Collection<int, array<string, mixed>>  $items
      * @return Collection<int, array<string, mixed>>
      */
@@ -188,26 +271,45 @@ class PublicDossierCatalogAction
         return match ($sort) {
             'count' => $items->sortByDesc('content_count')->values(),
             'az' => $items->sortBy(fn (array $i) => $this->normalize($i['name']))->values(),
-            default => $items->sortByDesc(fn (array $i) => $i['updated_at'] ?? '')->values(),
+            default => $items->sortBy([
+                fn (array $a, array $b) => $b['is_pinned'] <=> $a['is_pinned'],
+                fn (array $a, array $b) => ($b['updated_at'] ?? '') <=> ($a['updated_at'] ?? ''),
+            ])->values(),
         };
     }
 
     /**
+     * Les contenus sont comptés par rangement : un contenu présent dans deux
+     * dossiers compte deux fois (le hero le précise).
+     *
      * @param  Collection<int, array<string, mixed>>  $items
-     * @return array{dossiers: int, contents: int, categories: int, last_updated_at: ?string}
+     * @return array{dossiers: int, contents: int, categories: int, by_type: array<string, int>, updated_this_week: int, last_updated_at: ?string}
      */
     private function heroStats(Collection $items): array
     {
         $categories = [];
+        $byType = array_fill_keys(self::CONTENT_TYPES, 0);
         $lastUpdated = null;
         $contents = 0;
+        $weekAgo = now()->subWeek()->toIso8601String();
+        $updatedThisWeek = 0;
+
         foreach ($items as $item) {
             $contents += $item['content_count'];
+            foreach (self::CONTENT_TYPES as $type) {
+                $byType[$type] += $item['counts'][$type];
+            }
             foreach ($item['_category_slugs'] as $slug) {
                 $categories[$slug] = true;
             }
-            if ($item['updated_at'] !== null && ($lastUpdated === null || $item['updated_at'] > $lastUpdated)) {
-                $lastUpdated = $item['updated_at'];
+            $updatedAt = $item['updated_at'];
+            if ($updatedAt !== null) {
+                if ($updatedAt >= $weekAgo) {
+                    $updatedThisWeek++;
+                }
+                if ($lastUpdated === null || $updatedAt > $lastUpdated) {
+                    $lastUpdated = $updatedAt;
+                }
             }
         }
 
@@ -215,6 +317,8 @@ class PublicDossierCatalogAction
             'dossiers' => $items->count(),
             'contents' => $contents,
             'categories' => count($categories),
+            'by_type' => $byType,
+            'updated_this_week' => $updatedThisWeek,
             'last_updated_at' => $lastUpdated,
         ];
     }
@@ -225,7 +329,7 @@ class PublicDossierCatalogAction
      */
     private function stripInternal(array $item): array
     {
-        unset($item['_category_slugs'], $item['_keywords']);
+        unset($item['_category_slugs'], $item['_haystack']);
 
         return $item;
     }

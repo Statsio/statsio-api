@@ -23,7 +23,7 @@ class StudioBlockCatalogTest extends TestCase
             'heading', 'paragraph', 'quote', 'callout',
             'search', 'param',
             'image', 'video', 'button', 'link-card', 'retenir', 'map', 'field-grid',
-            'choice', 'checkboxes', 'dropdown', 'scale', 'rating',
+            'choice', 'checkboxes', 'dropdown', 'scale', 'rating', 'number', 'text-answer',
             'loop', 'if',
             'sd-embed',
         ];
@@ -49,7 +49,7 @@ class StudioBlockCatalogTest extends TestCase
 
     public function test_form_blocks_are_survey_only(): void
     {
-        foreach (['choice', 'checkboxes', 'dropdown', 'scale', 'rating'] as $type) {
+        foreach (['choice', 'checkboxes', 'dropdown', 'scale', 'rating', 'number', 'text-answer'] as $type) {
             $this->assertTrue($this->catalog->isAllowed($type, 'survey'), $type);
             $this->assertFalse($this->catalog->isAllowed($type, 'statsdata'), $type);
             $this->assertFalse($this->catalog->isAllowed($type, 'article'), $type);

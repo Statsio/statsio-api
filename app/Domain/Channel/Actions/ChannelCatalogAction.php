@@ -61,8 +61,10 @@ class ChannelCatalogAction
             ->when($followed, fn ($query) => $query->whereHas('subscribers', fn ($s) => $s->where('users.id', $userId)))
             ->get();
 
-        $aggregates = $this->publicationAggregates($universe->pluck('id')->all());
-        $items = $universe->map(fn (Channel $channel) => $this->formatItem($channel, $aggregates))->values();
+        $channelIds = $universe->pluck('id')->all();
+        $aggregates = $this->publicationAggregates($channelIds);
+        $activity = $this->activityDays($channelIds);
+        $items = $universe->map(fn (Channel $channel) => $this->formatItem($channel, $aggregates, $activity))->values();
 
         $facets = [
             'kinds' => $this->facet($items, 'kind', $this->matcher($category, $pace, null), fn ($i) => [$i['kind']]),
@@ -93,7 +95,7 @@ class ChannelCatalogAction
             ],
             'facets' => $facets,
             'stats' => $this->heroStats($subBrand),
-            'featured' => $anyFilter ? null : $this->featured($universe, $aggregates),
+            'featured' => $anyFilter ? null : $this->featured($universe, $aggregates, $activity),
         ];
     }
 
@@ -119,8 +121,8 @@ class ChannelCatalogAction
     }
 
     /**
-     * Un seul agrégat groupé sur studio_contents : compte des publications,
-     * des statsdata, des publications récentes et date de dernière parution.
+     * Un seul agrégat groupé sur studio_contents : compte des publications (au
+     * total et par type), des publications récentes et date de dernière parution.
      *
      * @param  list<int>  $channelIds
      */
@@ -139,6 +141,8 @@ class ChannelCatalogAction
             ->selectRaw('channel_id')
             ->selectRaw('COUNT(*) as publications_count')
             ->selectRaw("SUM(CASE WHEN type = 'statsdata' THEN 1 ELSE 0 END) as statsdata_count")
+            ->selectRaw("SUM(CASE WHEN type = 'article' THEN 1 ELSE 0 END) as articles_count")
+            ->selectRaw("SUM(CASE WHEN type = 'survey' THEN 1 ELSE 0 END) as surveys_count")
             ->selectRaw('SUM(CASE WHEN updated_at >= ? THEN 1 ELSE 0 END) as recent_count', [$since])
             ->selectRaw('MAX(updated_at) as last_published_at')
             ->groupBy('channel_id')
@@ -146,7 +150,49 @@ class ChannelCatalogAction
             ->keyBy('channel_id');
     }
 
-    private function formatItem(Channel $channel, Collection $aggregates): array
+    /**
+     * Jours de parution sur la fenêtre récente, par chaîne : décalages 0..29
+     * (0 = il y a 29 jours, 29 = aujourd'hui), pour la frise d'activité des cartes.
+     * Une seule requête pour toute la page.
+     *
+     * @param  list<int>  $channelIds
+     * @return array<int, list<int>>
+     */
+    private function activityDays(array $channelIds): array
+    {
+        if (empty($channelIds)) {
+            return [];
+        }
+
+        $today = now()->startOfDay();
+        $since = $today->copy()->subDays(self::RECENT_WINDOW_DAYS - 1);
+
+        $days = [];
+        StudioContent::query()
+            ->whereIn('channel_id', $channelIds)
+            ->where('published_as', 'channel')
+            ->where('status', 'published')
+            ->where('updated_at', '>=', $since)
+            ->get(['channel_id', 'updated_at'])
+            ->each(function (StudioContent $content) use (&$days, $since) {
+                $offset = (int) $since->diffInDays($content->updated_at->copy()->startOfDay());
+                if ($offset >= 0 && $offset < self::RECENT_WINDOW_DAYS) {
+                    $days[$content->channel_id][$offset] = true;
+                }
+            });
+
+        return array_map(function (array $set) {
+            $offsets = array_keys($set);
+            sort($offsets);
+
+            return $offsets;
+        }, $days);
+    }
+
+    /**
+     * @param  array<int, list<int>>  $activity
+     */
+    private function formatItem(Channel $channel, Collection $aggregates, array $activity = []): array
     {
         $profile = $channel->profile;
         $agg = $aggregates->get($channel->id);
@@ -168,8 +214,12 @@ class ChannelCatalogAction
             'followers_count' => (int) ($channel->subscribers_count ?? 0),
             'publications_count' => $publications,
             'statsdata_count' => $statsdata,
+            'articles_count' => (int) ($agg->articles_count ?? 0),
+            'surveys_count' => (int) ($agg->surveys_count ?? 0),
+            'activity_days' => $activity[$channel->id] ?? [],
             'view_count' => (int) ($profile->view_count ?? 0),
             'last_published_at' => $lastPublishedAt ? (string) $lastPublishedAt : null,
+            'created_at' => $channel->created_at?->toIso8601String(),
             'pace' => $this->pace($recent),
             'is_following' => (bool) ($channel->is_following ?? false),
             'logo_url' => $profile->logo_url,
@@ -276,7 +326,10 @@ class ChannelCatalogAction
         };
     }
 
-    private function featured(Collection $universe, Collection $aggregates): ?array
+    /**
+     * @param  array<int, list<int>>  $activity
+     */
+    private function featured(Collection $universe, Collection $aggregates, array $activity): ?array
     {
         if ($universe->isEmpty()) {
             return null;
@@ -289,7 +342,7 @@ class ChannelCatalogAction
                 return (int) ($c->subscribers_count ?? 0) + (int) ($agg->recent_count ?? 0) * self::TREND_RECENCY_WEIGHT;
             })->first();
 
-        $item = $this->formatItem($channel, $aggregates);
+        $item = collect($this->formatItem($channel, $aggregates, $activity))->except('_recent')->all();
 
         $posts = StudioContent::query()
             ->with('publishedVersion')
@@ -301,24 +354,16 @@ class ChannelCatalogAction
             ->get()
             ->map(fn (StudioContent $c) => [
                 'title' => $c->publishedVersion?->title ?? $c->title,
+                'slug' => $c->slug,
                 'type' => $c->type,
                 'updated_at' => $c->updated_at?->toIso8601String(),
             ])
             ->all();
 
+        // Même forme qu'un élément du catalogue, enrichie (initiales, stats, parutions).
         return [
-            'id' => $item['id'],
-            'name' => $item['name'],
-            'handle' => $item['handle'],
+            ...$item,
             'initials' => $this->initials($item['name']),
-            'verified' => $item['verified'],
-            'description' => $item['description'],
-            'kind' => $item['kind'],
-            'pace' => $item['pace'],
-            'logo_url' => $item['logo_url'],
-            'custom_color_primary' => $item['custom_color_primary'],
-            'custom_color_secondary' => $item['custom_color_secondary'],
-            'is_following' => $item['is_following'],
             'stats' => [
                 ['label' => 'Abonnés', 'value' => $item['followers_count']],
                 ['label' => 'Publications', 'value' => $item['publications_count']],

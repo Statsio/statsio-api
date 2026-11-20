@@ -17,7 +17,7 @@ class StudioContentBlocks
     public const CHART_TYPES = ['bar', 'line', 'pie', 'map'];
 
     /** @var list<string> */
-    public const FORM_TYPES = ['choice', 'checkboxes', 'dropdown', 'scale', 'rating'];
+    public const FORM_TYPES = ['choice', 'checkboxes', 'dropdown', 'scale', 'rating', 'number', 'text-answer'];
 
     /**
      * @return list<array<string, mixed>>

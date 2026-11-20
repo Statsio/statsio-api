@@ -12,6 +12,7 @@ use App\Domain\Content\Enums\ContentCoverageEnum;
 use App\Domain\Content\Enums\StudioContentAccessLevelEnum;
 use App\Domain\Content\Enums\SubBrandEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
+use App\Domain\Content\Enums\SurveyResultsVisibilityEnum;
 use App\Domain\Content\Exceptions\PremiumFeatureRequiredException;
 use App\Domain\Content\Support\ContentDatasetSources;
 use App\Domain\Content\Support\PremiumBlockGate;
@@ -27,9 +28,11 @@ use App\Models\StudioContent;
 use App\Models\User\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class StudioContentController extends Controller
 {
@@ -109,6 +112,9 @@ class StudioContentController extends Controller
             'coverage' => ['nullable', Rule::enum(ContentCoverageEnum::class)],
             'sub_brand' => ['sometimes', Rule::in(SubBrandEnum::contentValues())],
             'response_deadline' => 'nullable|date',
+            'opens_at' => 'nullable|date',
+            'one_response_per_account' => 'nullable|boolean',
+            'results_visibility' => ['nullable', Rule::enum(SurveyResultsVisibilityEnum::class)],
         ]);
 
         $type = $data['type'] ?? 'statsdata';
@@ -154,6 +160,11 @@ class StudioContentController extends Controller
             'coverage' => $data['coverage'] ?? null,
             'sub_brand' => $data['sub_brand'] ?? 'statsio',
             'response_deadline' => $data['response_deadline'] ?? null,
+            'opens_at' => $isSurvey ? ($data['opens_at'] ?? null) : null,
+            'one_response_per_account' => $isSurvey ? (bool) ($data['one_response_per_account'] ?? true) : true,
+            'results_visibility' => $isSurvey
+                ? ($data['results_visibility'] ?? SurveyResultsVisibilityEnum::AfterSubmit->value)
+                : SurveyResultsVisibilityEnum::AfterSubmit->value,
         ]);
 
         return response()->json([
@@ -487,6 +498,9 @@ class StudioContentController extends Controller
             'published_as' => 'sometimes|nullable|string|in:user,channel',
             'channel_id' => 'sometimes|nullable|integer|exists:channels,id',
             'response_deadline' => 'sometimes|nullable|date',
+            'opens_at' => 'sometimes|nullable|date',
+            'one_response_per_account' => 'sometimes|boolean',
+            'results_visibility' => ['sometimes', Rule::enum(SurveyResultsVisibilityEnum::class)],
             'scheduled_publish_at' => 'sometimes|nullable|date',
             'comments_enabled' => 'sometimes|boolean',
             'download_enabled' => 'sometimes|boolean',
@@ -497,6 +511,17 @@ class StudioContentController extends Controller
         ]);
 
         $this->assertUpdatePermissions($request->user(), $content, $data, $request);
+
+        // Fenêtre de réponse d'un sondage : la clôture doit suivre l'ouverture.
+        if (array_key_exists('opens_at', $data) || array_key_exists('response_deadline', $data)) {
+            $opensAt = array_key_exists('opens_at', $data) ? $data['opens_at'] : $content->opens_at;
+            $closesAt = array_key_exists('response_deadline', $data) ? $data['response_deadline'] : $content->response_deadline;
+            if ($opensAt && $closesAt && Carbon::parse($closesAt)->lte(Carbon::parse($opensAt))) {
+                throw ValidationException::withMessages([
+                    'response_deadline' => __('La date de clôture doit suivre la date d’ouverture.'),
+                ]);
+            }
+        }
 
         $thumbnailFile = $request->file('thumbnail');
         $thumbnailMediaId = $request->filled('thumbnail_media_id') ? (int) $request->input('thumbnail_media_id') : null;
@@ -610,6 +635,8 @@ class StudioContentController extends Controller
             'dossier_ids.*' => 'integer|exists:dossiers,id',
             /** Force la mise en ligne immédiate même si une date future est enregistrée. */
             'immediate' => 'sometimes|boolean',
+            /** Note de version (modale « Publier »), affichée dans l'historique. */
+            'note' => 'sometimes|nullable|string|max:500',
         ]);
 
         $content = $action->execute(
@@ -623,6 +650,11 @@ class StudioContentController extends Controller
         // Placement dans les dossiers éditoriaux (facultatif, non versionné).
         if ($request->has('dossier_ids')) {
             $content->dossiers()->sync($data['dossier_ids'] ?? []);
+        }
+
+        $note = trim((string) ($data['note'] ?? ''));
+        if ($note !== '' && $content->published_version) {
+            $content->versions()->where('version', $content->published_version)->update(['note' => $note]);
         }
 
         $this->forgetPublicCache($content);
@@ -669,6 +701,7 @@ class StudioContentController extends Controller
             ->map(fn (StudioContentVersion $v) => [
                 'version' => $v->version,
                 'title' => $v->title,
+                'note' => $v->note,
                 'created_at' => $v->created_at?->toIso8601String(),
                 'published_as' => $v->published_as,
                 'author_name' => $v->published_as === 'channel'
@@ -979,6 +1012,9 @@ class StudioContentController extends Controller
             'download_enabled',
             'embed_enabled',
             'response_deadline',
+            'opens_at',
+            'one_response_per_account',
+            'results_visibility',
         ];
         $contenuKeys = [
             'title',
@@ -1102,6 +1138,9 @@ class StudioContentController extends Controller
             'coverage' => $content->coverage,
             'sub_brand' => $content->sub_brand?->value ?? 'statsio',
             'response_deadline' => $content->response_deadline?->toIso8601String(),
+            'opens_at' => $content->opens_at?->toIso8601String(),
+            'one_response_per_account' => (bool) ($content->one_response_per_account ?? true),
+            'results_visibility' => $content->results_visibility?->value ?? SurveyResultsVisibilityEnum::AfterSubmit->value,
             'scheduled_publish_at' => $content->scheduled_publish_at?->toIso8601String(),
             'comments_enabled' => (bool) ($content->comments_enabled ?? true),
             'download_enabled' => (bool) ($content->download_enabled ?? true),

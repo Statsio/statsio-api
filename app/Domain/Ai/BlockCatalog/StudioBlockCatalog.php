@@ -281,6 +281,8 @@ class StudioBlockCatalog
             'dropdown' => $this->form('Liste déroulante', 'Sélection d\'une option dans une liste.', ['formOptions', 'formRequired']),
             'scale' => $this->form('Échelle linéaire', 'Note sur une échelle numérique.', ['scaleMin', 'scaleMax', 'scaleMinLabel', 'scaleMaxLabel', 'formRequired']),
             'rating' => $this->form('Avis', 'Notation en étoiles.', ['ratingMax', 'formRequired']),
+            'number' => $this->form('Nombre', 'Réponse chiffrée (unité, minimum, maximum facultatifs).', ['formUnit', 'formMin', 'formMax', 'formRequired']),
+            'text-answer' => $this->form('Réponse libre', 'Texte court ou long ; seules les statistiques de volume sont publiées.', ['formLongAnswer', 'formRequired']),
 
             // ─── Script (logique) ──────────────────────────────────────────
             'loop' => [
