@@ -20,6 +20,7 @@ class StudioContentVersion extends Model
         'studio_content_id',
         'version',
         'title',
+        'note',
         'description',
         'coverage',
         'sub_brand',

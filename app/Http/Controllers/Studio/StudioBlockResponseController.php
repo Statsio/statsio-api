@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Studio;
 
+use App\Domain\Content\Enums\SurveyResultsVisibilityEnum;
 use App\Http\Controllers\Controller;
 use App\Models\Studio\StudioBlockResponse;
 use App\Models\StudioContent;
@@ -13,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 
 class StudioBlockResponseController extends Controller
 {
-    private const FORM_TYPES = ['choice', 'checkboxes', 'dropdown', 'scale', 'rating'];
+    private const FORM_TYPES = ['choice', 'checkboxes', 'dropdown', 'scale', 'rating', 'number', 'text-answer'];
 
     public function show(Request $request, string $slug, string $blockId): JsonResponse
     {
@@ -30,7 +31,8 @@ class StudioBlockResponseController extends Controller
             'data' => [
                 'answered' => $mine !== null,
                 'my_answer' => $mine?->answer['value'] ?? null,
-                'aggregate' => $this->aggregateWithDemographics($request, $content, $blockId, $block['type']),
+                'can_change' => $this->canChangeAnswer($content),
+                ...$this->resultsPayload($request, $content, $blockId, $block['type'], $mine !== null),
             ],
         ]);
     }
@@ -46,10 +48,31 @@ class StudioBlockResponseController extends Controller
             throw ValidationException::withMessages(['block_id' => ["Ce sondage n'accepte plus de réponses."]]);
         }
 
+        if ($content->opens_at && now()->lessThan($content->opens_at)) {
+            throw ValidationException::withMessages(['block_id' => ["Ce sondage n'est pas encore ouvert."]]);
+        }
+
         $data = $request->validate([
             'respondent_token' => ['required', 'string', 'max:100'],
             'value' => ['required'],
         ]);
+
+        // « Une réponse par compte » : une réponse envoyée n'est plus modifiable
+        // (même jeton de répondant, ou même compte connecté sur un autre appareil).
+        if ($content->type === 'survey' && ($content->one_response_per_account ?? true)) {
+            $userId = $request->user('sanctum')?->id;
+            $already = StudioBlockResponse::where('block_id', $blockId)
+                ->where(function ($q) use ($data, $userId) {
+                    $q->where('respondent_token', $data['respondent_token']);
+                    if ($userId) {
+                        $q->orWhere('user_id', $userId);
+                    }
+                })
+                ->exists();
+            if ($already) {
+                throw ValidationException::withMessages(['block_id' => ['Vous avez déjà répondu à cette question.']]);
+            }
+        }
 
         $value = $this->normalizeValue($block['type'], $data['value']);
 
@@ -67,12 +90,58 @@ class StudioBlockResponseController extends Controller
             'data' => [
                 'answered' => true,
                 'my_answer' => $response->answer['value'],
-                'aggregate' => $this->aggregateWithDemographics($request, $content, $blockId, $block['type']),
+                'can_change' => $this->canChangeAnswer($content),
+                ...$this->resultsPayload($request, $content, $blockId, $block['type'], true),
             ],
         ]);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Agrégat (ou son masquage) selon `results_visibility` du sondage :
+     * - `after_submit` : visible une fois que le visiteur a répondu ;
+     * - `at_close` : visible une fois la clôture passée ;
+     * - `never` : jamais public.
+     * Le propriétaire du contenu voit toujours les résultats. Hors sondage (formulaire
+     * embarqué dans un article / statsdata), comportement inchangé.
+     *
+     * @return array{aggregate: array|null, results_hidden: bool, results_hidden_reason?: string}
+     */
+    private function resultsPayload(Request $request, StudioContent $content, string $blockId, string $type, bool $answered): array
+    {
+        $reason = $this->hiddenResultsReason($request, $content, $answered);
+        if ($reason !== null) {
+            return ['aggregate' => null, 'results_hidden' => true, 'results_hidden_reason' => $reason];
+        }
+
+        return ['aggregate' => $this->aggregateWithDemographics($request, $content, $blockId, $type), 'results_hidden' => false];
+    }
+
+    /** Une réponse envoyée reste modifiable, sauf sondage « une réponse par compte ». */
+    private function canChangeAnswer(StudioContent $content): bool
+    {
+        return ! ($content->type === 'survey' && ($content->one_response_per_account ?? true));
+    }
+
+    private function hiddenResultsReason(Request $request, StudioContent $content, bool $answered): ?string
+    {
+        if ($content->type !== 'survey') {
+            return null;
+        }
+        $viewerId = $request->user('sanctum')?->id;
+        if ($viewerId !== null && $viewerId === $content->user_id) {
+            return null;
+        }
+
+        return match ($content->results_visibility ?? SurveyResultsVisibilityEnum::AfterSubmit) {
+            SurveyResultsVisibilityEnum::AfterSubmit => $answered ? null : 'after_submit',
+            SurveyResultsVisibilityEnum::AtClose => ($content->response_deadline && now()->greaterThanOrEqualTo($content->response_deadline))
+                ? null
+                : 'at_close',
+            SurveyResultsVisibilityEnum::Never => 'never',
+        };
+    }
 
     /**
      * Règles d'accès à la réponse :
@@ -208,6 +277,12 @@ class StudioBlockResponseController extends Controller
             'scale', 'rating' => is_numeric($value)
                 ? (float) $value
                 : throw ValidationException::withMessages(['value' => ['Valeur invalide.']]),
+            'number' => is_numeric($value) && is_finite((float) $value)
+                ? (float) $value
+                : throw ValidationException::withMessages(['value' => ['Saisissez un nombre.']]),
+            'text-answer' => is_string($value) && trim($value) !== '' && mb_strlen($value) <= 2000
+                ? trim($value)
+                : throw ValidationException::withMessages(['value' => ['Réponse vide ou trop longue (2 000 caractères au plus).']]),
             default => throw ValidationException::withMessages(['value' => ['Type de bloc non supporté.']]),
         };
     }
@@ -230,6 +305,28 @@ class StudioBlockResponseController extends Controller
 
         if ($type === 'checkboxes') {
             return $this->optionsAggregate($content, $blockId, $answers->flatten(), $total);
+        }
+
+        // Réponse libre : jamais de réponse individuelle publiée, seulement le volume.
+        if ($type === 'text-answer') {
+            return ['total_responses' => $total];
+        }
+
+        if ($type === 'number') {
+            $sorted = $answers->map(fn ($v) => (float) $v)->sort()->values();
+            $median = null;
+            if ($total > 0) {
+                $mid = intdiv($total, 2);
+                $median = $total % 2 ? $sorted[$mid] : ($sorted[$mid - 1] + $sorted[$mid]) / 2;
+            }
+
+            return [
+                'total_responses' => $total,
+                'average' => $total > 0 ? round($sorted->avg(), 2) : 0,
+                'median' => $median !== null ? round($median, 2) : null,
+                'min' => $total > 0 ? $sorted->first() : null,
+                'max' => $total > 0 ? $sorted->last() : null,
+            ];
         }
 
         // scale / rating

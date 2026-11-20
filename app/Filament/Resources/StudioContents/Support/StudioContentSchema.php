@@ -5,6 +5,7 @@ namespace App\Filament\Resources\StudioContents\Support;
 use App\Domain\Content\Enums\ContentCoverageEnum;
 use App\Domain\Content\Enums\SubBrandEnum;
 use App\Domain\Content\Enums\SurveyKindEnum;
+use App\Domain\Content\Enums\SurveyResultsVisibilityEnum;
 use App\Models\Channel\Channel;
 use App\Models\Content\ContentCategory;
 use Filament\Forms\Components\Component;
@@ -127,8 +128,21 @@ class StudioContentSchema
                 ->default(SurveyKindEnum::SingleQuestion->value)
                 ->live()
                 ->required(),
+            DateTimePicker::make('opens_at')
+                ->label('Ouverture des réponses'),
             DateTimePicker::make('response_deadline')
-                ->label('Date limite de réponse'),
+                ->label('Date limite de réponse')
+                ->after('opens_at'),
+            Toggle::make('one_response_per_account')
+                ->label('Une réponse (non modifiable) par compte')
+                ->default(true),
+            Select::make('results_visibility')
+                ->label('Résultats visibles')
+                ->options(collect(SurveyResultsVisibilityEnum::cases())
+                    ->mapWithKeys(fn (SurveyResultsVisibilityEnum $c): array => [$c->value => $c->label()])
+                    ->all())
+                ->default(SurveyResultsVisibilityEnum::AfterSubmit->value)
+                ->required(),
             Toggle::make('requires_identity_verification')
                 ->label('Vérification d\'identité requise'),
             TextInput::make('petition_goal')
