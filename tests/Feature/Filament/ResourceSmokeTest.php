@@ -18,6 +18,7 @@ use Database\Factories\TvBroadcastFactory;
 use Database\Factories\TvChannelFactory;
 use Database\Factories\TvProgramFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class ResourceSmokeTest extends TestCase
@@ -47,9 +48,7 @@ class ResourceSmokeTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider resourceProvider
-     */
+    #[DataProvider('resourceProvider')]
     public function test_resource_index_page_loads(string $resource): void
     {
         $this->actingAs($this->admin())
