@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Api\Content;
 
+use App\Domain\Content\Enums\SubBrandEnum;
+
 use App\Domain\Content\Actions\PublicDossierCatalogAction;
 use App\Domain\Content\Support\StudioContentListing;
 use App\Http\Controllers\Controller;
@@ -133,6 +135,7 @@ class DossierController extends Controller
                     'description' => $dossier->description,
                     'image_url' => $dossier->image_url,
                     'icon' => $dossier->icon,
+                    'sub_brand' => $dossier->sub_brand?->value ?? SubBrandEnum::All->value,
                     'category' => $primaryCategory
                         ? ['slug' => $primaryCategory->slug, 'label' => $primaryCategory->name]
                         : null,
